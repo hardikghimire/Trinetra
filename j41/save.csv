@@ -1,0 +1,19 @@
+Port,Protocol,Service,Status
+443,tcp,https,open
+,,,closed (count: 0)
+
+,,,
+Raw Session Output,,,
+"
+Starting [1mShiv[0m ([93mSYN[0m) at Tue Jul 14 17:14:34 2026
+[1mShiv scan report for [96mack.nmap.org[0m[1m (50.116.1.184)[0m
+
+[1mPORT      STATE     SERVICE[0m
+[93m443[0m/tcp   [92mopen[0m      https 🌐🔒
+
+Packets sent   : 1
+Duration       : 286ms
+CPU Time       : 4ms
+RTT            : 0.257s
+
+",,,

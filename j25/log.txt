@@ -1,0 +1,2933 @@
+shiv -sS -Pn 192.168.1.254 -sV --verbose      
+
+Starting Shiv (SYN) at Sun Jul 12 18:14:21 2026
+Shiv scan report for 192.168.1.254
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+23/tcp    open      telnet ⌨️
+80/tcp    open      http 🌐
+443/tcp   open      https 🌐🔒
+8099/tcp  open      unknown
+
+Packets sent   : 1001
+MAC Address    : 14:58:08:35:e7:c0 (Taicang T&W Electronics)
+Not shown      : 996 closed tcp ports (reset)
+Duration       : 307ms
+CPU Time       : 161ms
+RTT            : 0.054s
+
+PORT    VERSION
+[Host] LAN IP 192.168.1.254: skipping reverse-DNS, using IP directly in Host: header
+
++==============================================================+
+|  Target  :                                                 |
+|  Host    : 192.168.1.254                                   |
+|  Host Hdr: 192.168.1.254                                   |
+|  IP      : 192.168.1.254                                   |
+|  Port    : 22                                              |
+|  Scheme  : auto-detect                                     |
+|  Path    :                                                 |
++==============================================================+
+
+[TLS] SNI        : 192.168.1.254
+[TLS] CA file    : (system default)
+[TLS] Verify peer: no (info-only)
+[*] Timeouts: connect=0s  read=3s  idle=2s
+[Host] LAN IP 192.168.1.254: skipping reverse-DNS, using IP directly in Host: header
+
++==============================================================+
+|  Target  :                                                 |
+|  Host    : 192.168.1.254                                   |
+|  Host Hdr: 192.168.1.254                                   |
+|  IP      : 192.168.1.254                                   |
+|  Port    : 23                                              |
+|  Scheme  : auto-detect                                     |
+|  Path    :                                                 |
++==============================================================+
+
+[TLS] SNI        : 192.168.1.254
+[TLS] CA file    : (system default)
+[TLS] Verify peer: no (info-only)
+[*] Timeouts: connect=0s  read=3s  idle=2s
+[Host] LAN IP 192.168.1.254: skipping reverse-DNS, using IP directly in Host: header
+
++==============================================================+
+|  Target  :                                                 |
+|  Host    : 192.168.1.254                                   |
+|  Host Hdr: 192.168.1.254                                   |
+|  IP      : 192.168.1.254                                   |
+|  Port    : 80                                              |
+|  Scheme  : auto-detect                                     |
+|  Path    :                                                 |
++==============================================================+
+
+[TLS] SNI        : 192.168.1.254
+[TLS] CA file    : (system default)
+[TLS] Verify peer: no (info-only)
+[*] Timeouts: connect=0s  read=3s  idle=2s
+[Host] LAN IP 192.168.1.254: skipping reverse-DNS, using IP directly in Host: header
+
++==============================================================+
+|  Target  :                                                 |
+|  Host    : 192.168.1.254                                   |
+|  Host Hdr: 192.168.1.254                                   |
+|  IP      : 192.168.1.254                                   |
+|  Port    : 443                                             |
+|  Scheme  : auto-detect                                     |
+|  Path    :                                                 |
++==============================================================+
+
+[TLS] SNI        : 192.168.1.254
+[TLS] CA file    : (system default)
+[TLS] Verify peer: no (info-only)
+[*] Timeouts: connect=0s  read=3s  idle=2s
+[Host] LAN IP 192.168.1.254: skipping reverse-DNS, using IP directly in Host: header
+
++==============================================================+
+|  Target  :                                                 |
+|  Host    : 192.168.1.254                                   |
+|  Host Hdr: 192.168.1.254                                   |
+|  IP      : 192.168.1.254                                   |
+|  Port    : 8099                                            |
+|  Scheme  : auto-detect                                     |
+|  Path    :                                                 |
++==============================================================+
+
+[TLS] SNI        : 192.168.1.254
+[TLS] CA file    : (system default)
+[TLS] Verify peer: no (info-only)
+[*] Timeouts: connect=0s  read=3s  idle=2s
+[*] Timeouts: connect=0s  read=12s (probe-derived)  idle=6s
+[*] Port 22 not declared as sslports -- running quick TLS pre-check (timeout=2s) before plaintext probes...
+[*] Timeouts: connect=0s  read=12s (probe-derived)  idle=6s
+[*] Port 8099 not declared as sslports -- running quick TLS pre-check (timeout=2s) before plaintext probes...
+[*] Timeouts: connect=0s  read=12s (probe-derived)  idle=6s
+[*] Port 23 not declared as sslports -- running quick TLS pre-check (timeout=2s) before plaintext probes...
+[*] Timeouts: connect=0s  read=12s (probe-derived)  idle=6s
+[*] Port 80 not declared as sslports -- running quick TLS pre-check (timeout=2s) before plaintext probes...
+[*] Timeouts: connect=0s  read=12s (probe-derived)  idle=6s
+[*] Port 443 is declared as sslports -- verifying TLS support (strict then permissive)...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [ssl-check] port 22: TLS confirmed
+[*]   -> TLS confirmed on port 22 despite not being in sslports; switching to SSL mode
+[PHASE 1] Adding NULL probe: 'NULL'
+[PHASE 2] No probes explicitly list port 22
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GenericLines'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'KubeletProbe'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HPWebJetadmin'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'WazuhAuthd'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GetRequest'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'CWMP_ACS'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'HTTPOptions'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HTTPon443'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'RTSPRequest'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'RPCCheck'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'RPCBind'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'DNSVersionBindReqTCP'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'DNSStatusRequestTCP'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'Help'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'SSLSessionReq'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'TerminalServerCookie'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'TLSSessionReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'Kerberos'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'SMBProgNeg'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'X11Probe'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'FourOhFourRequest'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LPDString'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPSearchReq'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPBindReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'SIPOptions'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LANDesk-RC'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'TerminalServer'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NCP'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NotesRPC'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'JavaRMI'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'WMSRequest'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'oracle-tns'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'ms-sql-s'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'HPJetDirect'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'afp'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'giop'
+[PHASE 3] Added 36 non-explicit probes (intensity cap: 7)
+[PLAN] Total probes queued for port 22: 37
+
+
+[PROBE #0] Name: NULL | Port: 22 | SSL: yes
+  Payload: <none -- NULL banner grab>
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [ssl-check] port 8099: TLS confirmed
+[*]   -> TLS confirmed on port 8099 despite not being in sslports; switching to SSL mode
+[PHASE 1] Adding NULL probe: 'NULL'
+[PHASE 2] No probes explicitly list port 8099
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GenericLines'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'KubeletProbe'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HPWebJetadmin'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'WazuhAuthd'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GetRequest'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'CWMP_ACS'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'HTTPOptions'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HTTPon443'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'RTSPRequest'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'RPCCheck'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'RPCBind'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'DNSVersionBindReqTCP'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'DNSStatusRequestTCP'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'Help'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'SSLSessionReq'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'TerminalServerCookie'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'TLSSessionReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'Kerberos'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'SMBProgNeg'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'X11Probe'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'FourOhFourRequest'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LPDString'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPSearchReq'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPBindReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'SIPOptions'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LANDesk-RC'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'TerminalServer'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NCP'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NotesRPC'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'JavaRMI'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'WMSRequest'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'oracle-tns'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'ms-sql-s'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'HPJetDirect'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'afp'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'giop'
+[PHASE 3] Added 36 non-explicit probes (intensity cap: 7)
+[PLAN] Total probes queued for port 8099: 37
+
+
+[PROBE #0] Name: NULL | Port: 8099 | SSL: yes
+  Payload: <none -- NULL banner grab>
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #0] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #0 X] 'NULL' -> no response
+
+[PROBE #1] Name: GenericLines | Port: 8099 | SSL: yes
+  Payload : 18 bytes
+  C-string: "GET / HTTP/1.1\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected Host: 192.168.1.254:8099 into HTTP/1.1 probe (was missing)
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #0] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #1] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #1 X] 'GenericLines' -> no response
+
+[PROBE #2] Name: KubeletProbe | Port: 8099 | SSL: yes
+  Payload : 35 bytes
+  C-string: "GET /healthz HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #0 X] 'NULL' -> no response
+
+[PROBE #1] Name: GenericLines | Port: 22 | SSL: yes
+  Payload : 18 bytes
+  C-string: "GET / HTTP/1.1\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected Host: 192.168.1.254:22 into HTTP/1.1 probe (was missing)
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #2] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #2 X] 'KubeletProbe' -> no response
+
+[PROBE #3] Name: HPWebJetadmin | Port: 8099 | SSL: yes
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #1] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #3] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #3 X] 'HPWebJetadmin' -> no response
+
+[PROBE #4] Name: WazuhAuthd | Port: 8099 | SSL: yes
+  Payload : 35 bytes
+  C-string: "GET /version HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #4] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #4 X] 'WazuhAuthd' -> no response
+
+[PROBE #5] Name: GetRequest | Port: 8099 | SSL: yes
+  Payload : 28 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #5] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #1 X] 'GenericLines' -> no response
+
+[PROBE #2] Name: KubeletProbe | Port: 22 | SSL: yes
+  Payload : 35 bytes
+  C-string: "GET /healthz HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #5 X] 'GetRequest' -> no response
+
+[PROBE #6] Name: CWMP_ACS | Port: 8099 | SSL: yes
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #2] strict SSL returned empty; retrying with permissive SSL
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #6] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #6 X] 'CWMP_ACS' -> no response
+
+[PROBE #7] Name: HTTPOptions | Port: 8099 | SSL: yes
+  Payload : 22 bytes
+  C-string: "OPTIONS / HTTP/1.0\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #7] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #2 X] 'KubeletProbe' -> no response
+
+[PROBE #3] Name: HPWebJetadmin | Port: 22 | SSL: yes
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #7 X] 'HTTPOptions' -> no response
+
+[PROBE #8] Name: HTTPon443 | Port: 8099 | SSL: yes
+  Payload : 26 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: \r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #8] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #8 X] 'HTTPon443' -> no response
+
+[PROBE #9] Name: RTSPRequest | Port: 8099 | SSL: yes
+  Payload : 22 bytes
+  C-string: "OPTIONS / RTSP/1.0\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #3] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #9] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #9 X] 'RTSPRequest' -> no response
+
+[PROBE #10] Name: RPCCheck | Port: 8099 | SSL: yes
+  Payload : 44 bytes
+  C-string: "\x80\x00\x00(r\xfe\x1d\x13\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x01\x97|\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #3 X] 'HPWebJetadmin' -> no response
+
+[PROBE #4] Name: WazuhAuthd | Port: 22 | SSL: yes
+  Payload : 35 bytes
+  C-string: "GET /version HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #10] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #10 X] 'RPCCheck' -> no response
+
+[PROBE #11] Name: RPCBind | Port: 8099 | SSL: yes
+  Payload : 45 bytes
+  C-string: "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x06"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #4] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #4 X] 'WazuhAuthd' -> no response
+
+[PROBE #5] Name: GetRequest | Port: 22 | SSL: yes
+  Payload : 28 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #11] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #11 X] 'RPCBind' -> no response
+
+[PROBE #12] Name: DNSVersionBindReqTCP | Port: 8099 | SSL: yes
+  Payload : 32 bytes
+  C-string: "\x00\x1e\x00\x06\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #5] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #12] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #12 X] 'DNSVersionBindReqTCP' -> no response
+
+[PROBE #13] Name: DNSStatusRequestTCP | Port: 8099 | SSL: yes
+  Payload : 14 bytes
+  C-string: "\x00\x0c\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #5 X] 'GetRequest' -> no response
+
+[PROBE #6] Name: CWMP_ACS | Port: 22 | SSL: yes
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #13] strict SSL returned empty; retrying with permissive SSL
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #6] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #13 X] 'DNSStatusRequestTCP' -> no response
+
+[PROBE #14] Name: Help | Port: 8099 | SSL: yes
+  Payload : 6 bytes
+  C-string: "HELP\r\n"
+  Sending...
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #6 X] 'CWMP_ACS' -> no response
+
+[PROBE #7] Name: HTTPOptions | Port: 22 | SSL: yes
+  Payload : 22 bytes
+  C-string: "OPTIONS / HTTP/1.0\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #14] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #14 X] 'Help' -> no response
+
+[PROBE #15] Name: SSLSessionReq | Port: 8099 | SSL: yes
+  Payload : 88 bytes
+  C-string: "\x16\x03\x00\x00S\x01\x00\x00O\x03\x00?G\xd7\xf7\xba,\xee\xea\xb2`~\xf3\x00\xfd\x82{\xb9\xd5\x96\xc8w\x9b\xe6\xc4\xdb<=\xdbo\xef\x10n\x00\x00(\x00\x16\x00\x13\x00\n\x00f\x00\x05\x00\x04\x00e\x00d\x00c\x00b\x00a\x00`\x00\x15\x00\x12\x00\t\x00\x14\x00\x11\x00\x08\x00\x06\x00\x03\x01\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #7] strict SSL returned empty; retrying with permissive SSL
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #15] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #15 X] 'SSLSessionReq' -> no response
+
+[PROBE #16] Name: TerminalServerCookie | Port: 8099 | SSL: yes
+  Payload : 42 bytes
+  C-string: "\x03\x00\x00*%\xe0\x00\x00\x00\x00\x00Cookie: mstshash=nmap\r\n\x01\x00\x08\x00\x03\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #16] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #7 X] 'HTTPOptions' -> no response
+
+[PROBE #8] Name: HTTPon443 | Port: 22 | SSL: yes
+  Payload : 26 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: \r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #16 X] 'TerminalServerCookie' -> no response
+
+[PROBE #17] Name: TLSSessionReq | Port: 8099 | SSL: yes
+  Payload : 110 bytes
+  C-string: "\x16\x03\x00\x00i\x01\x00\x00e\x03\x03U\x1c\xa7\xe4random1random2random3random4\x00\x00\x0c\x00/\x00\n\x00\x13\x009\x00\x04\x00\xff\x01\x00\x000\x00\r\x00,\x00*\x00\x01\x00\x03\x00\x02\x06\x01\x06\x03\x06\x02\x02\x01\x02\x03\x02\x02\x03\x01\x03\x03\x03\x02\x04\x01\x04\x03\x04\x02\x01\x01\x01\x03\x01\x02\x05\x01\x05\x03\x05\x02"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #8] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #17] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #17 X] 'TLSSessionReq' -> no response
+
+[PROBE #18] Name: Kerberos | Port: 8099 | SSL: yes
+  Payload : 117 bytes
+  C-string: "\x00\x00\x00qj\x81n0\x81k\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\n\xa4\x81^0\\\xa0\x07\x03\x05\x00P\x80\x00\x10\xa2\x04\x1b\x02NM\xa3\x170\x15\xa0\x03\x02\x01\x00\xa1\x0e0\x0c\x1b\x06krbtgt\x1b\x02NM\xa5\x11\x18\x0f19700101000000Z\xa7\x06\x02\x04\x1f\x1e\xb9\xd9\xa8\x170\x15\x02\x01\x12\x02\x01\x11\x02\x01\x10\x02\x01\x17\x02\x01\x01\x02\x01\x03\x02\x01\x02"
+  Sending...
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #8 X] 'HTTPon443' -> no response
+
+[PROBE #9] Name: RTSPRequest | Port: 22 | SSL: yes
+  Payload : 22 bytes
+  C-string: "OPTIONS / RTSP/1.0\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #18] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #18 X] 'Kerberos' -> no response
+
+[PROBE #19] Name: SMBProgNeg | Port: 8099 | SSL: yes
+  Payload : 168 bytes
+  C-string: "\x00\x00\x00\xa4\xffSMBr\x00\x00\x00\x00\x08\x01@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x06\x00\x00\x01\x00\x00\x81\x00\x02PC NETWORK PROGRAM 1.0\x00\x02MICROSOFT NETWORKS 1.03\x00\x02MICROSOFT NETWORKS 3.0\x00\x02LANMAN1.0\x00\x02LM1.2X002\x00\x02Samba\x00\x02NT LANMAN 1.0\x00\x02NT LM 0.12\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #9] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #19] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #9 X] 'RTSPRequest' -> no response
+
+[PROBE #10] Name: RPCCheck | Port: 22 | SSL: yes
+  Payload : 44 bytes
+  C-string: "\x80\x00\x00(r\xfe\x1d\x13\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x01\x97|\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #10] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #10 X] 'RPCCheck' -> no response
+
+[PROBE #11] Name: RPCBind | Port: 22 | SSL: yes
+  Payload : 45 bytes
+  C-string: "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x06"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #11] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #11 X] 'RPCBind' -> no response
+
+[PROBE #12] Name: DNSVersionBindReqTCP | Port: 22 | SSL: yes
+  Payload : 32 bytes
+  C-string: "\x00\x1e\x00\x06\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #12] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #12 X] 'DNSVersionBindReqTCP' -> no response
+
+[PROBE #13] Name: DNSStatusRequestTCP | Port: 22 | SSL: yes
+  Payload : 14 bytes
+  C-string: "\x00\x0c\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #13] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #13 X] 'DNSStatusRequestTCP' -> no response
+
+[PROBE #14] Name: Help | Port: 22 | SSL: yes
+  Payload : 6 bytes
+  C-string: "HELP\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #14] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #14 X] 'Help' -> no response
+
+[PROBE #15] Name: SSLSessionReq | Port: 22 | SSL: yes
+  Payload : 88 bytes
+  C-string: "\x16\x03\x00\x00S\x01\x00\x00O\x03\x00?G\xd7\xf7\xba,\xee\xea\xb2`~\xf3\x00\xfd\x82{\xb9\xd5\x96\xc8w\x9b\xe6\xc4\xdb<=\xdbo\xef\x10n\x00\x00(\x00\x16\x00\x13\x00\n\x00f\x00\x05\x00\x04\x00e\x00d\x00c\x00b\x00a\x00`\x00\x15\x00\x12\x00\t\x00\x14\x00\x11\x00\x08\x00\x06\x00\x03\x01\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #15] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #15 X] 'SSLSessionReq' -> no response
+
+[PROBE #16] Name: TerminalServerCookie | Port: 22 | SSL: yes
+  Payload : 42 bytes
+  C-string: "\x03\x00\x00*%\xe0\x00\x00\x00\x00\x00Cookie: mstshash=nmap\r\n\x01\x00\x08\x00\x03\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #16] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #16 X] 'TerminalServerCookie' -> no response
+
+[PROBE #17] Name: TLSSessionReq | Port: 22 | SSL: yes
+  Payload : 110 bytes
+  C-string: "\x16\x03\x00\x00i\x01\x00\x00e\x03\x03U\x1c\xa7\xe4random1random2random3random4\x00\x00\x0c\x00/\x00\n\x00\x13\x009\x00\x04\x00\xff\x01\x00\x000\x00\r\x00,\x00*\x00\x01\x00\x03\x00\x02\x06\x01\x06\x03\x06\x02\x02\x01\x02\x03\x02\x02\x03\x01\x03\x03\x03\x02\x04\x01\x04\x03\x04\x02\x01\x01\x01\x03\x01\x02\x05\x01\x05\x03\x05\x02"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #17] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #17 X] 'TLSSessionReq' -> no response
+
+[PROBE #18] Name: Kerberos | Port: 22 | SSL: yes
+  Payload : 117 bytes
+  C-string: "\x00\x00\x00qj\x81n0\x81k\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\n\xa4\x81^0\\\xa0\x07\x03\x05\x00P\x80\x00\x10\xa2\x04\x1b\x02NM\xa3\x170\x15\xa0\x03\x02\x01\x00\xa1\x0e0\x0c\x1b\x06krbtgt\x1b\x02NM\xa5\x11\x18\x0f19700101000000Z\xa7\x06\x02\x04\x1f\x1e\xb9\xd9\xa8\x170\x15\x02\x01\x12\x02\x01\x11\x02\x01\x10\x02\x01\x17\x02\x01\x01\x02\x01\x03\x02\x01\x02"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #18] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #18 X] 'Kerberos' -> no response
+
+[PROBE #19] Name: SMBProgNeg | Port: 22 | SSL: yes
+  Payload : 168 bytes
+  C-string: "\x00\x00\x00\xa4\xffSMBr\x00\x00\x00\x00\x08\x01@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x06\x00\x00\x01\x00\x00\x81\x00\x02PC NETWORK PROGRAM 1.0\x00\x02MICROSOFT NETWORKS 1.03\x00\x02MICROSOFT NETWORKS 3.0\x00\x02LANMAN1.0\x00\x02LM1.2X002\x00\x02Samba\x00\x02NT LANMAN 1.0\x00\x02NT LM 0.12\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #19] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #19 X] 'SMBProgNeg' -> no response
+
+[PROBE #20] Name: X11Probe | Port: 22 | SSL: yes
+  Payload : 12 bytes
+  C-string: "l\x00\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #20] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #20 X] 'X11Probe' -> no response
+
+[PROBE #21] Name: FourOhFourRequest | Port: 22 | SSL: yes
+  Payload : 53 bytes
+  C-string: "GET /nice%20ports%2C/Tri%6Eity.txt%2ebak HTTP/1.0\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : want-read (timeout?) (2)
+  [probe #21] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #21 X] 'FourOhFourRequest' -> no response
+
+[PROBE #22] Name: LPDString | Port: 22 | SSL: yes
+  Payload : 9 bytes
+  C-string: "\x01default\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #22] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #22 X] 'LPDString' -> no response
+
+[PROBE #23] Name: LDAPSearchReq | Port: 22 | SSL: yes
+  Payload : 51 bytes
+  C-string: "0\x84\x00\x00\x00-\x02\x01\x07c\x84\x00\x00\x00$\x04\x00\n\x01\x00\n\x01\x00\x02\x01\x00\x02\x01d\x01\x01\x00\x87\x0bobjectClass0\x84\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #23] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #23 X] 'LDAPSearchReq' -> no response
+
+[PROBE #24] Name: LDAPBindReq | Port: 22 | SSL: yes
+  Payload : 14 bytes
+  C-string: "0\x0c\x02\x01\x01`\x07\x02\x01\x02\x04\x00\x80\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : want-read (timeout?) (2)
+  [probe #24] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #24 X] 'LDAPBindReq' -> no response
+
+[PROBE #25] Name: SIPOptions | Port: 22 | SSL: yes
+  Payload : 223 bytes
+  C-string: "OPTIONS sip:nm SIP/2.0\r\nVia: SIP/2.0/TCP nm;branch=foo\r\nFrom: <sip:nm@nm>;tag=root\r\nTo: <sip:nm2@nm2>\r\nCall-ID: 50000\r\nCSeq: 42 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\nContact: <sip:nm@nm>\r\nAccept: application/sdp\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : want-read (timeout?) (2)
+  [probe #25] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #25 X] 'SIPOptions' -> no response
+
+[PROBE #26] Name: LANDesk-RC | Port: 22 | SSL: yes
+  Payload : 16 bytes
+  C-string: "TNMP\x04\x00\x00\x00TNME\x00\x00\x04\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #26] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #26 X] 'LANDesk-RC' -> no response
+
+[PROBE #27] Name: TerminalServer | Port: 22 | SSL: yes
+  Payload : 11 bytes
+  C-string: "\x03\x00\x00\x0b\x06\xe0\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #27] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #27 X] 'TerminalServer' -> no response
+
+[PROBE #28] Name: NCP | Port: 22 | SSL: yes
+  Payload : 23 bytes
+  C-string: "DmdT\x00\x00\x00\x17\x00\x00\x00\x01\x00\x00\x00\x00\x11\x11\x00\xff\x01\xff\x13"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #28] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #28 X] 'NCP' -> no response
+
+[PROBE #29] Name: NotesRPC | Port: 22 | SSL: yes
+  Payload : 60 bytes
+  C-string: ":\x00\x00\x00/\x00\x00\x00\x02\x00\x00@\x02\x0f\x00\x01\x00=\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00/\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #29] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #29 X] 'NotesRPC' -> no response
+
+[PROBE #30] Name: JavaRMI | Port: 22 | SSL: yes
+  Payload : 7 bytes
+  C-string: "JRMI\x00\x02K"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #30] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #30 X] 'JavaRMI' -> no response
+
+[PROBE #31] Name: WMSRequest | Port: 22 | SSL: yes
+  Payload : 175 bytes
+  C-string: "\x01\x00\x00\xfd\xce\xfa\x0b\xb0\xa0\x00\x00\x00MMS\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x12\x00\x00\x00\x01\x00\x03\x00\xf0\xf0\xf0\xf0\x0b\x00\x04\x00\x1c\x00\x03\x00N\x00S\x00P\x00l\x00a\x00y\x00e\x00r\x00/\x009\x00.\x000\x00.\x000\x00.\x002\x009\x008\x000\x00;\x00 \x00{\x000\x000\x000\x000\x00A\x00A\x000\x000\x00-\x000\x00A\x000\x000\x00-\x000\x000\x00a\x000\x00-\x00A\x00A\x000\x00A\x00-\x000\x000\x000\x000\x00A\x000\x00A\x00A\x000\x00A\x00A\x000\x00}\x00\x00\x00\xe0m\xdf_"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #31] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #31 X] 'WMSRequest' -> no response
+
+[PROBE #32] Name: oracle-tns | Port: 22 | SSL: yes
+  Payload : 90 bytes
+  C-string: "\x00Z\x00\x00\x01\x00\x00\x00\x016\x01,\x00\x00\x08\x00\x7f\xff\x7f\x08\x00\x00\x00\x01\x00 \x00:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x004\xe6\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00(CONNECT_DATA=(COMMAND=version))"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #32] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #32 X] 'oracle-tns' -> no response
+
+[PROBE #33] Name: ms-sql-s | Port: 22 | SSL: yes
+  Payload : 52 bytes
+  C-string: "\x12\x01\x004\x00\x00\x00\x00\x00\x00\x15\x00\x06\x01\x00\x1b\x00\x01\x02\x00\x1c\x00\x0c\x03\x00(\x00\x04\xff\x08\x00\x01U\x00\x00\x00MSSQLServer\x00H\x0f\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #33] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #33 X] 'ms-sql-s' -> no response
+
+[PROBE #34] Name: HPJetDirect | Port: 22 | SSL: yes
+  Payload : 9 bytes
+  C-string: "\x03default\n"
+  Sending...
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #34] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #19 X] 'SMBProgNeg' -> no response
+
+[PROBE #20] Name: X11Probe | Port: 8099 | SSL: yes
+  Payload : 12 bytes
+  C-string: "l\x00\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #34 X] 'HPJetDirect' -> no response
+
+[PROBE #35] Name: afp | Port: 22 | SSL: yes
+  Payload : 18 bytes
+  C-string: "\x00\x03\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x0f\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #20] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #20 X] 'X11Probe' -> no response
+
+[PROBE #21] Name: FourOhFourRequest | Port: 8099 | SSL: yes
+  Payload : 53 bytes
+  C-string: "GET /nice%20ports%2C/Tri%6Eity.txt%2ebak HTTP/1.0\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #35] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #21] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #35 X] 'afp' -> no response
+
+[PROBE #36] Name: giop | Port: 22 | SSL: yes
+  Payload : 48 bytes
+  C-string: "GIOP\x01\x00\x01\x00$\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x00\x00abcdef\x00\x00\x04\x00\x00\x00get\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #21 X] 'FourOhFourRequest' -> no response
+
+[PROBE #22] Name: LPDString | Port: 8099 | SSL: yes
+  Payload : 9 bytes
+  C-string: "\x01default\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #22] strict SSL returned empty; retrying with permissive SSL
+  [ssl] handshake FAILED on 192.168.1.254:22
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #36] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:22 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #22 X] 'LPDString' -> no response
+
+[PROBE #23] Name: LDAPSearchReq | Port: 8099 | SSL: yes
+  Payload : 51 bytes
+  C-string: "0\x84\x00\x00\x00-\x02\x01\x07c\x84\x00\x00\x00$\x04\x00\n\x01\x00\n\x01\x00\x02\x01\x00\x02\x01d\x01\x01\x00\x87\x0bobjectClass0\x84\x00\x00\x00\x00"
+  Sending...
+  [ssl-permissive] handshake FAILED on 192.168.1.254:22 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #36 X] 'giop' -> no response
+[*] All probes exhausted, trying fallback chain
+[*] Trying HTTP...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #23] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #23 X] 'LDAPSearchReq' -> no response
+
+[PROBE #24] Name: LDAPBindReq | Port: 8099 | SSL: yes
+  Payload : 14 bytes
+  C-string: "0\x0c\x02\x01\x01`\x07\x02\x01\x02\x04\x00\x80\x00"
+  Sending...
+  [tcp] sent 328 bytes
+[+] Got HTTP response: 434 bytes
+
++══════════════════════════════════════════════+
+|  [+] Capture complete                        |
++══════════════════════════════════════════════+
+|  Bytes     : 434                            |
+|  Port      : 22                             |
+|  Probe     : http                           |
+|  Transport : plain TCP                      |
+|  HTTP FPs  : 1                              |
++══════════════════════════════════════════════+
+
+
+Response hex (434 bytes):
+5353482d 322e302d 64726f70 62656172 5f323032 322e3832 0d0a0000 01940414 
+5e983a3a a69cf568 578f7f03 e64d8d4b 000000bb 63757276 65323535 31392d73 
+68613235 362c6375 72766532 35353139 2d736861 32353640 6c696273 73682e6f 
+72672c65 6364682d 73686132 2d6e6973 74703532 312c6563 64682d73 6861322d 
+6e697374 70333834 2c656364 682d7368 61322d6e 69737470 3235362c 64696666 
+69652d68 656c6c6d 616e2d67 726f7570 31342d73 68613235 362c6469 66666965 
+2d68656c 6c6d616e 2d67726f 75703134 2d736861 312c6b65 78677565 73733240 
+6d617474 2e756363 2e61736e 2e617500 00001472 73612d73 6861322d 3235362c 
+7373682d 72736100 00001561 65733132 382d6374 722c6165 73323536 2d637472 
+00000015 61657331 32382d63 74722c61 65733235 362d6374 72000000 17686d61 
+632d7368 61312c68 6d61632d 73686132 2d323536 00000017 686d6163 2d736861 
+312c686d 61632d73 6861322d 32353600 0000157a 6c696240 6f70656e 7373682e 
+636f6d2c 6e6f6e65 00000015 7a6c6962 406f7065 6e737368 2e636f6d 2c6e6f6e 
+65000000 00000000 00000000 0000c219 fc91
+
+
+First 50 bytes (hex):
+  53 53 48 2d 32 2e 30 2d 64 72 6f 70 62 65 61 72 5f 32 30 32 32 2e 38 32 0d 0a 00 00 01 94 04 14 5e 98 3a 3a a6 9c f5 68 57 8f 7f 03 e6 4d 8d 4b 00 00 
+
+First 200 bytes (ASCII preview):
+  SSH-2.0-dropbear_2022.82........^.::...hW....M.K....curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sh  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #24] strict SSL returned empty; retrying with permissive SSL
+a2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group14-sha256,diffie-hellman
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #24 X] 'LDAPBindReq' -> no response
+
+[PROBE #25] Name: SIPOptions | Port: 8099 | SSL: yes
+  Payload : 223 bytes
+  C-string: "OPTIONS sip:nm SIP/2.0\r\nVia: SIP/2.0/TCP nm;branch=foo\r\nFrom: <sip:nm@nm>;tag=root\r\nTo: <sip:nm2@nm2>\r\nCall-ID: 50000\r\nCSeq: 42 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\nContact: <sip:nm@nm>\r\nAccept: application/sdp\r\n\r\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #25] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #25 X] 'SIPOptions' -> no response
+
+[PROBE #26] Name: LANDesk-RC | Port: 8099 | SSL: yes
+  Payload : 16 bytes
+  C-string: "TNMP\x04\x00\x00\x00TNME\x00\x00\x04\x00"
+  Sending...
+22     : Dropbear sshd 2022.82 | protocol 2.0
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #26] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #26 X] 'LANDesk-RC' -> no response
+
+[PROBE #27] Name: TerminalServer | Port: 8099 | SSL: yes
+  Payload : 11 bytes
+  C-string: "\x03\x00\x00\x0b\x06\xe0\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #27] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #27 X] 'TerminalServer' -> no response
+
+[PROBE #28] Name: NCP | Port: 8099 | SSL: yes
+  Payload : 23 bytes
+  C-string: "DmdT\x00\x00\x00\x17\x00\x00\x00\x01\x00\x00\x00\x00\x11\x11\x00\xff\x01\xff\x13"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #28] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #28 X] 'NCP' -> no response
+
+[PROBE #29] Name: NotesRPC | Port: 8099 | SSL: yes
+  Payload : 60 bytes
+  C-string: ":\x00\x00\x00/\x00\x00\x00\x02\x00\x00@\x02\x0f\x00\x01\x00=\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00/\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #29] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #29 X] 'NotesRPC' -> no response
+
+[PROBE #30] Name: JavaRMI | Port: 8099 | SSL: yes
+  Payload : 7 bytes
+  C-string: "JRMI\x00\x02K"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #30] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #30 X] 'JavaRMI' -> no response
+
+[PROBE #31] Name: WMSRequest | Port: 8099 | SSL: yes
+  Payload : 175 bytes
+  C-string: "\x01\x00\x00\xfd\xce\xfa\x0b\xb0\xa0\x00\x00\x00MMS\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x12\x00\x00\x00\x01\x00\x03\x00\xf0\xf0\xf0\xf0\x0b\x00\x04\x00\x1c\x00\x03\x00N\x00S\x00P\x00l\x00a\x00y\x00e\x00r\x00/\x009\x00.\x000\x00.\x000\x00.\x002\x009\x008\x000\x00;\x00 \x00{\x000\x000\x000\x000\x00A\x00A\x000\x000\x00-\x000\x00A\x000\x000\x00-\x000\x000\x00a\x000\x00-\x00A\x00A\x000\x00A\x00-\x000\x000\x000\x000\x00A\x000\x00A\x00A\x000\x00A\x00A\x000\x00}\x00\x00\x00\xe0m\xdf_"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #31] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #31 X] 'WMSRequest' -> no response
+
+[PROBE #32] Name: oracle-tns | Port: 8099 | SSL: yes
+  Payload : 90 bytes
+  C-string: "\x00Z\x00\x00\x01\x00\x00\x00\x016\x01,\x00\x00\x08\x00\x7f\xff\x7f\x08\x00\x00\x00\x01\x00 \x00:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x004\xe6\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00(CONNECT_DATA=(COMMAND=version))"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #32] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #32 X] 'oracle-tns' -> no response
+
+[PROBE #33] Name: ms-sql-s | Port: 8099 | SSL: yes
+  Payload : 52 bytes
+  C-string: "\x12\x01\x004\x00\x00\x00\x00\x00\x00\x15\x00\x06\x01\x00\x1b\x00\x01\x02\x00\x1c\x00\x0c\x03\x00(\x00\x04\xff\x08\x00\x01U\x00\x00\x00MSSQLServer\x00H\x0f\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #33] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #33 X] 'ms-sql-s' -> no response
+
+[PROBE #34] Name: HPJetDirect | Port: 8099 | SSL: yes
+  Payload : 9 bytes
+  C-string: "\x03default\n"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #34] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #34 X] 'HPJetDirect' -> no response
+
+[PROBE #35] Name: afp | Port: 8099 | SSL: yes
+  Payload : 18 bytes
+  C-string: "\x00\x03\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x0f\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #35] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #35 X] 'afp' -> no response
+
+[PROBE #36] Name: giop | Port: 8099 | SSL: yes
+  Payload : 48 bytes
+  C-string: "GIOP\x01\x00\x01\x00$\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x00\x00abcdef\x00\x00\x04\x00\x00\x00get\x00\x00\x00\x00\x00"
+  Sending...
+  [ssl] handshake FAILED on 192.168.1.254:8099
+  [ssl]   SSL_get_error category : SSL protocol error (1)
+  [probe #36] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:8099 (all versions, all ciphers, no cert validation)
+  [ssl-permissive] handshake FAILED on 192.168.1.254:8099 (even with permissive settings)
+  [ssl-permissive]   category: SSL protocol error (1)
+  [ssl-permissive]   error: error:0A00010B:SSL routines::wrong version number
+[PROBE #36 X] 'giop' -> no response
+[*] All probes exhausted, trying fallback chain
+[*] Trying HTTP...
+  [tcp] sent 330 bytes
+[+] Got HTTP response: 32 bytes
+
++══════════════════════════════════════════════+
+|  [+] Capture complete                        |
++══════════════════════════════════════════════+
+|  Bytes     : 32                             |
+|  Port      : 8099                           |
+|  Probe     : http                           |
+|  Transport : plain TCP                      |
+|  HTTP FPs  : 1                              |
++══════════════════════════════════════════════+
+
+
+Response hex (32 bytes):
+48545450 2f312e31 20353031 204e6f74 20496d70 6c656d65 6e746564 0d0a0d0a 
+
+
+First 50 bytes (hex):
+  48 54 54 50 2f 31 2e 31 20 35 30 31 20 4e 6f 74 20 49 6d 70 6c 65 6d 65 6e 74 65 64 0d 0a 0d 0a 
+
+First 200 bytes (ASCII preview):
+  HTTP/1.1 501 Not Implemented....
+8099   : ?
+  [ssl] connect failed (timeout=2s): Success
+  [ssl-check] port 23: TLS NOT supported (plain TCP)
+[PHASE 1] Adding NULL probe: 'NULL'
+  [ssl] connect failed (timeout=2s): Success
+  [ssl-check] port 80: TLS NOT supported (plain TCP)
+[PHASE 1] Adding NULL probe: 'NULL'
+[PHASE 2] Port 80 explicit -> probe 'GetRequest' (rarity 1)
+[PHASE 2] Port 80 explicit -> probe 'HTTPOptions' (rarity 4)
+[PHASE 2] Port 80 explicit -> probe 'RTSPRequest' (rarity 5)
+[PHASE 2] Port 23 explicit -> probe 'GenericLines' (rarity 1)
+[PHASE 2] Port 23 explicit -> probe 'tn3270' (rarity 8)
+[PHASE 2] Port 80 explicit -> probe 'X11Probe' (rarity 4)
+[PHASE 2] Port 80 explicit -> probe 'FourOhFourRequest' (rarity 6)
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GenericLines'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'KubeletProbe'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HPWebJetadmin'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'WazuhAuthd'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'CWMP_ACS'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HTTPon443'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'RPCCheck'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'RPCBind'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'DNSVersionBindReqTCP'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'DNSStatusRequestTCP'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'Help'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'SSLSessionReq'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'TerminalServerCookie'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'TLSSessionReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'Kerberos'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'KubeletProbe'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HPWebJetadmin'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'WazuhAuthd'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GetRequest'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'CWMP_ACS'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'HTTPOptions'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HTTPon443'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'RTSPRequest'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'RPCCheck'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'RPCBind'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'DNSVersionBindReqTCP'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'DNSStatusRequestTCP'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'Help'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'SSLSessionReq'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'TerminalServerCookie'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'TLSSessionReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'Kerberos'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'SMBProgNeg'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'X11Probe'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'FourOhFourRequest'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LPDString'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPSearchReq'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPBindReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'SIPOptions'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LANDesk-RC'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'TerminalServer'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NCP'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NotesRPC'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'JavaRMI'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'WMSRequest'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'oracle-tns'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'ms-sql-s'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'HPJetDirect'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'afp'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'giop'
+[PHASE 3] Added 35 non-explicit probes (intensity cap: 7)
+[PLAN] Total probes queued for port 23: 38
+
+
+[PROBE #0] Name: NULL | Port: 23 | SSL: no
+  Payload: <none -- NULL banner grab>
+  Sending...
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'SMBProgNeg'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LPDString'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPSearchReq'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPBindReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'SIPOptions'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LANDesk-RC'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'TerminalServer'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NCP'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NotesRPC'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'JavaRMI'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'WMSRequest'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'oracle-tns'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'ms-sql-s'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'HPJetDirect'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'afp'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'giop'
+[PHASE 3] Added 31 non-explicit probes (intensity cap: 7)
+[PLAN] Total probes queued for port 80: 37
+
+
+[PROBE #0] Name: NULL | Port: 80 | SSL: no
+  Payload: <none -- NULL banner grab>
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #0 X] 'NULL' -> no response
+
+[PROBE #1] Name: GetRequest | Port: 80 | SSL: no
+  Payload : 28 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #0 X] 'NULL' -> no response
+
+[PROBE #1] Name: GenericLines | Port: 23 | SSL: no
+  Payload : 18 bytes
+  C-string: "GET / HTTP/1.1\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected Host: 192.168.1.254:23 into HTTP/1.1 probe (was missing)
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #1 X] 'GenericLines' -> no response
+
+[PROBE #2] Name: tn3270 | Port: 23 | SSL: no
+  Payload : 33 bytes
+  C-string: "\xff  [tcp] connect failed (timeout=3s): Success
+[PROBE #1 X] 'GetRequest' -> no response
+
+[PROBE #2] Name: HTTPOptions | Port: 80 | SSL: no
+  Payload : 22 bytes
+  C-string: "OPTIONS / H\xfb\x18\xff\xfa\x18\x00IBM-3279-4TTP/1.0\r\n\r\n"
+  Sending...
+-E\xff\xf0\xff\xfb\x19\xff\xfd\x19\xff\xfb\x00\xff\xfd\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #2 X] 'HTTPOptions' -> no response
+
+[PROBE #3] Name: RTSPRequest | Port: 80 | SSL: no
+  Payload : 22 bytes
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #2 X] 'tn3270' -> no response
+
+[PROBE #3] Name: KubeletProbe | Port: 23 | SSL: no
+  Payload : 35 bytes
+  C-string: "GET /healthz  C-string: "OPTIONS / RTSP/1. HTTP/1.1\r\nHost: %H\r0\r\n\r\n"
+  Sending...
+\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #3 X] 'RTSPRequest' -> no response
+
+[PROBE #4] Name: X11Probe | Port: 80 | SSL: no
+  Payload : 12 bytes
+  C-string: "l\x00\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #3 X] 'KubeletProbe' -> no response
+
+[PROBE #4] Name: HPWebJetadmin | Port: 23 | SSL: no
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #4 X] 'X11Probe' -> no response
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #4 X] 'HPWebJetadmin' -> no response
+
+[PROBE #5] Name: WazuhAuthd | Port: 23 | SSL: no
+  Payload : 35 bytes
+  C-string: "GET /version HTTP/1.1\r\nHost: %H\r\n\r\n
+[PROBE #5] Name: FourOhFourRequest | Port: 80 | SSL: no
+  Payload : 53 bytes
+  C-string: "GET /nice%20ports%2C/Tri%6Eity.txt%2ebak HTTP/1.0\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+"
+  Sending...
+[*]   -> Strict TLS confirmed on port 443
+[PHASE 1] Adding NULL probe: 'NULL'
+[PHASE 2] Port 443 explicit -> probe 'GetRequest' (rarity 1)
+[PHASE 2] Port 443 explicit -> probe 'HTTPOptions' (rarity 4)
+[PHASE 2] Port 443 explicit -> probe 'TLSSessionReq' (rarity 1)
+[PHASE 2] Port 443 explicit -> probe 'FourOhFourRequest' (rarity 6)
+[PHASE 2] Port 443 explicit -> probe 'tor-versions' (rarity 8)
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GenericLines'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'KubeletProbe'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HPWebJetadmin'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'WazuhAuthd'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'CWMP_ACS'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HTTPon443'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'RTSPRequest'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'RPCCheck'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'RPCBind'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'DNSVersionBindReqTCP'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'DNSStatusRequestTCP'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'Help'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'SSLSessionReq'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'TerminalServerCookie'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'Kerberos'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'SMBProgNeg'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'X11Probe'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LPDString'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPSearchReq'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPBindReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'SIPOptions'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LANDesk-RC'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'TerminalServer'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NCP'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NotesRPC'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'JavaRMI'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'WMSRequest'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'oracle-tns'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'ms-sql-s'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'HPJetDirect'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'afp'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'giop'
+[PHASE 3] Added 32 non-explicit probes (intensity cap: 7)
+[PLAN] Total probes queued for port 443: 38
+
+
+[PROBE #0] Name: NULL | Port: 443 | SSL: yes
+  Payload: <none -- NULL banner grab>
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #5 X] 'WazuhAuthd' -> no response
+
+[PROBE #6] Name: GetRequest | Port: 23 | SSL: no
+  Payload : 28 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #5 X] 'FourOhFourRequest' -> no response
+
+[PROBE #6] Name: GenericLines | Port: 80 | SSL: no
+  Payload : 18 bytes
+  C-string: "GET / HTTP/1.1\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected Host: 192.168.1.254 into HTTP/1.1 probe (was missing)
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #6 X] 'GenericLines' -> no response
+
+[PROBE #7] Name: KubeletProbe | Port: 80 | SSL: no
+  Payload : 35 bytes
+  C-string: "GET /healthz HTT  [tcp] connect failed (timeout=3s): Success
+[PROBE #6 X] 'GetRequest' -> no response
+
+[PROBE #7] Name: CWMP_ACS | Port: 23 | SSL: no
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %HP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #7 X] 'CWMP_ACS' -> no response
+
+[PROBE #8] Name: HTTPOptions | Port: 23 | SSL: no
+  Payload : 22 bytes
+  C-string: "OPTIONS / HTTP/1.0\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #7 X] 'KubeletProbe' -> no response
+
+[PROBE #8] Name: HPWebJetadmin | Port: 80 | SSL: no
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #8 X] 'HTTPOptions' -> no response
+
+[PROBE #9] Name: HTTPon443 | Port: 23 | SSL: no
+  Payload : 26 bytes
+  C-string: "GET / HTTP/1.1  [tcp] connect failed (timeout=3s): Success
+[PROBE #8 X] 'HPWebJetadmin' -> no response
+
+[PROBE #9] Name: WazuhAuthd | Port: 80 | SSL: no
+  Payload : 35 bytes
+  C-string: "GET /version H\rTTP/1.1\r\n\nHost: \r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+Host: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #9 X] 'WazuhAuthd' -> no response
+
+[PROBE #10] Name: CWMP_ACS | Port: 80 | SSL: no
+  Payload : 47 bytes
+  C-string: "GET / HTTP/[PROBE #9 X] 'HTTPon443' -> no response
+
+[PROBE #10] Name: RTSPRequest | Port: 23 | SSL: no
+  Payload : 22 bytes
+  C-string: "OP1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+TI  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+ONS / RTSP/1.0\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #10 X] 'RTSPRequest' -> no response
+
+[PROBE #11] Name: RPCCheck | Port: 23 | SSL: no
+  Payload : 44 bytes
+  C-string: "\x80\x00\x00(r\xfe\x1d\x13\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x01\x97|\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #10 X] 'CWMP_ACS' -> no response
+
+[PROBE #11] Name: HTTPon443 | Port: 80 | SSL: no
+  Payload : 26 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: \r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #11 X] 'HTTPon443' -> no response
+
+[PROBE #12] Name: RPCCheck | Port: 80 | SSL: no
+  Payload : 44 bytes
+  C-string: "\x80\x00\x00(r\xfe\x1d\x13\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x01\x97|\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #11 X] 'RPCCheck' -> no response
+
+[PROBE #12] Name: RPCBind | Port: 23 | SSL: no
+  Payload : 45 bytes
+  C-string: "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x06"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #12 X] 'RPCBind' -> no response
+
+[PROBE #13] Name: DNSVersionBindReqTCP | Port: 23 | SSL: no
+  Payload : 32 bytes
+  C-string: "\x00\x1e\x00\x06\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #12 X] 'RPCCheck' -> no response
+
+[PROBE #13] Name: RPCBind | Port: 80 | SSL: no
+  Payload : 45 bytes
+  C-string: "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x06"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #13 X] 'DNSVersionBindReqTCP' -> no response
+
+[PROBE #14] Name: DNSStatusRequestTCP | Port: 23 | SSL: no
+  Payload : 14 bytes
+  C-string: "\x00\x0c\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #13 X] 'RPCBind' -> no response
+
+[PROBE #14] Name: DNSVersionBindReqTCP | Port: 80 | SSL: no
+  Payload : 32 bytes
+  C-string: "\x00\x1e\x00\x06\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #14 X] 'DNSVersionBindReqTCP' -> no response
+
+[PROBE #15] Name: DNSStatusRequestTCP | Port: 80 | SSL: no
+  Payload : 14 bytes
+  C-string: "\x00\x0c\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #14 X] 'DNSStatusRequestTCP' -> no response
+
+[PROBE #15] Name: Help | Port: 23 | SSL: no
+  Payload : 6 bytes
+  C-string: "HELP\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #15 X] 'Help' -> no response
+
+[PROBE #16] Name: SSLSessionReq | Port: 23 | SSL: no
+  Payload : 88 bytes
+  C-string: "\x16\x03\x00\x00S\x01\x00\x00O\x03\x00?G\xd7\xf7\xba,\xee\xea\xb2`~\xf3\x00\xfd\x82{\xb9\xd5\x96\xc8w\x9b\xe6\xc4\xdb<=\xdbo\xef\x10n\x00\x00(\x00\x16\x00\x13\x00\n\x00f\x00\x05\x00\x04\x00e\x00d\x00c\x00b\x00a\x00`\x00\x15\x00\x12\x00\t\x00\x14\x00\x11\x00\x08\x00\x06\x00\x03\x01\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #15 X] 'DNSStatusRequestTCP' -> no response
+
+[PROBE #16] Name: Help | Port: 80 | SSL: no
+  Payload : 6 bytes
+  C-string: "HELP\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #16 X] 'Help' -> no response
+
+[PROBE #17] Name: SSLSessionReq | Port: 80 | SSL: no
+  Payload : 88 bytes
+  C-string: "\x16\x03\x00\x00S\x01\x00\x00O\x03\x00?G\xd7\xf7\xba,\xee\xea\xb2`~\xf3\x00\xfd\x82{\xb9\xd5\x96\xc8w\x9b\xe6\xc4\xdb<=\xdbo\xef\x10n\x00\x00(\x00\x16\x00\x13\x00\n\x00f\x00\x05\x00\x04\x00e\x00d\x00c\x00b\x00a\x00`\x00\x15\x00\x12\x00\t\x00\x14\x00\x11\x00\x08\x00\x06\x00\x03\x01\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #16 X] 'SSLSessionReq' -> no response
+
+[PROBE #17] Name: TerminalServerCookie | Port: 23 | SSL: no
+  Payload : 42 bytes
+  C-string: "\x03\x00\x00*%\xe0\x00\x00\x00\x00\x00Cookie: mstshash=nmap\r\n\x01\x00\x08\x00\x03\x00\x00\x00"
+  Sending...
+  [probe #0] strict SSL returned empty; retrying with permissive SSL
+  [ssl-permissive] attempting permissive TLS on 192.168.1.254:443 (all versions, all ciphers, no cert validation)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #17 X] 'TerminalServerCookie' -> no response
+
+[PROBE #18] Name: TLSSessionReq | Port: 23 | SSL: no
+  Payload : 110 bytes
+  C-string: "\x16\x03\x00\x00i\x01\x00\x00e\x03\x03U\x1c\xa7\xe4random1random2random3random4\x00\x00\x0c\x00/\x00\n\x00\x13\x009\x00\x04\x00\xff\x01\x00\x000\x00\r\x00,\x00*\x00\x01\x00\x03\x00\x02\x06\x01\x06\x03\x06\x02\x02\x01\x02\x03\x02\x02\x03\x01\x03\x03\x03\x02\x04\x01\x04\x03\x04\x02\x01\x01\x01\x03\x01\x02\x05\x01\x05\x03\x05\x02"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #17 X] 'SSLSessionReq' -> no response
+
+[PROBE #18] Name: TerminalServerCookie | Port: 80 | SSL: no
+  Payload : 42 bytes
+  C-string: "\x03\x00\x00*%\xe0\x00\x00\x00\x00\x00Cookie: mstshash=nmap\r\n\x01\x00\x08\x00\x03\x00\x00\x00"
+  Sending...
+  [ssl-permissive] handshake OK — version: TLSv1.3 | cipher: TLS_AES_256_GCM_SHA384
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #18 X] 'TLSSessionReq' -> no response
+
+[PROBE #19] Name: Kerberos | Port: 23 | SSL: no
+  Payload : 117 bytes
+  C-string: "\x00\x00\x00qj\x81n0\x81k\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\n\xa4\x81^0\\\xa0\x07\x03\x05\x00P\x80\x00\x10\xa2\x04\x1b\x02NM\xa3\x170\x15\xa0\x03\x02\x01\x00\xa1\x0e0\x0c\x1b\x06krbtgt\x1b\x02NM\xa5\x11\x18\x0f19700101000000Z\xa7\x06\x02\x04\x1f\x1e\xb9\xd9\xa8\x170\x15\x02\x01\x12\x02\x01\x11\x02\x01\x10\x02\x01\x17\x02\x01\x01\x02\x01\x03\x02\x01\x02"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #18 X] 'TerminalServerCookie' -> no response
+
+[PROBE #19] Name: TLSSessionReq | Port: 80 | SSL: no
+  Payload : 110 bytes
+  C-string: "\x16\x03\x00\x00i\x01\x00\x00e\x03\x03U\x1c\xa7\xe4random1random2random3random4\x00\x00\x0c\x00/\x00\n\x00\x13\x009\x00\x04\x00\xff\x01\x00\x000\x00\r\x00,\x00*\x00\x01\x00\x03\x00\x02\x06\x01\x06\x03\x06\x02\x02\x01\x02\x03\x02\x02\x03\x01\x03\x03\x03\x02\x04\x01\x04\x03\x04\x02\x01\x01\x01\x03\x01\x02\x05\x01\x05\x03\x05\x02"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #19 X] 'Kerberos' -> no response
+
+[PROBE #20] Name: SMBProgNeg | Port: 23 | SSL: no
+  Payload : 168 bytes
+  C-string: "\x00\x00\x00\xa4\xffSMBr\x00\x00\x00\x00\x08\x01@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x06\x00\x00\x01\x00\x00\x81\x00\x02PC NETWORK PROGRAM 1.0\x00\x02MICROSOFT NETWORKS 1.03\x00\x02MICROSOFT NETWORKS 3.0\x00\x02LANMAN1.0\x00\x02LM1.2X002\x00\x02Samba\x00\x02NT LANMAN 1.0\x00\x02NT LM 0.12\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #19 X] 'TLSSessionReq' -> no response
+
+[PROBE #20] Name: Kerberos | Port: 80 | SSL: no
+  Payload : 117 bytes
+  C-string: "\x00\x00\x00qj\x81n0\x81k\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\n\xa4\x81^0\\\xa0\x07\x03\x05\x00P\x80\x00\x10\xa2\x04\x1b\x02NM\xa3\x170\x15\xa0\x03\x02\x01\x00\xa1\x0e0\x0c\x1b\x06krbtgt\x1b\x02NM\xa5\x11\x18\x0f19700101000000Z\xa7\x06\x02\x04\x1f\x1e\xb9\xd9\xa8\x170\x15\x02\x01\x12\x02\x01\x11\x02\x01\x10\x02\x01\x17\x02\x01\x01\x02\x01\x03\x02\x01\x02"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #20 X] 'SMBProgNeg' -> no response
+
+[PROBE #21] Name: X11Probe | Port: 23 | SSL: no
+  Payload : 12 bytes
+  C-string: "l\x00\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #20 X] 'Kerberos' -> no response
+
+[PROBE #21] Name: SMBProgNeg | Port: 80 | SSL: no
+  Payload : 168 bytes
+  C-string: "\x00\x00\x00\xa4\xffSMBr\x00\x00\x00\x00\x08\x01@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x06\x00\x00\x01\x00\x00\x81\x00\x02PC NETWORK PROGRAM 1.0\x00\x02MICROSOFT NETWORKS 1.03\x00\x02MICROSOFT NETWORKS 3.0\x00\x02LANMAN1.0\x00\x02LM1.2X002\x00\x02Samba\x00\x02NT LANMAN 1.0\x00\x02NT LM 0.12\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #21 X] 'X11Probe' -> no response
+
+[PROBE #22] Name: FourOhFourRequest | Port: 23 | SSL: no
+  Payload : 53 bytes
+  C-string: "GET /nice%20ports%2C/Tri%6Eity.txt%2ebak HTTP/1.0\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #21 X] 'SMBProgNeg' -> no response
+
+[PROBE #22] Name: LPDString | Port: 80 | SSL: no
+  Payload : 9 bytes
+  C-string: "\x01default\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #22 X] 'FourOhFourRequest' -> no response
+
+[PROBE #23] Name: LPDString | Port: 23 | SSL: no
+  Payload : 9 bytes
+  C-string: "\x01default\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #22 X] 'LPDString' -> no response
+
+[PROBE #23] Name: LDAPSearchReq | Port: 80 | SSL: no
+  Payload : 51 bytes
+  C-string: "0\x84\x00\x00\x00-\x02\x01\x07c\x84\x00\x00\x00$\x04\x00\n\x01\x00\n\x01\x00\x02\x01\x00\x02\x01d\x01\x01\x00\x87\x0bobjectClass0\x84\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #23 X] 'LPDString' -> no response
+
+[PROBE #24] Name: LDAPSearchReq | Port: 23 | SSL: no
+  Payload : 51 bytes
+  C-string: "0\x84\x00\x00\x00-\x02\x01\x07c\x84\x00\x00\x00$\x04\x00\n\x01\x00\n\x01\x00\x02\x01\x00\x02\x01d\x01\x01\x00\x87\x0bobjectClass0\x84\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #23 X] 'LDAPSearchReq' -> no response
+
+[PROBE #24] Name: LDAPBindReq | Port: 80 | SSL: no
+  Payload : 14 bytes
+  C-string: "0\x0c\x02\x01\x01`\x07\x02\x01\x02\x04\x00\x80\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #24 X] 'LDAPSearchReq' -> no response
+
+[PROBE #25] Name: LDAPBindReq | Port: 23 | SSL: no
+  Payload : 14 bytes
+  C-string: "0\x0c\x02\x01\x01`\x07\x02\x01\x02\x04\x00\x80\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #24 X] 'LDAPBindReq' -> no response
+
+[PROBE #25] Name: SIPOptions | Port: 80 | SSL: no
+  Payload : 223 bytes
+  C-string: "OPTIONS sip:nm SIP/2.0\r\nVia: SIP/2.0/TCP nm;branch=foo\r\nFrom: <sip:nm@nm>;tag=root\r\nTo: <sip:nm2@nm2>\r\nCall-ID: 50000\r\nCSeq: 42 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\nContact: <sip:nm@nm>\r\nAccept: application/sdp\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #25 X] 'LDAPBindReq' -> no response
+
+[PROBE #26] Name: SIPOptions | Port: 23 | SSL: no
+  Payload : 223 bytes
+  C-string: "OPTIONS sip:nm SIP/2.0\r\nVia: SIP/2.0/TCP nm;branch=foo\r\nFrom: <sip:nm@nm>;tag=root\r\nTo: <sip:nm2@nm2>\r\nCall-ID: 50000\r\nCSeq: 42 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\nContact: <sip:nm@nm>\r\nAccept: application/sdp\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #25 X] 'SIPOptions' -> no response
+
+[PROBE #26] Name: LANDesk-RC | Port: 80 | SSL: no
+  Payload : 16 bytes
+  C-string: "TNMP\x04\x00\x00\x00TNME\x00\x00\x04\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #26 X] 'SIPOptions' -> no response
+
+[PROBE #27] Name: LANDesk-RC | Port: 23 | SSL: no
+  Payload : 16 bytes
+  C-string: "TNMP\x04\x00\x00\x00TNME\x00\x00\x04\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #26 X] 'LANDesk-RC' -> no response
+
+[PROBE #27] Name: TerminalServer | Port: 80 | SSL: no
+  Payload : 11 bytes
+  C-string: "\x03\x00\x00\x0b\x06\xe0\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #27 X] 'LANDesk-RC' -> no response
+
+[PROBE #28] Name: TerminalServer | Port: 23 | SSL: no
+  Payload : 11 bytes
+  C-string: "\x03\x00\x00\x0b\x06\xe0\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #27 X] 'TerminalServer' -> no response
+
+[PROBE #28] Name: NCP | Port: 80 | SSL: no
+  Payload : 23 bytes
+  C-string: "DmdT\x00\x00\x00\x17\x00\x00\x00\x01\x00\x00\x00\x00\x11\x11\x00\xff\x01\xff\x13"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #28 X] 'TerminalServer' -> no response
+
+[PROBE #29] Name: NCP | Port: 23 | SSL: no
+  Payload : 23 bytes
+  C-string: "DmdT\x00\x00\x00\x17\x00\x00\x00\x01\x00\x00\x00\x00\x11\x11\x00\xff\x01\xff\x13"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #28 X] 'NCP' -> no response
+
+[PROBE #29] Name: NotesRPC | Port: 80 | SSL: no
+  Payload : 60 bytes
+  C-string: ":\x00\x00\x00/\x00\x00\x00\x02\x00\x00@\x02\x0f\x00\x01\x00=\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00/\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #29 X] 'NCP' -> no response
+
+[PROBE #30] Name: NotesRPC | Port: 23 | SSL: no
+  Payload : 60 bytes
+  C-string: ":\x00\x00\x00/\x00\x00\x00\x02\x00\x00@\x02\x0f\x00\x01\x00=\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00/\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #29 X] 'NotesRPC' -> no response
+
+[PROBE #30] Name: JavaRMI | Port: 80 | SSL: no
+  Payload : 7 bytes
+  C-string: "JRMI\x00\x02K"
+  Sending...
+[PROBE #0 X] 'NULL' -> no response
+
+[PROBE #1] Name: GetRequest | Port: 443 | SSL: yes
+  Payload : 28 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #30 X] 'NotesRPC' -> no response
+
+[PROBE #31] Name: JavaRMI | Port: 23 | SSL: no
+  Payload : 7 bytes
+  C-string: "JRMI\x00\x02K"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #30 X] 'JavaRMI' -> no response
+
+[PROBE #31] Name: WMSRequest | Port: 80 | SSL: no
+  Payload : 175 bytes
+  C-string: "\x01\x00\x00\xfd\xce\xfa\x0b\xb0\xa0\x00\x00\x00MMS\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x12\x00\x00\x00\x01\x00\x03\x00\xf0\xf0\xf0\xf0\x0b\x00\x04\x00\x1c\x00\x03\x00N\x00S\x00P\x00l\x00a\x00y\x00e\x00r\x00/\x009\x00.\x000\x00.\x000\x00.\x002\x009\x008\x000\x00;\x00 \x00{\x000\x000\x000\x000\x00A\x00A\x000\x000\x00-\x000\x00A\x000\x000\x00-\x000\x000\x00a\x000\x00-\x00A\x00A\x000\x00A\x00-\x000\x000\x000\x000\x00A\x000\x00A\x00A\x000\x00A\x00A\x000\x00}\x00\x00\x00\xe0m\xdf_"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #31 X] 'JavaRMI' -> no response
+
+[PROBE #32] Name: WMSRequest | Port: 23 | SSL: no
+  Payload : 175 bytes
+  C-string: "\x01\x00\x00\xfd\xce\xfa\x0b\xb0\xa0\x00\x00\x00MMS\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x12\x00\x00\x00\x01\x00\x03\x00\xf0\xf0\xf0\xf0\x0b\x00\x04\x00\x1c\x00\x03\x00N\x00S\x00P\x00l\x00a\x00y\x00e\x00r\x00/\x009\x00.\x000\x00.\x000\x00.\x002\x009\x008\x000\x00;\x00 \x00{\x000\x000\x000\x000\x00A\x00A\x000\x000\x00-\x000\x00A\x000\x000\x00-\x000\x000\x00a\x000\x00-\x00A\x00A\x000\x00A\x00-\x000\x000\x000\x000\x00A\x000\x00A\x00A\x000\x00A\x00A\x000\x00}\x00\x00\x00\xe0m\xdf_"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #31 X] 'WMSRequest' -> no response
+
+[PROBE #32] Name: oracle-tns | Port: 80 | SSL: no
+  Payload : 90 bytes
+  C-string: "\x00Z\x00\x00\x01\x00\x00\x00\x016\x01,\x00\x00\x08\x00\x7f\xff\x7f\x08\x00\x00\x00\x01\x00 \x00:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x004\xe6\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00(CONNECT_DATA=(COMMAND=version))"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #32 X] 'WMSRequest' -> no response
+
+[PROBE #33] Name: oracle-tns | Port: 23 | SSL: no
+  Payload : 90 bytes
+  C-string: "\x00Z\x00\x00\x01\x00\x00\x00\x016\x01,\x00\x00\x08\x00\x7f\xff\x7f\x08\x00\x00\x00\x01\x00 \x00:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x004\xe6\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00(CONNECT_DATA=(COMMAND=version))"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #32 X] 'oracle-tns' -> no response
+
+[PROBE #33] Name: ms-sql-s | Port: 80 | SSL: no
+  Payload : 52 bytes
+  C-string: "\x12\x01\x004\x00\x00\x00\x00\x00\x00\x15\x00\x06\x01\x00\x1b\x00\x01\x02\x00\x1c\x00\x0c\x03\x00(\x00\x04\xff\x08\x00\x01U\x00\x00\x00MSSQLServer\x00H\x0f\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #33 X] 'oracle-tns' -> no response
+
+[PROBE #34] Name: ms-sql-s | Port: 23 | SSL: no
+  Payload : 52 bytes
+  C-string: "\x12\x01\x004\x00\x00\x00\x00\x00\x00\x15\x00\x06\x01\x00\x1b\x00\x01\x02\x00\x1c\x00\x0c\x03\x00(\x00\x04\xff\x08\x00\x01U\x00\x00\x00MSSQLServer\x00H\x0f\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #33 X] 'ms-sql-s' -> no response
+
+[PROBE #34] Name: HPJetDirect | Port: 80 | SSL: no
+  Payload : 9 bytes
+  C-string: "\x03default\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #34 X] 'HPJetDirect' -> no response
+
+[PROBE #35] Name: afp | Port: 80 | SSL: no
+  Payload : 18 bytes
+  C-string: "\x00  [tcp] connect failed (timeout=3s): Success
+[PROBE #34 X] 'ms-sql-s' -> no response
+\x03
+[PROBE #35] Name: HPJetDirect | Port: 23 | SSL: no
+  Payload : 9 bytes
+  C-string: "\x03default\n"
+  Sending...
+\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x0f\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #35 X] 'HPJetDirect' -> no response
+
+[PROBE #36] Name: afp | Port: 23 | SSL: no
+  Payload : 18 bytes
+  C-string: "\x00\x03\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x0f\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #35 X] 'afp' -> no response
+
+[PROBE #36] Name: giop | Port: 80 | SSL: no
+  Payload : 48 bytes
+  C-string: "GIOP\x01\x00\x01\x00$\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x00\x00abcdef\x00\x00\x04\x00\x00\x00get\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #36 X] 'afp' -> no response
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #36 X] 'giop' -> no response
+[*] All probes exhausted, trying fallback chain
+[*] Trying HTTP...
+
+[PROBE #37] Name: giop | Port: 23 | SSL: no
+  Payload : 48 bytes
+  C-string: "GIOP\x01\x00\x01\x00$\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x00\x00abcdef\x00\x00\x04\x00\x00\x00get\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Success
+[PROBE #37 X] 'giop' -> no response
+  [tcp] connect failed (timeout=3s): Success
+[-] No HTTP response
+[*] Trying HTTPS fallback...
+[*] All probes exhausted, trying fallback chain
+[*] Trying HTTP...
+  [ssl] connect failed (timeout=3s): Success
+[-] No HTTPS/SSL response
+[*] Last resort: retrying NULL probe with source port 443...
+  [tcp] connect failed (timeout=3s): Success
+[-] No HTTP response
+[*] Trying HTTPS fallback...
+  [ssl] sent 164 bytes
+[PROBE #1 OK] 'GetRequest' got 20063 bytes -- using this response
+
++══════════════════════════════════════════════+
+|  [+] Capture complete                        |
++══════════════════════════════════════════════+
+|  Bytes     : 20063                          |
+|  Port      : 443                            |
+|  Probe     : ssl/GetRequest                 |
+|  Transport : TLS/SSL                        |
+|  HTTP FPs  : 0                              |
++══════════════════════════════════════════════+
+
+
+Response hex (20063 bytes):
+48545450 2f312e30 20323939 20536f6d 65746869 6e670d0a 53746174 75733a32 
+39390d0a 582d5349 443a484b 45616543 69574e77 45455469 5a470d0a 5365742d 
+436f6f6b 69653a20 7369643d 484b4561 65436957 4e774545 54695a47 3b207061 
+74683d2f 3b487474 704f6e6c 793b5365 63757265 3b0d0a53 65742d43 6f6f6b69 
+653a206c 7369643d 7241766e 70705064 726c4b64 65686d4e 3b206578 70697265 
+733d4672 692c2030 312d4a61 6e2d3230 34362030 303a3030 3a303120 474d543b 
+20706174 683d2f3b 48747470 4f6e6c79 3b536563 7572653b 0d0a4361 6368652d 
+436f6e74 726f6c3a 70726976 6174652c 6d61782d 6167653d 303b0d0a 582d4672 
+616d652d 4f707469 6f6e733a 53414d45 4f524947 494e0d0a 582d436f 6e74656e 
+742d5479 70652d4f 7074696f 6e733a6e 6f736e69 66660d0a 582d5853 532d5072 
+6f746563 74696f6e 3a313b20 6d6f6465 3d626c6f 636b0d0a 436f6e74 656e742d 
+53656375 72697479 2d506f6c 6963793a 64656661 756c742d 73726320 2773656c 
+66272062 6c6f623a 2027756e 73616665 2d696e6c 696e6527 2027756e 73616665 
+2d657661 6c273b69 6d672d73 7263202a 20646174 613a2027 756e7361 66652d69 
+6e6c696e 65270d0a 53747269 63742d54 72616e73 706f7274 2d536563 75726974 
+793a6d61 782d6167 653d3235 39323030 303b2069 6e636c75 64655375 62646f6d 
+61696e73 0d0a5265 66657272 65722d50 6f6c6963 793a206e 6f2d7265 66657272 
+65720d0a 5365742d 436f6f6b 69653a20 6c616e67 3d656e67 3b207061 74683d2f 
+3b0d0a43 6f6e7465 6e742d74 7970653a 74657874 2f68746d 6c3b6368 61727365 
+743d5554 462d383b 0d0a0d0a 3c68746d 6c3e0d0a 3c212d2d 20202d2d 3e0d0a0d 
+0a202020 203c6865 61643e0d 0a202020 20202020 203c7363 72697074 3e0d0a20 
+20202020 20202020 20202069 66202877 696e646f 772e6c6f 63617469 6f6e2e68 
+7265662e 696e636c 75646573 28222f68 746d6c5f 676c622f 22292920 7b0d0a20 
+20202020 20202020 20202020 20202020 20202077 696e646f 772e6c6f 63617469 
+6f6e2e68 72656620 3d20222f 223b0d0a 20202020 20202020 20202020 7d0d0a20 
+20202020 2020203c 2f736372 6970743e 0d0a0d0a 20202020 20202020 3c746974 
+6c653e0d 0a202020 20202020 20202020 2047504f 4e20486f 6d652047 61746577 
+61790d0a 20202020 20202020 3c2f7469 746c653e 0d0a2020 20202020 20203c6d 
+65746120 68747470 2d657175 69763d22 436f6e74 656e742d 54797065 2220636f 
+6e74656e 743d2274 6578742f 68746d6c 203b6368 61727365 743d7574 662d3822 
+202f3e0d 0a202020 20202020 203c6d65 74612068 7474702d 65717569 763d2258 
+2d55412d 436f6d70 61746962 6c652220 636f6e74 656e743d 2249453d 65646765 
+2c636872 6f6d653d 31223e0d 0a202020 20202020 203c6d65 7461206e 616d653d 
+22726566 65727265 72222063 6f6e7465 6e743d22 6e6f2d72 65666572 72657222 
+2f3e0d0a 20202020 20202020 3c6c696e 6b206872 65663d22 2e2f6373 735f676c 
+622f6f6e 742e6373 733f763d 484a4d2e 4a383370 30312220 74797065 3d227465 
+78742f63 73732220 72656c3d 22737479 6c657368 65657422 202f3e0d 0a202020 
+20202020 203c6c69 6e6b2068 7265663d 222e2f63 73735f67 6c622f6d 656e752e 
+6373733f 763d484a 4d2e4a38 33703031 22207479 70653d22 74657874 2f637373 
+22207265 6c3d2273 74796c65 73686565 7422202f 3e200d0a 20202020 20202020 
+0d0a2020 20202020 20200d0a 20202020 20202020 0d0a2020 20202020 20203c73 
+63726970 74207372 633d222f 636f6d6d 6f6e2f6a 732f6a71 75657279 2d332e35 
+2e312e6a 73222063 68617273 65743d22 5554462d 38223e3c 2f736372 6970743e 
+0d0a2020 20202020 20200d0a 20202020 20202020 20202020 3c736372 69707420 
+7372633d 226a735f 676c622f 6a73656e 63727970 742e6d69 6e2e6a73 223e3c2f 
+73637269 70743e0d 0a202020 20202020 200d0a20 20202020 2020203c 73637269 
+70742073 72633d22 6a735f67 6c622f73 6a636c2e 6a73223e 3c2f7363 72697074 
+3e0d0a20 20202020 2020203c 73637269 70742073 72633d22 6a735f67 6c622f63 
+72797074 6f5f7061 67652e6a 73223e3c 2f736372 6970743e 0d0a2020 20202020 
+20203c21 2d2d3c73 63726970 74207372 633d226a 732f6d65 6e752e6a 73222063 
+68617273 65743d22 47423233 3132223e 3c2f7363 72697074 3e2d2d3e 0d0a2020 
+20202020 20203c73 63726970 74207372 633d226d 656e752e 63676922 3e3c2f73 
+63726970 743e0d0a 09093c73 63726970 74207372 633d226a 735f676c 622f7472 
+616e736c 6174652e 6a73223e 3c2f7363 72697074 3e0d0a20 20202020 2020203c 
+73637269 7074206c 616e6775 6167653d 226a6176 61736372 69707422 20747970 
+653d2274 6578742f 6a617661 73637269 7074223e 0d0a2020 20202020 20202020 
+2020200d 0a202020 20202020 20202020 20766172 2061646d 696e526f 6c65203d 
+20303b0d 0a202020 20202020 20202020 20766172 2069735f 61646d69 6e4c6f67 
+67656420 3d20303b 0d0a2020 20202020 20202020 20200d0a 20202020 20202020 
+20202020 20202020 76617220 7075626b 6579203d 20272d2d 2d2d2d42 4547494e 
+20505542 4c494320 4b45592d 2d2d2d2d 5c0a4d49 47664d41 30474353 71475349 
+62334451 45424151 55414134 474e4144 43426951 4b426751 43342b49 36425731 
+68463952 494e3575 6463795a 4d55696c 66425c0a 2b773039 2b654565 61327849 
+564b7874 776e737a 6d626b43 7342542f 33444e7a 4952366a 7a345976 49334c58 
+57356b53 55397448 72523232 4438344a 4a774434 5c0a3974 652f6a78 7836644d 
+67647a46 646a4a45 77564752 57372f6c 59583038 65777639 616b4532 49343950 
+7a464b73 52542b38 5a6e4e6c 6f694a2b 51454255 6a6e5c0a 53394e45 367a6279 
+66474134 74366150 45774944 41514142 5c0a2d2d 2d2d2d45 4e442050 55424c49 
+43204b45 592d2d2d 2d2d5c0a 273b200d 0a202020 20202020 20202020 200d0a20 
+20202020 20202020 20206675 6e637469 6f6e2043 6865636b 45787069 72652829 
+207b0d0a 20202020 20202020 20202020 20202020 242e616a 6178287b 20202020 
+20202020 20202020 20202020 20202020 20202020 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20207572 6c3a2027 2f636865 636b5f65 78706972 
+652e6367 69272c0d 0a202020 20202020 20202020 20202020 20202020 20202020 
+20646174 613a2027 272c0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 64617461 54797065 3a20226a 736f6e22 0d0a2020 20202020 20202020 
+20202020 20202020 20207d29 0d0a2020 20202020 20202020 20202020 20202020 
+20202e64 6f6e6528 66756e63 74696f6e 28657870 29207b0d 0a202020 20202020 
+20202020 20202020 20202020 20202020 20696620 28657870 2e657870 69726564 
+20213d20 226e6f22 29207b0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20202020 2077696e 646f772e 6c6f6361 74696f6e 2e726570 6c616365 
+28222f73 752e6874 6d6c2229 3b0d0a20 20202020 20202020 20202020 20202020 
+20202020 2020207d 0d0a2020 20202020 20202020 20202020 20202020 20207d29 
+0d0a2020 20202020 20202020 20207d20 0d0a0d0a 20202020 20202020 20202020 
+66756e63 74696f6e 2048616e 646c6550 50505374 61747573 28707070 29207b0d 
+0a202020 20202020 20202020 20202020 20766172 20707070 5f636f6e 6e203d20 
+66616c73 653b0d0a 20202020 20202020 20202020 20202020 242e6561 63682870 
+70702c20 66756e63 74696f6e 28696478 2c206f62 6a29207b 0d0a2020 20202020 
+20202020 20202020 20202020 20206966 20282169 64782920 7b0d0a20 20202020 
+20202020 20202020 20202020 20202020 20202024 2e656163 68286f62 6a2c2066 
+756e6374 696f6e28 6b65792c 2076616c 75652920 7b0d0a20 20202020 20202020 
+20202020 20202020 20202020 20202020 20202070 70705f63 6f6e6e20 3d207472 
+75653b0d 0a202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20696620 286b6579 203d3d20 22436f6e 6e656374 696f6e53 74617475 73222920 
+7b0d0a20 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202024 28222377 616e5f73 74617475 735f7661 6c756531 22292e74 65787428 
+76616c75 65293b0d 0a202020 20202020 20202020 20202020 20202020 20202020 
+20202020 207d2065 6c736520 69662028 6b657920 3d3d2022 4e616d65 2229207b 
+0d0a2020 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202428 22237761 6e5f7374 61747573 5f76616c 75653222 292e7465 78742876 
+616c7565 293b0d0a 20202020 20202020 20202020 20202020 20202020 20202020 
+20202020 7d20656c 73652069 6620286b 6579203d 3d20224c 61737443 6f6e6e65 
+6374696f 6e457272 6f722229 207b0d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 24282223 77616e5f 73746174 75735f76 
+616c7565 3322292e 74657874 2876616c 7565293b 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20202020 20207d0d 0a202020 20202020 20202020 
+20202020 20202020 20202020 207d293b 0d0a2020 20202020 20202020 20202020 
+20202020 20202020 20207265 7475726e 2066616c 73653b0d 0a202020 20202020 
+20202020 20202020 20202020 207d0d0a 20202020 20202020 20202020 20202020 
+7d293b0d 0a0d0a20 20202020 20202020 20202020 20202076 61722077 616e5f73 
+74617465 203d2024 28222377 616e5f73 74617475 735f7661 6c756531 22292e74 
+65787428 293b0d0a 20202020 20202020 20202020 20202020 76617220 77616e5f 
+65727220 3d202428 22237761 6e5f7374 61747573 5f76616c 75653322 292e7465 
+78742829 3b0d0a20 20202020 20202020 20202020 20202024 28222377 616e5f73 
+74617475 735f7661 6c756531 22292e68 746d6c28 7b0d0a20 20202020 20202020 
+20202020 20202020 20202020 20202020 20202027 436f6e6e 65637469 6e67273a 
+20747261 6e736c61 74655465 78742822 436f6e6e 65637469 6e672229 2c0d0a20 
+20202020 20202020 20202020 20202020 20202020 20202020 20202027 44697363 
+6f6e6e65 63746564 273a2074 72616e73 6c617465 54657874 28224469 73636f6e 
+6e656374 65642229 2c0d0a20 20202020 20202020 20202020 20202020 20202020 
+20202020 20202027 436f6e6e 65637465 64273a20 7472616e 736c6174 65546578 
+74282243 6f6e6e65 63746564 22292c0d 0a202020 20202020 20202020 20202020 
+20202020 20202020 20202020 2027556e 636f6e66 69677572 6564273a 20747261 
+6e736c61 74655465 78742822 556e636f 6e666967 75726564 22290d0a 20202020 
+20202020 20202020 20202020 7d5b7761 6e5f7374 6174655d 293b0d0a 20202020 
+20202020 20202020 20202020 24282223 77616e5f 73746174 75735f76 616c7565 
+3322292e 68746d6c 287b0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 22455252 4f525f49 53505f54 494d455f 4f555422 
+3a207472 616e736c 61746554 65787428 22495350 2054494d 45204f55 5422292c 
+0d0a2020 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202245 52524f52 5f495350 5f444953 434f4e4e 45435422 3a207472 616e736c 
+61746554 65787428 22495350 20444953 434f4e4e 45435422 292c0d0a 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 22455252 
+4f525f53 45525645 525f4f55 545f4f46 5f524553 4f555243 4553223a 20747261 
+6e736c61 74655465 78742822 53455256 4552204f 5554204f 46205245 534f5552 
+43455322 292c0d0a 20202020 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 22455252 4f525f52 45535452 49435445 445f4c4f 474f4e5f 
+484f5552 53223a20 7472616e 736c6174 65546578 74282252 45535452 49435445 
+44204c4f 474f4e20 484f5552 5322292c 0d0a2020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202245 52524f52 5f414343 4f554e54 
+5f444953 41424c45 44223a20 7472616e 736c6174 65546578 74282241 43434f55 
+4e542044 49534142 4c454422 292c0d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 22455252 4f525f41 43434f55 4e545f45 
+58504952 4544223a 20747261 6e736c61 74655465 78742822 4143434f 554e5420 
+45585049 52454422 292c0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 22455252 4f525f50 41535357 4f52445f 45585049 
+52454422 3a207472 616e736c 61746554 65787428 22504153 53574f52 44204558 
+50495245 4422292c 0d0a2020 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202245 52524f52 5f415554 48454e54 49434154 494f4e5f 
+4641494c 55524522 3a207472 616e736c 61746554 65787428 22415554 48454e54 
+49434154 494f4e20 4641494c 55524522 292c0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 22455252 4f525f46 4f524345 
+445f4449 53434f4e 4e454354 223a2074 72616e73 6c617465 54657874 2822464f 
+52434544 20444953 434f4e4e 45435422 292c0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 22455252 4f525f55 5345525f 
+44495343 4f4e4e45 4354223a 20747261 6e736c61 74655465 78742822 55534552 
+20444953 434f4e4e 45435422 292c0d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 22455252 4f525f49 444c455f 44495343 
+4f4e4e45 4354223a 20747261 6e736c61 74655465 78742822 49444c45 20444953 
+434f4e4e 45435422 292c0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 22455252 4f525f4e 4f4e4522 3a207472 616e736c 
+61746554 65787428 22455252 4f52204e 4f4e4522 290d0a20 20202020 20202020 
+20202020 2020207d 5b77616e 5f657272 5d293b0d 0a202020 20202020 20202020 
+20202020 200d0a20 20202020 20202020 20202020 20202069 66202870 70705f63 
+6f6e6e29 207b0d0a 20202020 20202020 20202020 20202020 20202020 69662028 
+77616e5f 73746174 65203d3d 2022436f 6e6e6563 74696e67 22207c7c 2077616e 
+5f737461 7465203d 3d202244 6973636f 6e6e6563 74656422 29207b0d 0a202020 
+20202020 20202020 20202020 20202020 20202020 20696620 2877616e 5f657272 
+203d3d20 22455252 4f525f41 43434f55 4e545f44 49534142 4c454422 207c7c20 
+77616e5f 65727220 3d3d2022 4552524f 525f4143 434f554e 545f4558 50495245 
+4422207c 7c0d0a20 20202020 20202020 20202020 20202020 20202020 20202020 
+20202077 616e5f65 7272203d 3d202245 52524f52 5f504153 53574f52 445f4558 
+50495245 4422207c 7c207761 6e5f6572 72203d3d 20224552 524f525f 41555448 
+454e5449 43415449 4f4e5f46 41494c55 52452220 7c7c0d0a 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 77616e5f 65727220 3d3d2022 
+4552524f 525f4953 505f5449 4d455f4f 55542220 7c7c2077 616e5f65 7272203d 
+3d202245 52524f52 5f495350 5f444953 434f4e4e 45435422 207c7c0d 0a202020 
+20202020 20202020 20202020 20202020 20202020 20202020 2077616e 5f657272 
+203d3d20 22455252 4f525f53 45525645 525f4f55 545f4f46 5f524553 4f555243 
+45532220 7c7c2077 616e5f65 7272203d 3d202245 52524f52 5f524553 54524943 
+5445445f 4c4f474f 4e5f484f 55525322 207c7c0d 0a202020 20202020 20202020 
+20202020 20202020 20202020 20202020 2077616e 5f657272 203d3d20 22455252 
+4f525f46 4f524345 445f4449 53434f4e 4e454354 22207c7c 2077616e 5f657272 
+203d3d20 22455252 4f525f55 5345525f 44495343 4f4e4e45 43542220 7c7c0d0a 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 77616e5f 
+65727220 3d3d2022 4552524f 525f4944 4c455f44 4953434f 4e4e4543 54222920 
+7b0d0a20 20202020 20202020 20202020 20202020 20202020 20202020 20202024 
+28222364 69765f6d 656e755f 77616e5f 73746174 75732229 2e73686f 7728293b 
+0d0a2020 20202020 20202020 20202020 20202020 20202020 20202020 20200d0a 
+20202020 20202020 20202020 20202020 20202020 20202020 7d20656c 7365207b 
+0d0a2020 20202020 20202020 20202020 20202020 20202020 20202020 20200d0a 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 24282223 
+6469765f 6d656e75 5f77616e 5f737461 74757322 292e6869 64652829 3b0d0a20 
+20202020 20202020 20202020 20202020 20202020 20202020 2020200d 0a202020 
+20202020 20202020 20202020 20202020 20202020 207d0d0a 20202020 20202020 
+20202020 20202020 20202020 7d20656c 7365207b 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20200d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 24282223 6469765f 6d656e75 5f77616e 5f737461 74757322 
+292e6869 64652829 3b0d0a20 20202020 20202020 20202020 20202020 20202020 
+2020200d 0a202020 20202020 20202020 20202020 20202020 207d0d0a 20202020 
+20202020 20202020 20202020 7d20656c 7365207b 0d0a2020 20202020 20202020 
+20202020 20202020 20200d0a 20202020 20202020 20202020 20202020 20202020 
+24282223 6469765f 6d656e75 5f77616e 5f737461 74757322 292e6869 64652829 
+3b0d0a20 20202020 20202020 20202020 20202020 2020200d 0a202020 20202020 
+20202020 20202020 207d0d0a 09090909 0d0a2020 20202020 20202020 20207d0d 
+0a202020 20202020 20202020 200d0a20 20202020 20202020 20202066 756e6374 
+696f6e20 47657450 5050436f 6e6e7328 29207b0d 0a202020 20202020 20202020 
+20202020 20242822 2377616e 5f737461 7475735f 76616c75 65312229 2e746578 
+74287472 616e736c 61746554 65787428 224e554c 4c222929 3b0d0a20 20202020 
+20202020 20202020 20202024 28222377 616e5f73 74617475 735f7661 6c756532 
+22292e74 65787428 7472616e 736c6174 65546578 7428224e 554c4c22 29293b0d 
+0a202020 20202020 20202020 20202020 20242822 2377616e 5f737461 7475735f 
+76616c75 65332229 2e746578 74287472 616e736c 61746554 65787428 224e554c 
+4c222929 3b0d0a20 20202020 20202020 20202020 20202076 61722074 6f6b656e 
+203d2256 5a5a4463 79736472 4b456754 73427022 3b0d0a20 20202020 20202020 
+20202020 20202076 61722067 65747070 70706f73 74646174 61203d20 20226373 
+72665f74 6f6b656e 3d222b20 746f6b65 6e3b0d0a 20202020 20202020 20202020 
+20202020 76617220 656e6372 79707464 61746120 3d206372 7970746f 5f706167 
+652e656e 63727970 745f706f 73745f64 61746128 7075626b 65792c20 67657470 
+7070706f 73746461 7461293b 0d0a2020 20202020 20202020 20202020 2020242e 
+616a6178 287b0d0a 20202020 20202020 20202020 20202020 20202020 75726c3a 
+20272f69 6e646578 2e636769 3f676574 70707027 2c0d0a20 20202020 20202020 
+20202020 20202020 20202074 7970653a 2027504f 5354272c 0d0a2020 20202020 
+20202020 20202020 20202020 20206461 74613a20 656e6372 79707464 6174612c 
+0d0a2020 20202020 20202020 20202020 20202020 20207375 63636573 733a2066 
+756e6374 696f6e28 64617461 29207b0d 0a202020 20202020 20202020 20202020 
+20202020 207d2c0d 0a202020 20202020 20202020 20202020 207d290d 0a202020 
+20202020 20202020 20202020 202e646f 6e652866 756e6374 696f6e28 6129207b 
+0d0a2020 20202020 20202020 20202020 20202020 20207472 797b0d0a 20202020 
+20202020 20202020 20202020 20202020 20202020 76617220 72657375 6c744461 
+7461203d 204a534f 4e2e7061 72736528 61293b0d 0a202020 20202020 20202020 
+20202020 20202020 20202020 2048616e 646c6550 50505374 61747573 28726573 
+756c7444 6174612e 7070705f 73746174 7573293b 0d0a2020 20202020 20202020 
+20202020 20202020 20207d0d 0a202020 20202020 20202020 20202020 20202020 
+20636174 63682865 29207b0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20636f6e 736f6c65 2e6c6f67 2865293b 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20207265 7475726e 2066616c 73653b0d 0a202020 
+20202020 20202020 20202020 20202020 207d0d0a 20202020 20202020 20202020 
+20202020 7d290d0a 20202020 20202020 20202020 7d0d0a09 09090d0a 09766172 
+206c616e 676a736f 6e3b0d0a 09747279 207b0d0a 20202020 20202020 20202020 
+76617220 6c616e67 203d2027 656e6727 3b0d0a20 20202020 20202020 20202069 
+66202864 6f63756d 656e742e 636f6f6b 69652920 7b0d0a20 20202020 20202020 
+20202020 20202064 6f63756d 656e742e 636f6f6b 69652e73 706c6974 28223b22 
+292e666f 72456163 68286675 6e637469 6f6e2028 6529207b 0d0a2020 20202020 
+20202020 20202020 20202020 20206966 2028652e 696e6465 784f6628 226c616e 
+67222920 213d3d20 2d312920 7b0d0a20 20202020 20202020 20202020 20202020 
+20202020 20202063 6f6e736f 6c652e6c 6f672865 2e73706c 69742822 3d22295b 
+315d293b 0d0a2020 20202020 20202020 20202020 20202020 20202020 20206966 
+2028652e 73706c69 7428223d 22295b31 5d20213d 3d20756e 64656669 6e656420 
+26262065 2e73706c 69742822 3d22295b 315d2021 3d3d2022 756e6465 66696e65 
+22202626 20652e73 706c6974 28223d22 295b315d 20213d3d 20222229 207b0d0a 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 6c616e67 
+203d2065 2e73706c 69742822 3d22295b 315d3b0d 0a202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20696628 6c616e67 203d3d20 22656e22 
+29207b0d 0a202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202020 206c616e 67203d20 27656e67 273b0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 7d0d0a20 20202020 20202020 20202020 
+20202020 20202020 2020207d 0d0a2020 20202020 20202020 20202020 20202020 
+20207d0d 0a202020 20202020 20202020 20202020 207d293b 0d0a2020 20202020 
+20202020 20207d0d 0a202020 20202020 207d2063 61746368 20286529 207b0d0a 
+20202020 20202020 20202020 636f6e73 6f6c652e 6c6f6728 27457272 6f722069 
+73207265 6164696e 67207468 65206c61 6e676a73 6f6e272c 2065293b 0d0a2020 
+20202020 20207d0d 0a09090d 0a09092f 2f46756e 6374696f 6e206973 20757365 
+64207265 6c6f6164 20647572 696e6720 74686520 6c616e67 75616765 20737769 
+74636820 6368616e 67652070 61737377 6f72640d 0a090969 66287769 6e646f77 
+2e6c6f63 6174696f 6e2e7061 74686e61 6d652026 26207769 6e646f77 2e6c6f63 
+6174696f 6e2e7061 74686e61 6d65203d 3d20222f 75736572 5f676c62 2e636769 
+22297b0d 0a090909 69662864 6f63756d 656e742e 636f6f6b 69652026 2620646f 
+63756d65 6e742e63 6f6f6b69 6520213d 3d202222 297b0d0a 09090909 76617220 
+73656c65 63746564 4c616e67 203d2064 6f63756d 656e742e 636f6f6b 69652e73 
+706c6974 28226c61 6e673d22 295b315d 3b0d0a09 09090969 66282873 656c6563 
+7465644c 616e6720 3d3d2027 656e2720 7c7c2073 656c6563 7465644c 616e6720 
+3d3d2027 656e6727 29202626 20242827 23736176 6527292e 76616c28 2920213d 
+20275361 76652729 7b0d0a09 09090909 77696e64 6f772e6c 6f636174 696f6e2e 
+72656c6f 61642829 0d0a0909 09097d0d 0a090909 7d0d0a09 097d0d0a 20202020 
+20202020 242e6765 744a534f 4e28222f 6a735f67 6c622f77 65622d22 202b206c 
+616e6720 2b20222e 6a736f6e 222c2066 756e6374 696f6e20 286a736f 6e29207b 
+0d0a2020 20202020 20202020 20206c61 6e676a73 6f6e203d 206a736f 6e3b0d0a 
+20202020 20202020 20202020 6c6f6361 6c53746f 72616765 2e736574 4974656d 
+28226c61 6e676a73 6f6e222c 204a534f 4e2e7374 72696e67 69667928 6c616e67 
+6a736f6e 29293b0d 0a202020 20202020 20202020 2066756e 6374696f 6e207472 
+616e736c 61746528 6c6e6729 207b0d0a 20202020 20202020 20202020 20202020 
+76617220 7472616e 736c6174 65203d20 6e657720 5472616e 736c6174 6528293b 
+0d0a2020 20202020 20202020 20202020 20207472 616e736c 6174652e 70726f63 
+65737328 293b0d0a 20202020 20202020 20202020 20202020 4c6f6164 546f704d 
+656e7528 293b0d0a 20202020 20202020 20202020 7d0d0a20 20202020 20202020 
+20202074 72616e73 6c617465 2822656e 6722293b 0d0a2020 20202020 20207d29 
+3b0d0a09 0d0a2020 20202020 20202020 20202020 20200d0a 20202020 20202020 
+20202020 24286675 6e637469 6f6e2829 207b0d0a 0d0a2020 20202020 20202020 
+20202020 20202428 22236469 765f6d65 6e755f6c 65667420 756c206c 6922292e 
+65712830 292e636c 69636b28 293b0d0a 09090909 090d0a20 20202020 20202020 
+20202020 2020200d 0a202020 20202020 20202020 20202020 20202020 200d0a20 
+20202020 20202020 20202020 20202020 20202020 2020200d 0a202020 20202020 
+20202020 20202020 20202020 20202020 200d0a20 20202020 20202020 20202020 
+20202020 2020200d 0a202020 20202020 20202020 20202020 200d0a0d 0a202020 
+20202020 20202020 20202020 200d0a20 20202020 20202020 20202020 2020200d 
+0a202020 20202020 20202020 20202020 200d0a20 20202020 20202020 20202020 
+2020200d 0a202020 20202020 20202020 20202020 200d0a20 20202020 20202020 
+20202020 2020200d 0a202020 20202020 20202020 20202020 20476574 50505043 
+6f6e6e73 28293b0d 0a202020 20202020 20202020 20202020 200d0a20 20202020 
+20202020 20202020 20202076 6172206c 616e6756 616c7565 203d2022 456e676c 
+6973682c 656e677c 45737061 c3b16f6c 2c737061 223b0d0a 20202020 20202020 
+20202020 20202020 0d0a2020 20202020 20202020 20202020 20200d0a 20202020 
+20202020 20202020 20202020 0d0a0d0a 20202020 20202020 20202020 20202020 
+0d0a2020 20202020 20202020 20202020 20200d0a 0d0a2020 20202020 20202020 
+20202020 20206966 286c616e 6756616c 75652e6c 656e6774 68203e20 30290d0a 
+20202020 20202020 20202020 20202020 7b0d0a20 20202020 20202020 20202020 
+20202020 20202076 6172206c 616e6773 203d206c 616e6756 616c7565 2e73706c 
+69742827 7c27293b 0d0a2020 20202020 20202020 20202020 20202020 20207661 
+72206874 6d6c203d 2022223b 0d0a0d0a 20202020 20202020 20202020 20202020 
+20202020 666f7228 76617220 69203d20 302c206c 656e203d 206c616e 67732e6c 
+656e6774 683b2069 203c206c 656e3b20 692b2b29 0d0a2020 20202020 20202020 
+20202020 20202020 20207b0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20766172 20697465 6d73203d 206c616e 67735b69 5d2e7370 6c697428 
+272c2729 3b0d0a0d 0a202020 20202020 20202020 20202020 20202020 20202020 
+200d0a20 20202020 20202020 20202020 20202020 20202020 20202020 20202068 
+746d6c20 2b3d2022 3c612068 7265663d 273f6c61 6e673d22 202b2069 74656d73 
+5b315d20 2b202227 3e22202b 20697465 6d735b30 5d202b20 223c2f61 3e223b0d 
+0a202020 20202020 20202020 20202020 20202020 20202020 200d0a0d 0a202020 
+20202020 20202020 20202020 20202020 20202020 20696628 69203c20 6c656e20 
+2d203129 0d0a2020 20202020 20202020 20202020 20202020 20202020 20207b0d 
+0a202020 20202020 20202020 20202020 20202020 20202020 20202020 2068746d 
+6c202b3d 2027207c 20273b0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 207d0d0a 20202020 20202020 20202020 20202020 20202020 7d0d0a20 
+20202020 20202020 20202020 20202020 20202020 0d0a2020 20202020 20202020 
+20202020 20202020 20202428 22236469 765f7878 20756c20 6c692229 2e657128 
+31292e68 746d6c28 68746d6c 293b0d0a 0d0a2020 20202020 20202020 20202020 
+20207d0d 0a202020 20202020 20202020 207d290d 0a0d0a20 20202020 20202020 
+20202066 756e6374 696f6e20 4c6f6164 546f704d 656e7528 29207b0d 0a200909 
+76617220 69647820 3d20303b 0d0a2020 20202020 20202020 20202020 2020666f 
+72202869 6e646578 20696e20 616c6c5f 6e6f6465 732e6e6f 64657329 207b0d0a 
+0d0a2020 20202020 20202020 20202020 20202020 20206966 2028616c 6c5f6e6f 
+6465732e 6e6f6465 735b696e 6465785d 2e6e6f64 65732e6c 656e6774 68203e20 
+3029207b 0d0a0920 20202020 20202020 20202020 20202076 6172206d 61696e5f 
+6d656e75 203d206c 616e676a 736f6e5b 616c6c5f 6e6f6465 732e6e6f 6465735b 
+696e6465 785d2e6e 616d655d 203f206c 616e676a 736f6e5b 616c6c5f 6e6f6465 
+732e6e6f 6465735b 696e6465 785d2e6e 616d655d 203a2061 6c6c5f6e 6f646573 
+2e6e6f64 65735b69 6e646578 5d2e6e61 6d653b0d 0a202020 20202020 20202020 
+20202020 20202020 20202020 20766172 20696d67 203d2022 6f70656e 2e676966 
+223b0d0a 20202020 20202020 20202020 20202020 20202020 20202020 76617220 
+745f6d65 6e75203d 20242822 3c756c20 636c6173 733d2778 5f6d6169 6e5f6d65 
+6e75273e 3c6c6920 636c6173 733d2778 5f6d6169 6e5f6d65 6e752720 3e3c6120 
+68726566 3d272327 3e3c696d 67202073 72633d27 2f696d67 5f676c62 2f22202b 
+20696d67 202b2022 273e2220 2b206d61 696e5f6d 656e7520 2b20223c 2f613e3c 
+2f6c693e 3c2f756c 3e22290d 0a0d0a20 20202020 20202020 20202020 20202020 
+20202020 20202024 28222364 69765f6d 656e755f 6c656674 2022292e 61707065 
+6e642874 5f6d656e 75293b0d 0a0d0a20 20202020 20202020 20202020 20202020 
+20202020 20202074 5f6d656e 752e636c 69636b28 6e657720 66756e63 74696f6e 
+2829207b 0d0a0d0a 09202020 20202020 20202020 20202020 20242822 23646976 
+5f636f6e 74656e74 5f6c6566 7420756c 22292e65 71286964 78292e63 6c69636b 
+2866756e 6374696f 6e28297b 0d0a0d0a 09090909 09242874 68697329 2e656163 
+68286675 6e637469 6f6e2869 64782c76 297b0d0a 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202428 76292e66 
+696e6428 226c6922 292e6571 2830292e 61747472 2822636c 61737322 2c202778 
+5f637572 5f6d6169 6e5f6d65 6e752729 3b0d0a20 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202024 2876292e 66696e64 
+28226c69 22292e73 6c696365 2831292e 72656d6f 76652829 3b0d0a0d 0a202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 207d290d 
+0a0d0a09 09090909 24287468 6973292e 7369626c 696e6773 28292e65 61636828 
+66756e63 74696f6e 28696478 2c76297b 0d0a0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 76617220 746f7020 
+3d202428 76292e66 696e6428 226c6922 292e6571 2830293b 0d0a0d0a 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+24287629 2e66696e 6428226c 6922292e 65712830 292e6174 74722822 636c6173 
+73222c20 27785f6d 61696e5f 6d656e75 27293b0d 0a0d0a20 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202024 2876292e 
+66696e64 28226c69 22292e73 6c696365 2831292e 68696465 28293b0d 0a0d0a20 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202024 2822696d 67222c20 746f7029 2e617474 72282273 7263222c 20272f69 
+6d675f67 6c622f6f 70656e2e 67696627 293b0d0a 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20207d29 0d0a2020 20202020 
+20202020 20202020 20202020 20202020 20202020 20207d29 0d0a0d0a 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 76617220 745f7375 
+626d656e 75203d20 745f6d65 6e753b0d 0a202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20766172 206e6f64 65203d20 616c6c5f 6e6f6465 
+732e6e6f 6465735b 696e6465 785d3b0d 0a0d0a20 20202020 20202020 20202020 
+20202020 20202020 20202020 20202072 65747572 6e206675 6e637469 6f6e2829 
+207b0d0a 0d0a2020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202020 20207265 7475726e 2053656c 65637453 75624d65 6e75286e 6f64652c 
+20745f73 75626d65 6e75293b 0d0a0d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 7d0d0a20 20202020 20202020 20202020 20202020 
+20202020 2020207d 293b0d0a 09092020 20202069 6478202b 3d20313b 0d0a2020 
+20202020 20202020 20202020 20202020 20207d0d 0a202020 20202020 20202020 
+20202020 207d0d0a 20202020 20202020 20202020 7d0d0a0d 0a0d0a20 20202020 
+20202020 20202066 756e6374 696f6e20 53656c65 63745375 624d656e 75286e6f 
+64652c20 745f7375 6229207b 0d0a0d0a 0d0a2020 20202020 20202020 20202020 
+20207661 72206e6f 64657320 3d206e6f 64652e6e 6f646573 3b0d0a20 20202020 
+20202020 20202020 20202076 6172206d 74203d20 6e6f6465 2e6e616d 653b0d0a 
+20202020 20202020 20202020 20202020 0d0a2020 20202020 20202020 20202020 
+20202020 20207661 7220635f 696d6720 3d20272f 696d675f 676c622f 636c6f73 
+652e6769 66273b0d 0a202020 20202020 20202020 20202020 200d0a20 20202020 
+20202020 20202020 20202024 2822696d 67222c20 745f7375 62292e61 74747228 
+22737263 222c2063 5f696d67 293b0d0a 0d0a0909 09090d0a 0d0a2020 20202020 
+20202020 20202020 2020666f 72202869 6e646578 20696e20 6e6f6465 7329207b 
+0d0a2020 20202020 20202020 20202020 20202020 20207661 72207375 625f6d65 
+6e75203d 206c616e 676a736f 6e5b6e6f 6465735b 696e6465 785d2e6e 616d655d 
+203f206c 616e676a 736f6e5b 6e6f6465 735b696e 6465785d 2e6e616d 655d203a 
+206e6f64 65735b69 6e646578 5d2e6e61 6d653b0d 0a202020 20202020 20202020 
+20202020 20202020 20766172 206c5f73 75626d65 6e75203d 20242822 3c6c6920 
+636c6173 733d2778 5f737562 5f6d656e 7527203e 3c612068 7265663d 27232720 
+20746172 6765743d 276d6169 6e467261 6d65273e 22202b20 7375625f 6d656e75 
+202b2022 3c2f613e 3c2f6c69 3e22290d 0a0d0a20 20202020 20202020 20202020 
+20202020 20202074 5f737562 2e617070 656e6428 6c5f7375 626d656e 75293b0d 
+0a0d0a20 20202020 20202020 20202020 20202020 2020206c 5f737562 6d656e75 
+2e636c69 636b286e 65772066 756e6374 696f6e28 29207b0d 0a0d0a20 20202020 
+20202020 20202020 20202020 20202020 20202076 6172206e 6f646520 3d206e6f 
+6465735b 696e6465 785d3b0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20766172 20737562 203d206c 5f737562 6d656e75 3b0d0a0d 0a202020 
+20202020 20202020 20202020 20202020 20202020 20726574 75726e20 66756e63 
+74696f6e 2829207b 0d0a0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 69662028 74797065 6f66286e 6f64652e 74617267 65742920 
+3d3d2022 73747269 6e672229 207b0d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 096d7420 3d206c61 6e676a73 6f6e5b6d 
+745d203f 206c616e 676a736f 6e5b6d74 5d203a20 6d743b0d 0a202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20766172 20737420 
+3d206e6f 64652e6e 616d653b 0d0a0909 09090909 09090973 74203d20 6c616e67 
+6a736f6e 5b73745d 203f206c 616e676a 736f6e5b 73745d20 3a207374 3b0d0a20 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 20202076 
+61722074 69746c65 5f746f70 203d206d 74202b20 22266774 3b22202b 2073743b 
+0d0a0d0a 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20202020 24282223 78746974 6c655f74 6f702229 2e68746d 6c287469 746c655f 
+746f7029 3b0d0a0d 0a202020 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20737562 2e617474 72282263 6c617373 222c2027 785f6375 
+725f7375 625f6d65 6e752729 3b0d0a0d 0a202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20737562 2e736962 6c696e67 7328292e 
+736c6963 65283129 2e617474 72282263 6c617373 222c2027 785f7375 625f6d65 
+6e752729 3b0d0a0d 0a202020 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20476f54 6f55726c 286e6f64 652e7461 72676574 293b0d0a 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 7d0d0a0d 
+0a202020 20202020 20202020 20202020 20202020 20202020 20202020 20726574 
+75726e20 66616c73 653b0d0a 0d0a2020 20202020 20202020 20202020 20202020 
+20202020 20207d0d 0a0d0a20 20202020 20202020 20202020 20202020 2020207d 
+290d0a0d 0a0d0a20 20202020 20202020 20202020 20202020 20202024 28226122 
+2c206c5f 7375626d 656e7529 2e617474 72282268 72656622 2c206e6f 6465735b 
+696e6465 785d2e74 61726765 74293b0d 0a0d0a20 20202020 20202020 20202020 
+2020207d 0d0a0d0a 0d0a2020 20202020 20202020 20202020 20206966 20287479 
+70656f66 286e6f64 652e7461 72676574 29203d3d 20226e75 6d626572 22202626 
+206e6f64 652e7461 72676574 203c206e 6f646573 2e6c656e 67746829 207b0d0a 
+0d0a2020 20202020 20202020 20202020 20202020 20202428 226c6922 2c20745f 
+73756229 2e657128 286e6f64 652e7461 72676574 29202b20 31292e63 6c69636b 
+28293b0d 0a0d0a20 20202020 20202020 20202020 2020207d 20656c73 65206966 
+20287479 70656f66 286e6f64 652e7461 72676574 29203d3d 20227374 72696e67 
+2229207b 0d0a0d0a 20202020 20202020 20202020 20202020 20202020 476f546f 
+55726c28 6e6f6465 2e746172 67657429 3b0d0a0d 0a202020 20202020 20202020 
+20202020 207d0d0a 20202020 20202020 20202020 20202020 72657475 726e2066 
+616c7365 3b0d0a0d 0a202020 20202020 20202020 207d0d0a 0d0a2020 20202020 
+20202020 20206675 6e637469 6f6e2047 6f546f55 726c2875 726c2920 7b0d0a20 
+20202020 20202020 20202020 2020203c 212d2d20 436c6561 72207468 65207365 
+7373696f 6e207374 6f726167 65207768 656e2074 68652070 61676573 20617265 
+206e6176 69676174 6564202d 2d3e0d0a 20202020 20202020 20202020 20202020 
+69662028 75726c20 3d3d2022 75735f63 6c617373 69666965 722e6367 69222920 
+7b0d0a20 20202020 20202020 20202020 20202020 20202073 65737369 6f6e5374 
+6f726167 652e7265 6d6f7665 4974656d 2822706f 6c696379 5f737461 74652229 
+3b0d0a20 20202020 20202020 20202020 20202020 20202073 65737369 6f6e5374 
+6f726167 652e7265 6d6f7665 4974656d 2822636c 61737369 66696572 5f737461 
+74652229 3b0d0a20 20202020 20202020 20202020 20202020 20202073 65737369 
+6f6e5374 6f726167 652e7265 6d6f7665 4974656d 28227275 6c65735f 73746174 
+6522293b 0d0a2020 20202020 20202020 20202020 20207d65 6c736520 69662875 
+726c203d 3d202270 6172656e 74616c5f 636f6e74 726f6c2e 63676922 297b0d0a 
+20202020 20202020 20202020 20202020 20202020 73657373 696f6e53 746f7261 
+67652e72 656d6f76 65497465 6d282270 6172656e 74616c5f 636f6e74 726f6c5f 
+7375625f 7461626c 6522293b 0d0a2020 20202020 20202020 20202020 20202020 
+20207365 7373696f 6e53746f 72616765 2e72656d 6f766549 74656d28 22706172 
+656e7461 6c5f636f 6e74726f 6c5f7375 625f7461 626c655f 69642229 3b0d0a20 
+20202020 20202020 20202020 2020207d 0d0a0d0a 20202020 20202020 20202020 
+20202020 24287769 6e646f77 292e7363 726f6c6c 546f7028 30293b0d 0a202020 
+20202020 20202020 20202020 20242822 69667261 6d655b6e 616d653d 276d6169 
+6e467261 6d65275d 22292e61 74747228 22737263 222c2075 726c290d 0a202020 
+20202020 20202020 207d0d0a 0d0a2020 20202020 20202020 20206675 6e637469 
+6f6e204f 6e4c6f67 6f757428 29207b0d 0a202020 20202020 20202020 20202020 
+20746f70 2e6c6f63 6174696f 6e2e6872 6566203d 20222f72 65672e68 746d6c22 
+3b0d0a20 20202020 20202020 2020207d 0d0a0d0a 20202020 20202020 20202020 
+66756e63 74696f6e 20726566 72657368 2829207b 0d0a2020 20202020 20202020 
+20202020 20204765 74505050 436f6e6e 7328293b 0d0a2020 20202020 20202020 
+20207d0d 0a0d0a20 20202020 2020203c 2f736372 6970743e 0d0a2020 20202020 
+20203c21 2d2d5b69 66206c74 20494520 395d3e0d 0a202020 20202020 20202020 
+203c7363 72697074 20737263 3d222f63 6f6d6d6f 6e2f6a73 2f68746d 6c357368 
+69762e6d 696e2e6a 73223e3c 2f736372 6970743e 0d0a2020 20202020 20202020 
+20203c73 63726970 74207372 633d222f 636f6d6d 6f6e2f6a 732f6874 6d6c3573 
+6869762d 7072696e 74736869 762e6d69 6e2e6a73 223e3c2f 73637269 70743e0d 
+0a202020 20202020 20202020 203c7363 72697074 20737263 3d222f63 6f6d6d6f 
+6e2f6a73 2f726573 706f6e64 2e6d696e 2e6a7322 3e3c2f73 63726970 743e0d0a 
+20202020 20202020 20202020 203c7363 72697074 3e0d0a20 20202020 20202020 
+20202020 20202061 6c657274 28747261 6e736c61 74655465 78742822 506c6561 
+73652075 73652049 6e746572 6e657420 4578706c 6f726572 20313020 6f722068 
+69676865 72206f72 20757365 20436872 6f6d652f 46697265 666f7820 746f2062 
+726f7773 65207468 6520696e 7472616e 65742074 6f206765 74207468 65206265 
+73742076 69657769 6e672229 293b0d0a 20202020 20202020 20202020 3c2f7363 
+72697074 3e0d0a20 20202020 2020203c 215b656e 6469665d 2d2d3e0d 0a202020 
+203c2f68 6561643e 0d0a0d0a 20202020 3c426f64 793e0d0a 20202020 203c6469 
+76206964 3d227772 6170223e 0d0a2020 20202020 20203c64 69762069 643d2264 
+69765f6c 6f676f22 3e0d0a20 20202020 20202020 2020203c 64697620 69643d22 
+6469765f 6c6f676f 31223e0d 0a202020 20202020 20202020 20202020 200d0a20 
+20202020 20202020 20202020 2020200d 0a202020 20202020 20202020 20202020 
+203c756c 3e0d0a20 20202020 20202020 20202020 20202020 2020203c 6c692069 
+643d2278 6c6f676f 223e0d0a 20202020 20202020 20202020 20202020 20202020 
+2020200d 0a202020 20202020 20202020 20202020 20202020 20202020 0d0a2020 
+20202020 20202020 20202020 20202020 20202020 200d0a20 20202020 20202020 
+20202020 20202020 20202020 20200d0a 20202020 20202020 20202020 20202020 
+20202020 20202020 2020203c 61206872 65663d22 22207461 72676574 3d225f62 
+6c616e6b 22202072 656c3d22 6e6f6f70 656e6572 206e6f72 65666572 72657222 
+3e3c696d 67207372 633d222f 696d675f 676c622f 6c6f676f 612e706e 6722202f 
+3e3c2f61 3e0d0a20 20202020 20202020 20202020 20202020 20202020 20200d0a 
+20202020 20202020 20202020 20202020 20202020 3c2f6c69 3e0d0a20 20202020 
+20202020 20202020 2020203c 2f756c3e 0d0a2020 20202020 20202020 20203c2f 
+6469763e 0d0a2020 20202020 20202020 20203c64 69762069 643d2264 69765f6c 
+6f676f32 223e3c2f 6469763e 0d0a2020 20202020 20202020 20203c64 69762069 
+643d2264 69765f6c 6f676f33 223e0d0a 20202020 20202020 20202020 20202020 
+3c646976 2069643d 22646976 5f706164 223e3c2f 6469763e 0d0a2020 20202020 
+20202020 20202020 20203c64 69762069 643d2264 69765f74 6f70223e 0d0a2020 
+20202020 20202020 20202020 20202020 20203c64 69762069 643d2264 69765f74 
+69746c65 223e0d0a 20202020 20202020 20202020 20202020 20202020 20202020 
+3c756c3e 0d0a2020 20202020 20202020 20202020 20202020 20202020 20202020 
+20203c6c 69206964 3d227874 69746c65 223e0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 47504f4e 20486f6d 65204761 
+74657761 790d0a20 20202020 20202020 20202020 20202020 20202020 20202020 
+2020203c 2f6c693e 0d0a2020 20202020 20202020 20202020 20202020 20202020 
+20203c2f 756c3e0d 0a202020 20202020 20202020 20202020 20202020 203c2f64 
+69763e0d 0a202020 20202020 20202020 20202020 20202020 200d0a20 20202020 
+20202020 20202020 20202020 20202020 2020200d 0a202020 20202020 20202020 
+20202020 20202020 20202020 20202020 200d0a20 20202020 20202020 20202020 
+20202020 20202020 2020200d 0a202020 20202020 20202020 20202020 20202020 
+200d0a20 20202020 20202020 20202020 20202020 2020200d 0a202020 20202020 
+20202020 20202020 20202020 203c6469 76206964 3d226469 765f7878 223e0d0a 
+20202020 20202020 20202020 20202020 20202020 20202020 3c756c3e 0d0a2020 
+20202020 20202020 20202020 20202020 20202020 20202020 20203c6c 69207374 
+796c653d 22686569 6768743a 33347078 3b223e3c 2f6c693e 0d0a2020 20202020 
+20202020 20202020 20202020 20202020 20202020 20203c6c 69206964 3d226c61 
+6e677561 6765223e 3c2f6c69 3e0d0a20 20202020 20202020 20202020 20202020 
+20202020 2020203c 2f756c3e 0d0a2020 20202020 20202020 20202020 20202020 
+20203c2f 6469763e 0d0a2020 20202020 20202020 20202020 20202020 20200d0a 
+20202020 20202020 20202020 20202020 0d0a2020 20202020 20202020 20202020 
+20203c2f 6469763e 0d0a2020 20202020 20202020 20203c2f 6469763e 0d0a2020 
+20202020 20202020 20203c64 69762069 643d2264 69765f6c 6f676f34 223e3c2f 
+6469763e 0d0a2020 20202020 20203c2f 6469763e 0d0a2020 20202020 20203c74 
+61626c65 20776964 74683d22 31313530 223e0d0a 20202020 20202020 20202020 
+3c74723e 0d0a2020 20202020 20202020 20202020 20203c74 64206964 3d226469 
+765f6c65 6674223e 3c2f7464 3e0d0a20 20202020 20202020 20202020 2020203c 
+74642069 643d2264 69765f6d 61726769 6e223e3c 2f74643e 0d0a2020 20202020 
+20202020 20202020 20203c74 643e0d0a 20202020 20202020 20202020 20202020 
+20202020 3c746162 6c652061 6c69676e 3d6c6566 743e0d0a 20202020 20202020 
+20202020 20202020 20202020 20202020 3c747220 69643d22 6469765f 70617468 
+223e0d0a 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+3c746420 69643d22 78746974 6c655f74 6f70223e 3c2f7464 3e0d0a20 20202020 
+20202020 20202020 20202020 20202020 2020203c 2f74723e 0d0a2020 20202020 
+20202020 20202020 20202020 20202020 20203c74 723e0d0a 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 3c746420 69643d22 6469765f 
+696d6722 3e3c2f74 643e0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 3c2f7472 3e0d0a20 20202020 20202020 20202020 20202020 2020203c 
+2f746162 6c653e0d 0a202020 20202020 20202020 20202020 203c2f74 643e0d0a 
+20202020 20202020 20202020 3c2f7472 3e0d0a20 20202020 2020203c 2f746162 
+6c653e0d 0a202020 20202020 203c7365 6374696f 6e20636c 6173733d 226f6e74 
+2d696e6e 65722d77 72617022 3e200d0a 20202020 20202020 20203c64 69762063 
+6c617373 3d226f6e 742d6e61 76696761 74696f6e 223e0d0a 20202020 20202020 
+20202020 203c6469 76206964 3d226469 765f636f 6e74656e 745f6c65 6674223e 
+0d0a2020 20202020 20202020 20202020 20202020 20202020 20203c64 69762069 
+643d2264 69765f6d 656e755f 6c656674 223e3c2f 6469763e 0d0a2020 20202020 
+20202020 20202020 20202020 20202020 20200d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 3c646976 2069643d 22646976 5f6d656e 
+755f7761 6e5f7374 61747573 22202020 200d0a20 20202020 20202020 20202020 
+20202020 20202020 2020200d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20686964 64656e20 0d0a2020 20202020 20202020 20202020 
+20202020 20202020 20203e0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 203c6469 76206964 3d227761 6e5f7374 61747573 
+5f746578 7431223e 0d0a2020 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20203c70 3e0d0a20 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 2020203c 7370616e 
+3e57414e 20436f6e 6e656374 696f6e20 49443c2f 7370616e 3e203a20 3c737061 
+6e207374 796c653d 22646973 706c6179 3a626c6f 636b3b77 6f72642d 62726561 
+6b3a6272 65616b2d 616c6c3b 776f7264 2d777261 703a6272 65616b2d 776f7264 
+22206964 3d227761 6e5f7374 61747573 5f76616c 75653222 3e204e55 4c4c203c 
+2f737061 6e3e3c2f 703e0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 3c2f6469 763e0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 3c646976 2069643d 2277616e 
+5f737461 7475735f 74657874 32223e0d 0a202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 203c703e 0d0a2020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20203c73 70616e3e 57414e20 53746174 75733c2f 7370616e 3e203a20 3c737061 
+6e207374 796c653d 22646973 706c6179 3a626c6f 636b3b77 6f72642d 62726561 
+6b3a6272 65616b2d 616c6c3b 776f7264 2d777261 703a6272 65616b2d 776f7264 
+22206964 3d227761 6e5f7374 61747573 5f76616c 75653122 3e204e55 4c4c203c 
+2f737061 6e3e3c2f 703e0d0a 20202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 3c2f6469 763e0d0a 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 3c646976 2069643d 2277616e 
+5f737461 7475735f 74657874 33223e0d 0a202020 20202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 203c703e 0d0a2020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20202020 20202020 
+20203c73 70616e3e 57414e20 4661696c 7572653c 2f737061 6e3e203a 203c7370 
+616e2073 74796c65 3d226469 73706c61 793a626c 6f636b3b 776f7264 2d627265 
+616b3a62 7265616b 2d616c6c 3b776f72 642d7772 61703a62 7265616b 2d776f72 
+64222069 643d2277 616e5f73 74617475 735f7661 6c756533 223e204e 554c4c20 
+3c2f7370 616e3e3c 2f703e0d 0a202020 20202020 20202020 20202020 20202020 
+20202020 20202020 20202020 203c2f64 69763e0d 0a202020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 203c6469 76207374 796c653d 
+22746578 742d616c 69676e3a 63656e74 6572223e 0d0a2020 20202020 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 20203c69 6e707574 
+20747970 653d2262 7574746f 6e222073 74796c65 3d227769 6474683a 20313030 
+70783b20 626f7474 6f6d3a20 3270783b 22207661 6c75653d 22526566 72657368 
+22206f6e 636c6963 6b3d2272 65667265 73682829 3b22202f 3e0d0a20 20202020 
+20202020 20202020 20202020 20202020 20202020 20202020 2020203c 2f646976 
+3e0d0a20 20202020 20202020 20202020 20202020 20202020 20202020 2020203c 
+2f646976 3e0d0a20 20202020 20202020 20202020 20202020 20202020 2020200d 
+0a202020 20202020 20202020 20202020 20202020 203c2f64 69763e0d 0a202020 
+20202020 203c2f64 69763e0d 0a202020 20202020 203c6469 7620636c 61737320 
+3d226172 7469636c 65222069 643d2269 6e746572 6e657422 3e0d0a20 20202020 
+20202020 2020203c 64697620 636c6173 733d226f 6e742d63 6f6e7465 6e74223e 
+0d0a2020 20202020 20202020 20202020 20203c21 2d2d2031 363a3920 61737065 
+63742072 6174696f 202d2d3e 0d0a2020 20202020 20202020 20202020 20203c69 
+6672616d 65202069 643d226d 61696e46 72616d65 22206e61 6d653d22 6d61696e 
+4672616d 65222020 7374796c 653d226f 76657266 6c6f773a 20617574 6f3b7769 
+6474683a 31303025 3b686569 6768743a 20353530 70782220 20667261 6d65626f 
+72646572 3d223022 3e3c2f69 6672616d 653e0d0a 20202020 20202020 20202020 
+3c2f6469 763e0d0a 20202020 20202020 3c2f6469 763e0d0a 20202020 2020203c 
+2f736563 74696f6e 3e202020 20202020 20202020 20202020 20202020 20200d0a 
+20202020 203c2f64 69763e0d 0a202020 20203c73 63726970 743e0d0a 20202020 
+20202020 24287769 6e646f77 292e6f6e 28276c6f 6164272c 2066756e 6374696f 
+6e282920 7b0d0a20 20202020 20202076 6172206f 76657276 69657753 656c6563 
+74696f6e 203d2073 6574496e 74657276 616c2866 756e6374 696f6e28 29207b0d 
+0a202020 20202020 20202020 20696628 24282223 6469765f 6d656e75 5f6c6566 
+7420756c 206c6922 292e6c65 6e677468 297b0d0a 20202020 20202020 20202020 
+20202020 636c6561 72496e74 65727661 6c286f76 65727669 65775365 6c656374 
+696f6e29 3b0d0a20 20202020 20202020 20202020 2020206f 76657276 69657753 
+656c6563 74696f6e 203d2075 6e646566 696e6564 3b0d0a20 20202020 20202020 
+20202020 20202024 28222364 69765f6d 656e755f 6c656674 20756c20 6c692229 
+2e657128 30292e63 6c69636b 28293b20 0d0a2020 20202020 20202020 20207d0d 
+0a202020 20202020 207d2c20 38303029 0d0a2020 20202020 20207d29 0d0a3c2f 
+73637269 70743e0d 0a202020 203c2f42 6f64793e 0d0a3c2f 68746d6c 3e0d0a
+
+
+First 50 bytes (hex):
+  48 54 54 50 2f 31 2e 30 20 32 39 39 20 53 6f 6d 65 74 68 69 6e 67 0d 0a 53 74 61 74 75 73 3a 32 39 39 0d 0a 58 2d 53 49 44 3a 48 4b 45 61 65 43 69 57 
+
+First 200 bytes (ASCII preview):
+  HTTP/1.0 299 Something..Status:299..X-SID:HKEaeCiWNwEETiZG..Set-Cookie: sid=HKEaeCiWNwEETiZG; path=/;HttpOnly;Secure;..Set-Cookie: lsid=rAvnppPdrlKdehmN; expires=Fri, 01-Jan-2046 00:00:01 GMT; path=/;
+[*] Fallback fingerprint title: GPON Home Gateway
+443    : GPON Home Gateway
+  [ssl] connect failed (timeout=3s): Success
+[-] No HTTPS/SSL response
+[*] Last resort: retrying HTTP with source port 443...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[*] Last resort: retrying HTTPS with source port 443...
+  [ssl] connect failed (timeout=3s): Cannot assign requested address
+[-] No response even with source port 443 (HTTP or HTTPS) — target likely down/filtered
+[*] Fallback chain also exhausted -- replaying full probe cycle bound to source port 443 (last resort)...
+[*] Port 80 not declared as sslports -- running quick TLS pre-check (timeout=2s) before plaintext probes...
+  [ssl] connect failed (timeout=2s): Cannot assign requested address
+  [ssl-check] port 80: TLS NOT supported (plain TCP)
+[PHASE 1] Adding NULL probe: 'NULL'
+[PHASE 2] Port 80 explicit -> probe 'GetRequest' (rarity 1)
+[PHASE 2] Port 80 explicit -> probe 'HTTPOptions' (rarity 4)
+[PHASE 2] Port 80 explicit -> probe 'RTSPRequest' (rarity 5)
+[PHASE 2] Port 80 explicit -> probe 'X11Probe' (rarity 4)
+[PHASE 2] Port 80 explicit -> probe 'FourOhFourRequest' (rarity 6)
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'GenericLines'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'KubeletProbe'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HPWebJetadmin'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'WazuhAuthd'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'CWMP_ACS'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'HTTPon443'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'RPCCheck'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'RPCBind'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'DNSVersionBindReqTCP'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'DNSStatusRequestTCP'
+[PHASE 3] Rarity 3 <= intensity 7 -> probe 'Help'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'SSLSessionReq'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'TerminalServerCookie'
+[PHASE 3] Rarity 1 <= intensity 7 -> probe 'TLSSessionReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'Kerberos'
+[PHASE 3] Rarity 4 <= intensity 7 -> probe 'SMBProgNeg'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LPDString'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPSearchReq'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LDAPBindReq'
+[PHASE 3] Rarity 5 <= intensity 7 -> probe 'SIPOptions'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'LANDesk-RC'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'TerminalServer'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NCP'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'NotesRPC'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'JavaRMI'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'WMSRequest'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'oracle-tns'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'ms-sql-s'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'HPJetDirect'
+[PHASE 3] Rarity 6 <= intensity 7 -> probe 'afp'
+[PHASE 3] Rarity 7 <= intensity 7 -> probe 'giop'
+[PHASE 3] Added 31 non-explicit probes (intensity cap: 7)
+[PLAN] Total probes queued for port 80: 37
+
+
+[PROBE #0] Name: NULL | Port: 80 | SSL: no
+  Payload: <none -- NULL banner grab>
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #0 X] 'NULL' -> no response
+
+[PROBE #1] Name: GetRequest | Port: 80 | SSL: no
+  Payload : 28 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #1 X] 'GetRequest' -> no response
+
+[PROBE #2] Name: HTTPOptions | Port: 80 | SSL: no
+  Payload : 22 bytes
+  C-string: "OPTIONS / HTTP/1.0\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #2 X] 'HTTPOptions' -> no response
+
+[PROBE #3] Name: RTSPRequest | Port: 80 | SSL: no
+  Payload : 22 bytes
+  C-string: "OPTIONS / RTSP/1.0\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #3 X] 'RTSPRequest' -> no response
+
+[PROBE #4] Name: X11Probe | Port: 80 | SSL: no
+  Payload : 12 bytes
+  C-string: "l\x00\x0b\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #4 X] 'X11Probe' -> no response
+
+[PROBE #5] Name: FourOhFourRequest | Port: 80 | SSL: no
+  Payload : 53 bytes
+  C-string: "GET /nice%20ports%2C/Tri%6Eity.txt%2ebak HTTP/1.0\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #5 X] 'FourOhFourRequest' -> no response
+
+[PROBE #6] Name: GenericLines | Port: 80 | SSL: no
+  Payload : 18 bytes
+  C-string: "GET / HTTP/1.1\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected Host: 192.168.1.254 into HTTP/1.1 probe (was missing)
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #6 X] 'GenericLines' -> no response
+
+[PROBE #7] Name: KubeletProbe | Port: 80 | SSL: no
+  Payload : 35 bytes
+  C-string: "GET /healthz HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #7 X] 'KubeletProbe' -> no response
+
+[PROBE #8] Name: HPWebJetadmin | Port: 80 | SSL: no
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #8 X] 'HPWebJetadmin' -> no response
+
+[PROBE #9] Name: WazuhAuthd | Port: 80 | SSL: no
+  Payload : 35 bytes
+  C-string: "GET /version HTTP/1.1\r\nHost: %H\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #9 X] 'WazuhAuthd' -> no response
+
+[PROBE #10] Name: CWMP_ACS | Port: 80 | SSL: no
+  Payload : 47 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: %H\r\nConnection: close\r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #10 X] 'CWMP_ACS' -> no response
+
+[PROBE #11] Name: HTTPon443 | Port: 80 | SSL: no
+  Payload : 26 bytes
+  C-string: "GET / HTTP/1.1\r\nHost: \r\n\r\n"
+  Sending...
+  [probe-fixup] Injected User-Agent into HTTP/1.1 probe (was missing)
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #11 X] 'HTTPon443' -> no response
+
+[PROBE #12] Name: RPCCheck | Port: 80 | SSL: no
+  Payload : 44 bytes
+  C-string: "\x80\x00\x00(r\xfe\x1d\x13\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x01\x97|\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #12 X] 'RPCCheck' -> no response
+
+[PROBE #13] Name: RPCBind | Port: 80 | SSL: no
+  Payload : 45 bytes
+  C-string: "\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x06"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #13 X] 'RPCBind' -> no response
+
+[PROBE #14] Name: DNSVersionBindReqTCP | Port: 80 | SSL: no
+  Payload : 32 bytes
+  C-string: "\x00\x1e\x00\x06\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07version\x04bind\x00\x00\x10\x00\x03"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #14 X] 'DNSVersionBindReqTCP' -> no response
+
+[PROBE #15] Name: DNSStatusRequestTCP | Port: 80 | SSL: no
+  Payload : 14 bytes
+  C-string: "\x00\x0c\x00\x00\x10\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #15 X] 'DNSStatusRequestTCP' -> no response
+
+[PROBE #16] Name: Help | Port: 80 | SSL: no
+  Payload : 6 bytes
+  C-string: "HELP\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #16 X] 'Help' -> no response
+
+[PROBE #17] Name: SSLSessionReq | Port: 80 | SSL: no
+  Payload : 88 bytes
+  C-string: "\x16\x03\x00\x00S\x01\x00\x00O\x03\x00?G\xd7\xf7\xba,\xee\xea\xb2`~\xf3\x00\xfd\x82{\xb9\xd5\x96\xc8w\x9b\xe6\xc4\xdb<=\xdbo\xef\x10n\x00\x00(\x00\x16\x00\x13\x00\n\x00f\x00\x05\x00\x04\x00e\x00d\x00c\x00b\x00a\x00`\x00\x15\x00\x12\x00\t\x00\x14\x00\x11\x00\x08\x00\x06\x00\x03\x01\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #17 X] 'SSLSessionReq' -> no response
+
+[PROBE #18] Name: TerminalServerCookie | Port: 80 | SSL: no
+  Payload : 42 bytes
+  C-string: "\x03\x00\x00*%\xe0\x00\x00\x00\x00\x00Cookie: mstshash=nmap\r\n\x01\x00\x08\x00\x03\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #18 X] 'TerminalServerCookie' -> no response
+
+[PROBE #19] Name: TLSSessionReq | Port: 80 | SSL: no
+  Payload : 110 bytes
+  C-string: "\x16\x03\x00\x00i\x01\x00\x00e\x03\x03U\x1c\xa7\xe4random1random2random3random4\x00\x00\x0c\x00/\x00\n\x00\x13\x009\x00\x04\x00\xff\x01\x00\x000\x00\r\x00,\x00*\x00\x01\x00\x03\x00\x02\x06\x01\x06\x03\x06\x02\x02\x01\x02\x03\x02\x02\x03\x01\x03\x03\x03\x02\x04\x01\x04\x03\x04\x02\x01\x01\x01\x03\x01\x02\x05\x01\x05\x03\x05\x02"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #19 X] 'TLSSessionReq' -> no response
+
+[PROBE #20] Name: Kerberos | Port: 80 | SSL: no
+  Payload : 117 bytes
+  C-string: "\x00\x00\x00qj\x81n0\x81k\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\n\xa4\x81^0\\\xa0\x07\x03\x05\x00P\x80\x00\x10\xa2\x04\x1b\x02NM\xa3\x170\x15\xa0\x03\x02\x01\x00\xa1\x0e0\x0c\x1b\x06krbtgt\x1b\x02NM\xa5\x11\x18\x0f19700101000000Z\xa7\x06\x02\x04\x1f\x1e\xb9\xd9\xa8\x170\x15\x02\x01\x12\x02\x01\x11\x02\x01\x10\x02\x01\x17\x02\x01\x01\x02\x01\x03\x02\x01\x02"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #20 X] 'Kerberos' -> no response
+
+[PROBE #21] Name: SMBProgNeg | Port: 80 | SSL: no
+  Payload : 168 bytes
+  C-string: "\x00\x00\x00\xa4\xffSMBr\x00\x00\x00\x00\x08\x01@\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x06\x00\x00\x01\x00\x00\x81\x00\x02PC NETWORK PROGRAM 1.0\x00\x02MICROSOFT NETWORKS 1.03\x00\x02MICROSOFT NETWORKS 3.0\x00\x02LANMAN1.0\x00\x02LM1.2X002\x00\x02Samba\x00\x02NT LANMAN 1.0\x00\x02NT LM 0.12\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #21 X] 'SMBProgNeg' -> no response
+
+[PROBE #22] Name: LPDString | Port: 80 | SSL: no
+  Payload : 9 bytes
+  C-string: "\x01default\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #22 X] 'LPDString' -> no response
+
+[PROBE #23] Name: LDAPSearchReq | Port: 80 | SSL: no
+  Payload : 51 bytes
+  C-string: "0\x84\x00\x00\x00-\x02\x01\x07c\x84\x00\x00\x00$\x04\x00\n\x01\x00\n\x01\x00\x02\x01\x00\x02\x01d\x01\x01\x00\x87\x0bobjectClass0\x84\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #23 X] 'LDAPSearchReq' -> no response
+
+[PROBE #24] Name: LDAPBindReq | Port: 80 | SSL: no
+  Payload : 14 bytes
+  C-string: "0\x0c\x02\x01\x01`\x07\x02\x01\x02\x04\x00\x80\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #24 X] 'LDAPBindReq' -> no response
+
+[PROBE #25] Name: SIPOptions | Port: 80 | SSL: no
+  Payload : 223 bytes
+  C-string: "OPTIONS sip:nm SIP/2.0\r\nVia: SIP/2.0/TCP nm;branch=foo\r\nFrom: <sip:nm@nm>;tag=root\r\nTo: <sip:nm2@nm2>\r\nCall-ID: 50000\r\nCSeq: 42 OPTIONS\r\nMax-Forwards: 70\r\nContent-Length: 0\r\nContact: <sip:nm@nm>\r\nAccept: application/sdp\r\n\r\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #25 X] 'SIPOptions' -> no response
+
+[PROBE #26] Name: LANDesk-RC | Port: 80 | SSL: no
+  Payload : 16 bytes
+  C-string: "TNMP\x04\x00\x00\x00TNME\x00\x00\x04\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #26 X] 'LANDesk-RC' -> no response
+
+[PROBE #27] Name: TerminalServer | Port: 80 | SSL: no
+  Payload : 11 bytes
+  C-string: "\x03\x00\x00\x0b\x06\xe0\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #27 X] 'TerminalServer' -> no response
+
+[PROBE #28] Name: NCP | Port: 80 | SSL: no
+  Payload : 23 bytes
+  C-string: "DmdT\x00\x00\x00\x17\x00\x00\x00\x01\x00\x00\x00\x00\x11\x11\x00\xff\x01\xff\x13"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #28 X] 'NCP' -> no response
+
+[PROBE #29] Name: NotesRPC | Port: 80 | SSL: no
+  Payload : 60 bytes
+  C-string: ":\x00\x00\x00/\x00\x00\x00\x02\x00\x00@\x02\x0f\x00\x01\x00=\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00/\x00\x00\x00\x00\x00\x00\x00\x00\x00@\x1f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] sent 60 bytes
+[PROBE #29 X] 'NotesRPC' -> no response
+
+[PROBE #30] Name: JavaRMI | Port: 80 | SSL: no
+  Payload : 7 bytes
+  C-string: "JRMI\x00\x02K"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #30 X] 'JavaRMI' -> no response
+
+[PROBE #31] Name: WMSRequest | Port: 80 | SSL: no
+  Payload : 175 bytes
+  C-string: "\x01\x00\x00\xfd\xce\xfa\x0b\xb0\xa0\x00\x00\x00MMS\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x12\x00\x00\x00\x01\x00\x03\x00\xf0\xf0\xf0\xf0\x0b\x00\x04\x00\x1c\x00\x03\x00N\x00S\x00P\x00l\x00a\x00y\x00e\x00r\x00/\x009\x00.\x000\x00.\x000\x00.\x002\x009\x008\x000\x00;\x00 \x00{\x000\x000\x000\x000\x00A\x00A\x000\x000\x00-\x000\x00A\x000\x000\x00-\x000\x000\x00a\x000\x00-\x00A\x00A\x000\x00A\x00-\x000\x000\x000\x000\x00A\x000\x00A\x00A\x000\x00A\x00A\x000\x00}\x00\x00\x00\xe0m\xdf_"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #31 X] 'WMSRequest' -> no response
+
+[PROBE #32] Name: oracle-tns | Port: 80 | SSL: no
+  Payload : 90 bytes
+  C-string: "\x00Z\x00\x00\x01\x00\x00\x00\x016\x01,\x00\x00\x08\x00\x7f\xff\x7f\x08\x00\x00\x00\x01\x00 \x00:\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x004\xe6\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00(CONNECT_DATA=(COMMAND=version))"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #32 X] 'oracle-tns' -> no response
+
+[PROBE #33] Name: ms-sql-s | Port: 80 | SSL: no
+  Payload : 52 bytes
+  C-string: "\x12\x01\x004\x00\x00\x00\x00\x00\x00\x15\x00\x06\x01\x00\x1b\x00\x01\x02\x00\x1c\x00\x0c\x03\x00(\x00\x04\xff\x08\x00\x01U\x00\x00\x00MSSQLServer\x00H\x0f\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #33 X] 'ms-sql-s' -> no response
+
+[PROBE #34] Name: HPJetDirect | Port: 80 | SSL: no
+  Payload : 9 bytes
+  C-string: "\x03default\n"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #34 X] 'HPJetDirect' -> no response
+
+[PROBE #35] Name: afp | Port: 80 | SSL: no
+  Payload : 18 bytes
+  C-string: "\x00\x03\x00\x01\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x0f\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #35 X] 'afp' -> no response
+
+[PROBE #36] Name: giop | Port: 80 | SSL: no
+  Payload : 48 bytes
+  C-string: "GIOP\x01\x00\x01\x00$\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x06\x00\x00\x00abcdef\x00\x00\x04\x00\x00\x00get\x00\x00\x00\x00\x00"
+  Sending...
+  [tcp] connect failed (timeout=3s): Cannot assign requested address
+[PROBE #36 X] 'giop' -> no response
+[-] Full probe cycle under source port 443 also produced nothing -- target likely down/filtered
+
++══════════════════════════════════════+
+|  [-] NO RESPONSE from 192.168.1.254:80
++══════════════════════════════════════+
+80     : no response
+[*] Last resort: retrying NULL probe with source port 443...
+
++══════════════════════════════════════════════+
+|  [+] Capture complete                        |
++══════════════════════════════════════════════+
+|  Bytes     : 90                             |
+|  Port      : 23                             |
+|  Probe     : null-probe/srcport443          |
+|  Transport : plain TCP                      |
+|  HTTP FPs  : 1                              |
++══════════════════════════════════════════════+
+
+
+Response hex (90 bytes):
+fffd01ff fd21fffb 01fffb03 4c6f6769 6e206661 696c2063 6f756e74 2073696e 
+6365206c 61737420 73756363 65737366 756c206c 6f67696e 3a20350d 0a232323 
+206c6f67 696e2023 23232320 0d0a414f 4e54206c 6f67696e 3a20
+
+
+First 50 bytes (hex):
+  ff fd 01 ff fd 21 ff fb 01 ff fb 03 4c 6f 67 69 6e 20 66 61 69 6c 20 63 6f 75 6e 74 20 73 69 6e 63 65 20 6c 61 73 74 20 73 75 63 63 65 73 73 66 75 6c 
+
+First 200 bytes (ASCII preview):
+  .....!......Login fail count since last successful login: 5..### login #### ..AONT login: 
+23     : utelnetd

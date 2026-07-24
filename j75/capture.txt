@@ -1,0 +1,2083 @@
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --hop jumbo:150000
+
+Starting Shiv (SYN) at Sat Jul 18 12:50:48 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.24s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410  -xxvv           
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:08:28.628506 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (jumbo: 150000 - payload len != 0)  https > ssh: Flags [S], cksum 0xb52a (correct), seq 2890042508, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 c204 0002 49f0 01bb
+        0x0040:  0016 ac42 8c8c 0000 0000 a002 ffff b52a
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:08:29.084037 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (jumbo: 150000 - payload len != 0)  pcsync-https > ssh: Flags [S], cksum 0x95ea (correct), seq 2890042508, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 c204 0002 49f0 20fb
+        0x0040:  0016 ac42 8c8c 0000 0000 a002 ffff 95ea
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:08:29.291250 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:08:29.531085 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (jumbo: 150000 - payload len != 0)  http-alt > ssh: Flags [S], cksum 0x9755 (correct), seq 2890042508, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 c204 0002 49f0 1f90
+        0x0040:  0016 ac42 8c8c 0000 0000 a002 ffff 9755
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:08:34.128682 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --hop pad:50      
+
+Starting Shiv (SYN) at Sat Jul 18 12:52:04 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.22s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410  -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:09:44.500896 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:09:44.911334 IP6 (hlim 64, next-header HBH (0), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (padn)(padn) https > ssh: Flags [S], cksum 0x14fa (correct), seq 893166531, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0130 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0102 0000 01bb
+        0x0070:  0016 353c a3c3 0000 0000 a002 ffff 14fa
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+18:09:45.351057 IP6 (hlim 64, next-header HBH (0), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (padn)(padn) pcsync-https > ssh: Flags [S], cksum 0xf5b9 (correct), seq 893166531, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0130 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0102 0000 20fb
+        0x0070:  0016 353c a3c3 0000 0000 a002 ffff f5b9
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+18:09:45.805456 IP6 (hlim 64, next-header HBH (0), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (padn)(padn) http-alt > ssh: Flags [S], cksum 0xf724 (correct), seq 893166531, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0130 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0102 0000 1f90
+        0x0070:  0016 353c a3c3 0000 0000 a002 ffff f724
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+18:09:48.878655 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+
+ shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --hop unknown:123
+
+Starting Shiv (SYN) at Sat Jul 18 12:53:17 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.23s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+ tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv 
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:10:57.141398 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (unknown opt-type 0x7b len=0)(padn) https > ssh: Flags [S], cksum 0x0c24 (correct), seq 1265079918, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 7b00 0102 0000 01bb
+        0x0040:  0016 4b67 966e 0000 0000 a002 ffff 0c24
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:10:57.580009 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (unknown opt-type 0x7b len=0)(padn) pcsync-https > ssh: Flags [S], cksum 0xece3 (correct), seq 1265079918, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 7b00 0102 0000 20fb
+        0x0040:  0016 4b67 966e 0000 0000 a002 ffff ece3
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:10:58.031800 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (unknown opt-type 0x7b len=0)(padn) http-alt > ssh: Flags [S], cksum 0xee4e (correct), seq 1265079918, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 7b00 0102 0000 1f90
+        0x0040:  0016 4b67 966e 0000 0000 a002 ffff ee4e
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:10:59.022352 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --dest home
+
+Starting Shiv (SYN) at Sat Jul 18 12:57:00 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.20s
+CPU Time       : 5ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:14:38.943965 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:14:40.358508 IP6 (hlim 64, next-header DSTOPT (60), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (homeaddr: ::)(padn) https > ssh: Flags [S], cksum 0xfb23 (correct), seq 4191156485, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 c910 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0102 0000 01bb
+        0x0050:  0016 f9cf f905 0000 0000 a002 ffff fb23
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+18:14:40.801030 IP6 (hlim 64, next-header DSTOPT (60), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (homeaddr: ::)(padn) pcsync-https > ssh: Flags [S], cksum 0xdbe3 (correct), seq 4191156485, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 c910 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0102 0000 20fb
+        0x0050:  0016 f9cf f905 0000 0000 a002 ffff dbe3
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+18:14:41.238942 IP6 (hlim 64, next-header DSTOPT (60), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (homeaddr: ::)(padn) http-alt > ssh: Flags [S], cksum 0xdd4e (correct), seq 4191156485, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 c910 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0102 0000 1f90
+        0x0050:  0016 f9cf f905 0000 0000 a002 ffff dd4e
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+18:14:43.886695 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --dest tunnel:9
+
+Starting Shiv (SYN) at Sat Jul 18 12:58:55 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 31ms
+CPU Time       : 3ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:16:34.176655 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:16:35.872284 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (unknown opt-type 0x04 len=1)(padn) https > ssh: Flags [S], cksum 0xfb98 (correct), seq 1896644948, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 0401 0901 0100 01bb
+        0x0040:  0016 710c 8154 0000 0000 a002 ffff fb98
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:16:35.872553 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x0349 (correct), seq 1896644949, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 710c 8155 0000
+        0x0040:  0000 5004 0000 0349 0000
+18:16:39.129483 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:16:40.910208 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 fe80 0000 0000 0000 d6ef
+        0x0030:  479f fc91 5eb4 8800 53bf 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --dest pad:50  
+
+Starting Shiv (SYN) at Sat Jul 18 13:00:16 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.22s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:17:54.034699 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:17:56.504529 IP6 (hlim 64, next-header DSTOPT (60), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (padn)(padn) https > ssh: Flags [S], cksum 0xf45c (correct), seq 336586125, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0130 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0102 0000 01bb
+        0x0070:  0016 140f e58d 0000 0000 a002 ffff f45c
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+18:17:56.942527 IP6 (hlim 64, next-header DSTOPT (60), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (padn)(padn) pcsync-https > ssh: Flags [S], cksum 0xd51c (correct), seq 336586125, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0130 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0102 0000 20fb
+        0x0070:  0016 140f e58d 0000 0000 a002 ffff d51c
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+18:17:57.402139 IP6 (hlim 64, next-header DSTOPT (60), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (padn)(padn) http-alt > ssh: Flags [S], cksum 0xd687 (correct), seq 336586125, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0130 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0102 0000 1f90
+        0x0070:  0016 140f e58d 0000 0000 a002 ffff d687
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+18:17:59.065144 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+                              
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --dest malformed
+
+Starting Shiv (SYN) at Sat Jul 18 13:01:15 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.24s
+CPU Time       : 5ms
+RTT            : N/A
+
+
+ tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:18:54.260572 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:18:55.737929 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT  [remaining length 6 < 42] (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 8e28 aaaa aaaa 01bb
+        0x0040:  0016 b7d7 f9ee 0000 0000 a002 ffff 3c33
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:18:56.191242 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT  [remaining length 6 < 42] (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 8e28 aaaa aaaa 20fb
+        0x0040:  0016 b7d7 f9ee 0000 0000 a002 ffff 1cf3
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:18:56.646943 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT  [remaining length 6 < 42] (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 8e28 aaaa aaaa 1f90
+        0x0040:  0016 b7d7 f9ee 0000 0000 a002 ffff 1e5e
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:18:59.255876 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --dest unknown:220
+
+Starting Shiv (SYN) at Sat Jul 18 13:02:25 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.25s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+18:19:49.130622 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:19:54.194159 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:19:59.330911 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:20:04.508070 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+18:20:05.963630 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (unknown opt-type 0xdc len=0)(padn) https > ssh: Flags [S], cksum 0xe69c (correct), seq 3911523895, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 dc00 0102 0000 01bb
+        0x0040:  0016 e925 1e37 0000 0000 a002 ffff e69c
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:20:06.429915 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (unknown opt-type 0xdc len=0)(padn) pcsync-https > ssh: Flags [S], cksum 0xc75c (correct), seq 3911523895, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 dc00 0102 0000 20fb
+        0x0040:  0016 e925 1e37 0000 0000 a002 ffff c75c
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:20:06.885698 IP6 (hlim 64, next-header DSTOPT (60), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (unknown opt-type 0xdc len=0)(padn) http-alt > ssh: Flags [S], cksum 0xc8c7 (correct), seq 3911523895, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 dc00 0102 0000 1f90
+        0x0040:  0016 e925 1e37 0000 0000 a002 ffff c8c7
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+18:20:09.576532 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+8 packets captured
+8 packets received by filter
+0 packets dropped by kernel
+
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --route 0:3
+
+Starting Shiv (SYN) at Sat Jul 18 14:43:03 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.25s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv                
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+19:54:58.257264 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+19:54:58.946424 IP6 (hlim 64, next-header Routing (43), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=6, type=0 [Deprecated], segleft=3, rsv=0x0, [0]::, [1]::, [2]::) https > ssh: Flags [S], cksum 0x8ce0 (incorrect -> 0x8f7a), seq 2401620467, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0003 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 01bb
+        0x0070:  0016 8f25 d1f3 0000 0000 a002 ffff 8ce0
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+19:54:59.397587 IP6 (hlim 64, next-header Routing (43), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=6, type=0 [Deprecated], segleft=3, rsv=0x0, [0]::, [1]::, [2]::) pcsync-https > ssh: Flags [S], cksum 0x6da0 (incorrect -> 0x703a), seq 2401620467, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0003 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 20fb
+        0x0070:  0016 8f25 d1f3 0000 0000 a002 ffff 6da0
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+19:54:59.864398 IP6 (hlim 64, next-header Routing (43), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=6, type=0 [Deprecated], segleft=3, rsv=0x0, [0]::, [1]::, [2]::) http-alt > ssh: Flags [S], cksum 0x6f0b (incorrect -> 0x71a5), seq 2401620467, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0606 0003 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 1f90
+        0x0070:  0016 8f25 d1f3 0000 0000 a002 ffff 6f0b
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+19:55:02.975347 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+ shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --route 0:0
+
+Starting Shiv (SYN) at Sat Jul 18 14:44:06 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 29ms
+CPU Time       : 5ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+19:56:02.748119 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+19:56:02.750773 IP6 (hlim 64, next-header Routing (43), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=0, type=0 [Deprecated], segleft=0, rsv=0x0) https > ssh: Flags [S], cksum 0x1b4a (correct), seq 380353540, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 0000 0000 0000 01bb
+        0x0040:  0016 16ab bc04 0000 0000 a002 ffff 1b4a
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+19:56:02.751228 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x22fa (correct), seq 380353541, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 16ab bc05 0000
+        0x0040:  0000 5004 0000 22fa 0000
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --route 2  
+
+Starting Shiv (SYN) at Sat Jul 18 14:44:54 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.24s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+19:56:47.757524 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+19:56:50.651044 IP6 (hlim 64, next-header Routing (43), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=2, type=2, segleft=1, rsv=0x0, [0]::) https > ssh: Flags [S], cksum 0xca4a (incorrect -> 0xcce4), seq 774567300, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 0201 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 01bb
+        0x0050:  0016 2e2a f584 0000 0000 a002 ffff ca4a
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+19:56:51.096118 IP6 (hlim 64, next-header Routing (43), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=2, type=2, segleft=1, rsv=0x0, [0]::) pcsync-https > ssh: Flags [S], cksum 0xab0a (incorrect -> 0xada4), seq 774567300, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 0201 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 20fb
+        0x0050:  0016 2e2a f584 0000 0000 a002 ffff ab0a
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+19:56:51.557774 IP6 (hlim 64, next-header Routing (43), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=2, type=2, segleft=1, rsv=0x0, [0]::) http-alt > ssh: Flags [S], cksum 0xac75 (incorrect -> 0xaf0f), seq 774567300, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 0201 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 1f90
+        0x0050:  0016 2e2a f584 0000 0000 a002 ffff ac75
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+19:56:52.848927 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+5 packets captured
+5 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --route srh:5
+
+Starting Shiv (SYN) at Sat Jul 18 14:46:00 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+19:57:56.103398 IP6 (hlim 64, next-header Routing (43), payload length 128) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=10, type=4, segleft=5, last-entry=4, flags=0x0, tag=0, [0]::, [1]::, [2]::, [3]::, [4]::) https > ssh: Flags [S], cksum 0x506c (incorrect -> 0x5306), seq 1732720198, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0080 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 060a 0405 0400 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0070:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0080:  0000 0000 0000 0000 0000 0000 0000 01bb
+        0x0090:  0016 6747 3646 0000 0000 a002 ffff 506c
+        0x00a0:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x00b0:  8700 0000 0001
+19:57:56.546955 IP6 (hlim 64, next-header Routing (43), payload length 128) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=10, type=4, segleft=5, last-entry=4, flags=0x0, tag=0, [0]::, [1]::, [2]::, [3]::, [4]::) pcsync-https > ssh: Flags [S], cksum 0x312c (incorrect -> 0x33c6), seq 1732720198, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0080 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 060a 0405 0400 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0070:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0080:  0000 0000 0000 0000 0000 0000 0000 20fb
+        0x0090:  0016 6747 3646 0000 0000 a002 ffff 312c
+        0x00a0:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x00b0:  8700 0000 0001
+19:57:56.988867 IP6 (hlim 64, next-header Routing (43), payload length 128) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=10, type=4, segleft=5, last-entry=4, flags=0x0, tag=0, [0]::, [1]::, [2]::, [3]::, [4]::) http-alt > ssh: Flags [S], cksum 0x3297 (incorrect -> 0x3531), seq 1732720198, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0080 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 060a 0405 0400 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0070:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0080:  0000 0000 0000 0000 0000 0000 0000 1f90
+        0x0090:  0016 6747 3646 0000 0000 a002 ffff 3297
+        0x00a0:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x00b0:  8700 0000 0001
+19:57:58.050113 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --route srh:0
+
+Starting Shiv (SYN) at Sat Jul 18 14:46:49 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.23s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+19:58:45.216652 IP6 (hlim 64, next-header Routing (43), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=0, type=4, segleft=0, last-entry=0, flags=0x0, tag=0) https > ssh: Flags [S], cksum 0x020b (incorrect -> 0x76e2), seq 3597604223, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 0400 0000 0000 01bb
+        0x0040:  0016 d66f 157f 0000 0000 a002 ffff 020b
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+19:58:45.666467 IP6 (hlim 64, next-header Routing (43), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=0, type=4, segleft=0, last-entry=0, flags=0x0, tag=0) pcsync-https > ssh: Flags [S], cksum 0xe2ca (incorrect -> 0x3862), seq 3597604223, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 0400 0000 0000 20fb
+        0x0040:  0016 d66f 157f 0000 0000 a002 ffff e2ca
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+19:58:46.119382 IP6 (hlim 64, next-header Routing (43), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=0, type=4, segleft=0, last-entry=0, flags=0x0, tag=0) http-alt > ssh: Flags [S], cksum 0xe435 (incorrect -> 0x3b38), seq 3597604223, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 0400 0000 0000 1f90
+        0x0040:  0016 d66f 157f 0000 0000 a002 ffff e435
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+19:58:47.963326 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --route 99   
+
+Starting Shiv (SYN) at Sat Jul 18 14:47:54 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 19ms
+CPU Time       : 3ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+19:59:48.312814 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+19:59:49.926853 IP6 (hlim 64, next-header Routing (43), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=0, type=99, segleft=0 (unknown type) (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 6300 0000 0000 01bb
+        0x0040:  0016 69ff 93aa 0000 0000 a002 ffff f04f
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+19:59:49.927196 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0xf7ff (correct), seq 1778357163, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 69ff 93ab 0000
+        0x0040:  0000 5004 0000 f7ff 0000
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22  --ah yes 
+
+Starting Shiv (SYN) at Sat Jul 18 14:48:54 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.23s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:00:50.668764 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00008d5e,seq=0x1,icv=0x674d40f18bf3aa470c07e527): https > ssh: Flags [S], cksum 0xfc10 (correct), seq 809288108, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 8d5e 0000
+        0x0040:  0001 674d 40f1 8bf3 aa47 0c07 e527 01bb
+        0x0050:  0016 303c c1ac 0000 0000 a002 ffff fc10
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:00:51.122678 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x0000668d,seq=0x1,icv=0xfbf1ce09fa86e30b060977b9): pcsync-https > ssh: Flags [S], cksum 0xdcd0 (correct), seq 809288108, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 668d 0000
+        0x0040:  0001 fbf1 ce09 fa86 e30b 0609 77b9 20fb
+        0x0050:  0016 303c c1ac 0000 0000 a002 ffff dcd0
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:00:51.566051 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x000094ca,seq=0x1,icv=0x8269f4a8a538303691137006): http-alt > ssh: Flags [S], cksum 0xde3b (correct), seq 809288108, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 94ca 0000
+        0x0040:  0001 8269 f4a8 a538 3036 9113 7006 1f90
+        0x0050:  0016 303c c1ac 0000 0000 a002 ffff de3b
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:00:52.813819 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22  --ah badspi
+
+Starting Shiv (SYN) at Sat Jul 18 14:49:43 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:01:38.310815 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:01:39.475791 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00000000,seq=0x1,icv=0x1a116c72a62c5293b1a2709d): https > ssh: Flags [S], cksum 0xcfaa (correct), seq 2435747104, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 0000 0000
+        0x0040:  0001 1a11 6c72 a62c 5293 b1a2 709d 01bb
+        0x0050:  0016 912e 8d20 0000 0000 a002 ffff cfaa
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:01:39.928500 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00000000,seq=0x1,icv=0x01d7721ffba070aa33c4f450): pcsync-https > ssh: Flags [S], cksum 0xb06a (correct), seq 2435747104, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 0000 0000
+        0x0040:  0001 01d7 721f fba0 70aa 33c4 f450 20fb
+        0x0050:  0016 912e 8d20 0000 0000 a002 ffff b06a
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:01:40.368941 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00000000,seq=0x1,icv=0x17f4f63132b0a7c17f86cc79): http-alt > ssh: Flags [S], cksum 0xb1d5 (correct), seq 2435747104, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 0000 0000
+        0x0040:  0001 17f4 f631 32b0 a7c1 7f86 cc79 1f90
+        0x0050:  0016 912e 8d20 0000 0000 a002 ffff b1d5
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22  --ah noicv 
+
+Starting Shiv (SYN) at Sat Jul 18 14:51:06 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:03:02.575301 IP6 (hlim 64, next-header AH (51), payload length 56) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=2(16-bytes),spi=0x0000c314,seq=0x1,icv=0x00000000): https > ssh: Flags [S], cksum 0x9411 (correct), seq 1572273201, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0038 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 0000 0000 c314 0000
+        0x0040:  0001 0000 0000 01bb 0016 5db6 fc31 0000
+        0x0050:  0000 a002 ffff 9411 0000 0204 05b4 0303
+        0x0060:  0704 0208 0a00 12d6 8700 0000 0001
+20:03:02.804534 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:03:03.024906 IP6 (hlim 64, next-header AH (51), payload length 56) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=2(16-bytes),spi=0x0000f568,seq=0x1,icv=0x00000000): pcsync-https > ssh: Flags [S], cksum 0x74d1 (correct), seq 1572273201, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0038 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 0000 0000 f568 0000
+        0x0040:  0001 0000 0000 20fb 0016 5db6 fc31 0000
+        0x0050:  0000 a002 ffff 74d1 0000 0204 05b4 0303
+        0x0060:  0704 0208 0a00 12d6 8700 0000 0001
+20:03:03.470624 IP6 (hlim 64, next-header AH (51), payload length 56) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=2(16-bytes),spi=0x00003360,seq=0x1,icv=0x00000000): http-alt > ssh: Flags [S], cksum 0x763c (correct), seq 1572273201, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0038 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0602 0000 0000 3360 0000
+        0x0040:  0001 0000 0000 1f90 0016 5db6 fc31 0000
+        0x0050:  0000 a002 ffff 763c 0000 0204 05b4 0303
+        0x0060:  0704 0208 0a00 12d6 8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22  --ah badlen
+
+Starting Shiv (SYN) at Sat Jul 18 14:51:54 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.20s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:03:50.564880 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=9(44-bytes),spi=0x000046a4,seq=0x1,icv=0x18f40571de1e5d35a1b6ea5301bb00163c40219700000000a002ffff90220000): videotex > proshare2:  tcp 16 [bad hdr length 4 - too short, < 20]
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0609 0000 0000 46a4 0000
+        0x0040:  0001 18f4 0571 de1e 5d35 a1b6 ea53 01bb
+        0x0050:  0016 3c40 2197 0000 0000 a002 ffff 9022
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:03:51.012274 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=9(44-bytes),spi=0x0000ba5b,seq=0x1,icv=0xdae947ee3f19acaba0af3f2220fb00163c40219700000000a002ffff70e20000): videotex > proshare2:  tcp 16 [bad hdr length 4 - too short, < 20]
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0609 0000 0000 ba5b 0000
+        0x0040:  0001 dae9 47ee 3f19 acab a0af 3f22 20fb
+        0x0050:  0016 3c40 2197 0000 0000 a002 ffff 70e2
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:03:51.457454 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=9(44-bytes),spi=0x0000c139,seq=0x1,icv=0x6e21748f5240c5260f59ca721f9000163c40219700000000a002ffff724d0000): videotex > proshare2:  tcp 16 [bad hdr length 4 - too short, < 20]
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0609 0000 0000 c139 0000
+        0x0040:  0001 6e21 748f 5240 c526 0f59 ca72 1f90
+        0x0050:  0016 3c40 2197 0000 0000 a002 ffff 724d
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:03:52.766497 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+                              
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --ah seq0
+
+Starting Shiv (SYN) at Sat Jul 18 14:52:52 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.25s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:04:47.940603 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x0000e3e7,seq=0x0,icv=0x4f33a4a365f7c3bb2defca2f): https > ssh: Flags [S], cksum 0x020f (correct), seq 833272384, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 e3e7 0000
+        0x0040:  0000 4f33 a4a3 65f7 c3bb 2def ca2f 01bb
+        0x0050:  0016 31aa ba40 0000 0000 a002 ffff 020f
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:04:47.979810 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:04:48.396036 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x000043d6,seq=0x0,icv=0x94ccbcbf73a46d0f65c41375): pcsync-https > ssh: Flags [S], cksum 0xe2ce (correct), seq 833272384, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 43d6 0000
+        0x0040:  0000 94cc bcbf 73a4 6d0f 65c4 1375 20fb
+        0x0050:  0016 31aa ba40 0000 0000 a002 ffff e2ce
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:04:48.853507 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x000103ed,seq=0x0,icv=0x3615649a17c3df372a29fcd7): http-alt > ssh: Flags [S], cksum 0xe439 (correct), seq 833272384, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0001 03ed 0000
+        0x0040:  0000 3615 649a 17c3 df37 2a29 fcd7 1f90
+        0x0050:  0016 31aa ba40 0000 0000 a002 ffff e439
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --esp yes
+
+Starting Shiv (SYN) at Sat Jul 18 14:54:31 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:06:27.515989 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00006964,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 6964 0000 0001 9d94
+        0x0040:  4b87 e2b1 f9b0 0006 01bb 0016 92f7 c0fc
+        0x0050:  0000 0000 a002 ffff 9a05 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:06:27.953015 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00002307,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 2307 0000 0001 59f7
+        0x0040:  c4d3 d256 84fd 0006 20fb 0016 92f7 c0fc
+        0x0050:  0000 0000 a002 ffff 7ac5 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:06:27.974271 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:06:28.398484 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x000022d2,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 22d2 0000 0001 cc0f
+        0x0040:  7e64 e6f6 c0f6 0006 1f90 0016 92f7 c0fc
+        0x0050:  0000 0000 a002 ffff 7c30 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --esp badpad
+
+Starting Shiv (SYN) at Sat Jul 18 14:55:18 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.23s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:07:12.968813 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:07:14.728606 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00002482,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 2482 0000 0001 7ba6
+        0x0040:  9a1a 2182 873a 2a06 01bb 0016 b174 97e4
+        0x0050:  0000 0000 a002 ffff a4a0 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:07:15.178996 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x0000c72e,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 c72e 0000 0001 f279
+        0x0040:  bf9c e798 e2da 2a06 20fb 0016 b174 97e4
+        0x0050:  0000 0000 a002 ffff 8560 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:07:15.627769 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00002fdf,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 2fdf 0000 0001 40e1
+        0x0040:  464b 79af e81a 2a06 1f90 0016 b174 97e4
+        0x0050:  0000 0000 a002 ffff 86cb 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:07:18.047927 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:07:19.833619 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 fe80 0000 0000 0000 d6ef
+        0x0030:  479f fc91 5eb4 8800 53bf 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+6 packets captured
+6 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --esp badspi
+
+Starting Shiv (SYN) at Sat Jul 18 14:59:01 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:10:57.449604 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00000000,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 0000 0000 0001 ad52
+        0x0040:  5c0e a4b5 e4cf 0006 01bb 0016 fda3 c417
+        0x0050:  0000 0000 a002 ffff 2c3e 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:10:57.786932 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:10:57.886003 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00000000,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 0000 0000 0001 024c
+        0x0040:  e02d 1889 3638 0006 20fb 0016 fda3 c417
+        0x0050:  0000 0000 a002 ffff 0cfe 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+20:10:58.343878 IP6 (hlim 64, next-header ESP (50), payload length 58) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00000000,seq=0x1), length 58
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 003a 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 0000 0000 0001 57ea
+        0x0040:  0131 7d6e 6bd3 0006 1f90 0016 fda3 c417
+        0x0050:  0000 0000 a002 ffff 0e69 0000 0204 05b4
+        0x0060:  0303 0704 0208 0a00 12d6 8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --esp noiv  
+
+Starting Shiv (SYN) at Sat Jul 18 14:59:49 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.22s
+CPU Time       : 9ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:11:45.768216 IP6 (hlim 64, next-header ESP (50), payload length 50) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x0000b0ad,seq=0x1), length 50
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0032 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 b0ad 0000 0001 0006
+        0x0040:  01bb 0016 c4bd 2d45 0000 0000 a002 ffff
+        0x0050:  fbf6 0000 0204 05b4 0303 0704 0208 0a00
+        0x0060:  12d6 8700 0000 0001
+20:11:46.217429 IP6 (hlim 64, next-header ESP (50), payload length 50) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x000067ac,seq=0x1), length 50
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0032 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 67ac 0000 0001 0006
+        0x0040:  20fb 0016 c4bd 2d45 0000 0000 a002 ffff
+        0x0050:  dcb6 0000 0204 05b4 0303 0704 0208 0a00
+        0x0060:  12d6 8700 0000 0001
+20:11:46.677815 IP6 (hlim 64, next-header ESP (50), payload length 50) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x0000c869,seq=0x1), length 50
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0032 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 c869 0000 0001 0006
+        0x0040:  1f90 0016 c4bd 2d45 0000 0000 a002 ffff
+        0x0050:  de21 0000 0204 05b4 0303 0704 0208 0a00
+        0x0060:  12d6 8700 0000 0001
+20:11:47.859011 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --esp bad   
+
+Starting Shiv (SYN) at Sat Jul 18 15:01:14 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.24s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:13:09.551598 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:13:10.457835 IP6 (hlim 64, next-header ESP (50), payload length 51) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x000027e0,seq=0x1), length 51
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0033 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 27e0 0000 0001 4e55
+        0x0040:  a001 bb00 1604 f41d 9200 0000 00a0 02ff
+        0x0050:  ffcb 7300 0002 0405 b403 0307 0402 080a
+        0x0060:  0012 d687 0000 0000 01
+20:13:10.905989 IP6 (hlim 64, next-header ESP (50), payload length 51) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00009d01,seq=0x1), length 51
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0033 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 9d01 0000 0001 0893
+        0x0040:  3420 fb00 1604 f41d 9200 0000 00a0 02ff
+        0x0050:  ffac 3300 0002 0405 b403 0307 0402 080a
+        0x0060:  0012 d687 0000 0000 01
+20:13:11.367646 IP6 (hlim 64, next-header ESP (50), payload length 51) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: ESP(spi=0x00009bba,seq=0x1), length 51
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0033 3240 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 9bba 0000 0001 f4f6
+        0x0040:  5a1f 9000 1604 f41d 9200 0000 00a0 02ff
+        0x0050:  ffad 9e00 0002 0405 b403 0307 0402 080a
+        0x0060:  0012 d687 0000 0000 01
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --flow 12345
+
+Starting Shiv (SYN) at Sat Jul 18 15:02:02 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 20ms
+CPU Time       : 6ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:13:58.236040 IP6 (flowlabel 0x03039, hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0xe830 (correct), seq 3657247691, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  3039 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 d9fd 2bcb 0000
+        0x0040:  0000 a002 ffff e830 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:13:58.236567 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0xefe0 (correct), seq 3657247692, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 d9fd 2bcc 0000
+        0x0040:  0000 5004 0000 efe0 0000
+20:13:59.147729 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+                            
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --flow 0    
+
+Starting Shiv (SYN) at Sat Jul 18 15:03:12 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 20ms
+CPU Time       : 5ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:15:08.052200 IP6 (hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0xa41a (correct), seq 2228405516, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 84d2 c50c 0000
+        0x0040:  0000 a002 ffff a41a 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:15:08.052764 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0xabca (correct), seq 2228405517, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 84d2 c50d 0000
+        0x0040:  0000 5004 0000 abca 0000
+20:15:08.963088 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --flow 1048575
+
+Starting Shiv (SYN) at Sat Jul 18 15:03:57 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 30ms
+CPU Time       : 4ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:15:53.863807 IP6 (flowlabel 0xfffff, hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0x2405 (correct), seq 3976977640, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  ffff 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 ed0b dce8 0000
+        0x0040:  0000 a002 ffff 2405 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:15:53.864150 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x2bb5 (correct), seq 3976977641, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 ed0b dce9 0000
+        0x0040:  0000 5004 0000 2bb5 0000
+20:15:53.977246 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+
+ shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --flow rand   
+
+Starting Shiv (SYN) at Sat Jul 18 15:04:51 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 25ms
+CPU Time       : 4ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:16:47.428294 IP6 (flowlabel 0x4c0e5, hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0xc56e (correct), seq 3828434009, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6004
+        0x0010:  c0e5 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 e431 4459 0000
+        0x0040:  0000 a002 ffff c56e 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:16:47.428725 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0xcd1e (correct), seq 3828434010, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 e431 445a 0000
+        0x0040:  0000 5004 0000 cd1e 0000
+20:16:48.975253 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --flow inc 
+
+Starting Shiv (SYN) at Sat Jul 18 15:05:30 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 34ms
+CPU Time       : 3ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:17:26.194761 IP6 (flowlabel 0x00001, hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0x4732 (correct), seq 934702865, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0001 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 37b6 6f11 0000
+        0x0040:  0000 a002 ffff 4732 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:17:26.195063 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x4ee2 (correct), seq 934702866, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 37b6 6f12 0000
+        0x0040:  0000 5004 0000 4ee2 0000
+^C
+2 packets captured
+2 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --chain rand --hop alert:0
+
+Starting Shiv (SYN) at Sat Jul 18 15:07:05 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 31ms
+CPU Time       : 4ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:19:01.437004 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0000) (padn) https > ssh: Flags [S], cksum 0x5e5f (correct), seq 3633362697, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0600 0502 0000 0100 01bb
+        0x0040:  0016 d890 b709 0000 0000 a002 ffff 5e5f
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+20:19:01.437277 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x660f (correct), seq 3633362698, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 d890 b70a 0000
+        0x0040:  0000 5004 0000 660f 0000
+^C
+2 packets captured
+2 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --ah yes --chain reverse
+
+Starting Shiv (SYN) at Sat Jul 18 15:08:49 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.25s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:20:45.397667 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x0000d807,seq=0x1,icv=0x187fe59aad160e151c6588a8): https > ssh: Flags [S], cksum 0x4cdd (correct), seq 691435494, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 d807 0000
+        0x0040:  0001 187f e59a ad16 0e15 1c65 88a8 01bb
+        0x0050:  0016 2936 77e6 0000 0000 a002 ffff 4cdd
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:20:45.853849 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00006024,seq=0x1,icv=0xade8556b6efc8ddbb6f80438): pcsync-https > ssh: Flags [S], cksum 0x2d9d (correct), seq 691435494, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 6024 0000
+        0x0040:  0001 ade8 556b 6efc 8ddb b6f8 0438 20fb
+        0x0050:  0016 2936 77e6 0000 0000 a002 ffff 2d9d
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:20:46.320331 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00004769,seq=0x1,icv=0x5d3669bbb260d79a7eb79008): http-alt > ssh: Flags [S], cksum 0x2f08 (correct), seq 691435494, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 4769 0000
+        0x0040:  0001 5d36 69bb b260 d79a 7eb7 9008 1f90
+        0x0050:  0016 2936 77e6 0000 0000 a002 ffff 2f08
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+
+ shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --ah yes --chain custom:AH,ESP,HBH
+
+Starting Shiv (SYN) at Sat Jul 18 15:10:06 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:22:02.400589 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00010c02,seq=0x1,icv=0x9cbeb8ea6384bf9505b80681): https > ssh: Flags [S], cksum 0xbf20 (correct), seq 2507118953, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0001 0c02 0000
+        0x0040:  0001 9cbe b8ea 6384 bf95 05b8 0681 01bb
+        0x0050:  0016 956f 9969 0000 0000 a002 ffff bf20
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:22:02.843670 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00006591,seq=0x1,icv=0x48e070f1d34d760704bdfffd): pcsync-https > ssh: Flags [S], cksum 0x9fe0 (correct), seq 2507118953, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 6591 0000
+        0x0040:  0001 48e0 70f1 d34d 7607 04bd fffd 20fb
+        0x0050:  0016 956f 9969 0000 0000 a002 ffff 9fe0
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:22:03.295612 IP6 (hlim 64, next-header AH (51), payload length 64) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x0000590b,seq=0x1,icv=0xccc1be29e538c6d9267e20d6): http-alt > ssh: Flags [S], cksum 0xa14b (correct), seq 2507118953, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0040 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0604 0000 0000 590b 0000
+        0x0040:  0001 ccc1 be29 e538 c6d9 267e 20d6 1f90
+        0x0050:  0016 956f 9969 0000 0000 a002 ffff a14b
+        0x0060:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0070:  8700 0000 0001
+20:22:05.220620 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --ah yes --hop alert:1 --dest home --chain dup:hop
+
+Starting Shiv (SYN) at Sat Jul 18 15:12:57 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 8ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:24:52.993878 IP6 (hlim 64, next-header HBH (0), payload length 104) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0001) (padn) [The Hop-by-Hop Options header was already found] (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0068 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 0502 0001 0100 3c00
+        0x0040:  0502 0001 0100 3302 c910 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0102 0000 0604
+        0x0060:  0000 0000 3424 0000 0001 c754 e040 b6ad
+        0x0070:  8f15 077f 5737 01bb 0016 0011 d604 0000
+        0x0080:  0000 a002 ffff 17e4 0000 0204 05b4 0303
+        0x0090:  0704 0208 0a00 12d6 8700 0000 0001
+20:24:53.447573 IP6 (hlim 64, next-header HBH (0), payload length 104) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0001) (padn) [The Hop-by-Hop Options header was already found] (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0068 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 0502 0001 0100 3c00
+        0x0040:  0502 0001 0100 3302 c910 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0102 0000 0604
+        0x0060:  0000 0000 d55d 0000 0001 d652 b9cb 3ffa
+        0x0070:  d270 3a03 abf0 20fb 0016 0011 d604 0000
+        0x0080:  0000 a002 ffff f8a3 0000 0204 05b4 0303
+        0x0090:  0704 0208 0a00 12d6 8700 0000 0001
+20:24:53.896063 IP6 (hlim 64, next-header HBH (0), payload length 104) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0001) (padn) [The Hop-by-Hop Options header was already found] (invalid)
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0068 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 0000 0502 0001 0100 3c00
+        0x0040:  0502 0001 0100 3302 c910 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0102 0000 0604
+        0x0060:  0000 0000 c0cb 0000 0001 e305 0a69 8719
+        0x0070:  9350 7539 d741 1f90 0016 0011 d604 0000
+        0x0080:  0000 a002 ffff fa0e 0000 0204 05b4 0303
+        0x0090:  0704 0208 0a00 12d6 8700 0000 0001
+20:24:55.251676 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --ah yes --chain unknown:253                      
+
+Starting Shiv (SYN) at Sat Jul 18 15:14:04 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.23s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:26:00.362459 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:26:00.689423 IP6 (hlim 64, next-header AH (51), payload length 72) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x00002202,seq=0x1,icv=0x745c8c305028a1632b4fd2d4):  exptest-253 48
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0048 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e fd04 0000 0000 2202 0000
+        0x0040:  0001 745c 8c30 5028 a163 2b4f d2d4 0000
+        0x0050:  0000 0000 0000 01bb 0016 c828 9418 0000
+        0x0060:  0000 a002 ffff 91b8 0000 0204 05b4 0303
+        0x0070:  0704 0208 0a00 12d6 8700 0000 0001
+20:26:01.141211 IP6 (hlim 64, next-header AH (51), payload length 72) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x0000aa1b,seq=0x1,icv=0x1489d3f4f139489e710ebc3e):  exptest-253 48
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0048 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e fd04 0000 0000 aa1b 0000
+        0x0040:  0001 1489 d3f4 f139 489e 710e bc3e 2400
+        0x0050:  0000 0000 0000 20fb 0016 c828 9418 0000
+        0x0060:  0000 a002 ffff 7278 0000 0204 05b4 0303
+        0x0070:  0704 0208 0a00 12d6 8700 0000 0001
+20:26:01.589809 IP6 (hlim 64, next-header AH (51), payload length 72) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: AH(length=4(24-bytes),spi=0x0000bd21,seq=0x1,icv=0xa4ec5d33028221f167a4c008):  exptest-253 48
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0048 3340 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e fd04 0000 0000 bd21 0000
+        0x0040:  0001 a4ec 5d33 0282 21f1 67a4 c008 2400
+        0x0050:  0000 0000 0000 1f90 0016 c828 9418 0000
+        0x0060:  0000 a002 ffff 73e3 0000 0204 05b4 0303
+        0x0070:  0704 0208 0a00 12d6 8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --stop first           
+
+Starting Shiv (SYN) at Sat Jul 18 15:16:11 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 24ms
+CPU Time       : 3ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:28:07.042668 IP6 (hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0x427d (correct), seq 1874541505, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 6fbb 3bc1 0000
+        0x0040:  0000 a002 ffff 427d 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:28:07.042931 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x4a2d (correct), seq 1874541506, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 6fbb 3bc2 0000
+        0x0040:  0000 5004 0000 4a2d 0000
+^C
+2 packets captured
+2 packets received by filter
+0 packets dropped by kernel
+
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --stop hop --hop  alert:1
+
+Starting Shiv (SYN) at Sat Jul 18 15:17:18 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.23s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:29:14.814174 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:29:14.878856 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0001) (padn) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3b00 0502 0001 0100 01bb
+        0x0040:  0016 8b20 41a6 0000 0000 a002 ffff 2133
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+20:29:15.339182 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0001) (padn) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3b00 0502 0001 0100 20fb
+        0x0040:  0016 8b20 41a6 0000 0000 a002 ffff 01f3
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+20:29:15.788574 IP6 (hlim 64, next-header HBH (0), payload length 48) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: HBH (rtalert: 0x0001) (padn) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0030 0040 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3b00 0502 0001 0100 1f90
+        0x0040:  0016 8b20 41a6 0000 0000 a002 ffff 035e
+        0x0050:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0060:  8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --stop dest:2 --dest home --chain dup:dest:2
+
+Starting Shiv (SYN) at Sat Jul 18 15:20:00 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.21s
+CPU Time       : 6ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:31:54.776063 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:31:55.995530 IP6 (hlim 64, next-header DSTOPT (60), payload length 88) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (homeaddr: ::)(padn) DSTOPT (homeaddr: ::)(padn) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0058 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3c02 c910 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0102 0000 3b02
+        0x0050:  c910 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0102 0000 01bb 0016 c9af b26e 0000
+        0x0070:  0000 a002 ffff 71db 0000 0204 05b4 0303
+        0x0080:  0704 0208 0a00 12d6 8700 0000 0001
+20:31:56.442665 IP6 (hlim 64, next-header DSTOPT (60), payload length 88) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (homeaddr: ::)(padn) DSTOPT (homeaddr: ::)(padn) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0058 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3c02 c910 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0102 0000 3b02
+        0x0050:  c910 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0102 0000 20fb 0016 c9af b26e 0000
+        0x0070:  0000 a002 ffff 529b 0000 0204 05b4 0303
+        0x0080:  0704 0208 0a00 12d6 8700 0000 0001
+20:31:56.891597 IP6 (hlim 64, next-header DSTOPT (60), payload length 88) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: DSTOPT (homeaddr: ::)(padn) DSTOPT (homeaddr: ::)(padn) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0058 3c40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3c02 c910 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0102 0000 3b02
+        0x0050:  c910 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0102 0000 1f90 0016 c9af b26e 0000
+        0x0070:  0000 a002 ffff 5406 0000 0204 05b4 0303
+        0x0080:  0704 0208 0a00 12d6 8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --stop route --route 0:3
+
+Starting Shiv (SYN) at Sat Jul 18 15:21:13 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    filtered  ssh 🔐
+
+Packets sent   : 3
+Duration       : 1.22s
+CPU Time       : 7ms
+RTT            : N/A
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:33:09.430014 IP6 (hlim 64, next-header Routing (43), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=6, type=0 [Deprecated], segleft=3, rsv=0x0, [0]::, [1]::, [2]::) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3b06 0003 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 01bb
+        0x0070:  0016 bc14 4c9d 0000 0000 a002 ffff e547
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+20:33:09.877948 IP6 (hlim 64, next-header Routing (43), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=6, type=0 [Deprecated], segleft=3, rsv=0x0, [0]::, [1]::, [2]::) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3b06 0003 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 20fb
+        0x0070:  0016 bc14 4c9d 0000 0000 a002 ffff c607
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+20:33:09.996095 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+20:33:10.325398 IP6 (hlim 64, next-header Routing (43), payload length 96) 2400-1a00-4b88.ip6.wlink.com.np > h4ck3r: RT6 (len=6, type=0 [Deprecated], segleft=3, rsv=0x0, [0]::, [1]::, [2]::) no next header
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0060 2b40 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 3b06 0003 0000 0000 0000
+        0x0040:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0050:  0000 0000 0000 0000 0000 0000 0000 0000
+        0x0060:  0000 0000 0000 0000 0000 0000 0000 1f90
+        0x0070:  0016 bc14 4c9d 0000 0000 a002 ffff c772
+        0x0080:  0000 0204 05b4 0303 0704 0208 0a00 12d6
+        0x0090:  8700 0000 0001
+^C
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
+
+
+shiv -sS -Pn 2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e -p 22 --stop all              
+
+Starting Shiv (SYN) at Sat Jul 18 15:23:08 2026
+Shiv scan report for 2400-1a00-4b88.ip6.wlink.com.np (2400:1a00:4b88:85aa:68c2:41d6:6c8f:dc3e)
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+
+Packets sent   : 1
+Duration       : 32ms
+CPU Time       : 4ms
+RTT            : 0.001s
+
+
+tcpdump -i ens33 -v ip6 src host 2400:1a00:4b88:85aa:f913:e15d:9816:3410 -xxvv
+tcpdump: listening on ens33, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+20:35:04.481609 IP6 (hlim 64, next-header TCP (6), payload length 40) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [S], cksum 0x6c4d (correct), seq 3152070091, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 6000
+        0x0010:  0000 0028 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 bbe0 c5cb 0000
+        0x0040:  0000 a002 ffff 6c4d 0000 0204 05b4 0303
+        0x0050:  0704 0208 0a00 12d6 8700 0000 0001
+20:35:04.481915 IP6 (flowlabel 0xfa184, hlim 64, next-header TCP (6), payload length 20) 2400-1a00-4b88.ip6.wlink.com.np.https > h4ck3r.ssh: Flags [R], cksum 0x73fd (correct), seq 3152070092, win 0, length 0
+        0x0000:  000c 2935 682b 000c 2964 49df 86dd 600f
+        0x0010:  a184 0014 0640 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 68c2
+        0x0030:  41d6 6c8f dc3e 01bb 0016 bbe0 c5cc 0000
+        0x0040:  0000 5004 0000 73fd 0000
+20:35:05.019852 IP6 (hlim 255, next-header ICMPv6 (58), payload length 24) 2400-1a00-4b88.ip6.wlink.com.np > 2400-1a00-4b88.ip6.wlink.com.np: [icmp6 sum ok] ICMP6, neighbor advertisement, length 24, tgt is 2400-1a00-4b88.ip6.wlink.com.np, Flags [solicited]
+        0x0000:  1458 0835 e7c0 000c 2964 49df 86dd 6000
+        0x0010:  0000 0018 3aff 2400 1a00 4b88 85aa f913
+        0x0020:  e15d 9816 3410 2400 1a00 4b88 85aa 0000
+        0x0030:  0000 0000 0001 8800 bce1 4000 0000 2400
+        0x0040:  1a00 4b88 85aa f913 e15d 9816 3410
+^C
+3 packets captured
+3 packets received by filter
+0 packets dropped by kernel
+
+

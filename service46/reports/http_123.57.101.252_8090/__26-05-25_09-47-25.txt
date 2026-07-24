@@ -1,0 +1,15 @@
+# Dirsearch started Mon May 25 09:49:12 2026 as: /usr/lib/python3/dist-packages/dirsearch/dirsearch.py -u http://123.57.101.252:8090/
+
+200     3KB  http://123.57.101.252:8090/admin
+301    41B   http://123.57.101.252:8090/admin/    -> REDIRECTS TO: /admin
+301    43B   http://123.57.101.252:8090/assets    -> REDIRECTS TO: /assets/
+200   258B   http://123.57.101.252:8090/assets/
+404    43B   http://123.57.101.252:8090/assets/fckeditor
+404    43B   http://123.57.101.252:8090/assets/pubspec.yaml
+404    43B   http://123.57.101.252:8090/assets/file
+404    43B   http://123.57.101.252:8090/assets/js/fckeditor
+404    43B   http://123.57.101.252:8090/assets/npm-debug.log
+301    48B   http://123.57.101.252:8090/favicon.ico    -> REDIRECTS TO: /favicon.ico/
+200     4B   http://123.57.101.252:8090/health
+301    43B   http://123.57.101.252:8090/public    -> REDIRECTS TO: /public/
+200   117B   http://123.57.101.252:8090/public/

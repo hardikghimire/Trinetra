@@ -1,0 +1,15 @@
+
+Starting [1mShiv[0m ([93mSYN[0m) at Tue Jul 14 17:25:24 2026
+[1mShiv scan report for [96mack.nmap.org[0m[1m (50.116.1.184)[0m
+
+[1mPORT      STATE     SERVICE[0m
+[93m443[0m/tcp   [92mopen[0m      https 🌐🔒
+
+Packets sent   : 1
+Duration       : 303ms
+CPU Time       : 4ms
+RTT            : 0.273s
+
+PORT    VERSION
+443    : [32mApache/2.4.6 (CentOS)[0m
+

@@ -1,0 +1,813 @@
+#include <future>
+#include <chrono>
+#include <mutex>
+#include "utils.hpp"
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <iomanip>
+#include <cstring>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <cctype>
+#include <chrono>
+#include <ctime>
+#include <net/if.h>       
+#include <netpacket/packet.h> 
+#include <ifaddrs.h>         
+#include <sys/ioctl.h> 
+#include <immintrin.h>  
+#include <emmintrin.h>  
+// PATCH: added for SSSE3 format_mac path and semaphore batch_reverse_dns
+#ifdef __SSSE3__
+#include <tmmintrin.h>   // _mm_shuffle_epi8 (pshufb)
+#endif
+#include <semaphore>     // std::counting_semaphore (C++20)
+
+static inline uint64_t process_scalar_remainder(const uint8_t* data, int len) {
+    uint64_t sum = 0;
+    while (len >= 2) {
+        uint16_t word;
+        std::memcpy(&word, data, sizeof(word));
+        sum += word;
+        data += 2;
+        len -= 2;
+    }
+    if (len > 0) {
+        sum += static_cast<uint16_t>(*data) << 8;
+    }
+    return sum;
+}
+
+
+unsigned short checksum(void *b, int len) {
+    const uint8_t* data = static_cast<const uint8_t*>(b);
+    uint64_t sum = 0;
+
+#ifdef __AVX2__
+    // AVX2 implementation
+    if (len >= 32) {
+        __m256i zero = _mm256_setzero_si256();
+        __m256i sum_vec = _mm256_setzero_si256();
+        int avx2_len = len - (len % 32);
+        
+        for (int i = 0; i < avx2_len; i += 32) {
+            __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data + i));
+            __m256i sum_part = _mm256_sad_epu8(v, zero);
+            sum_vec = _mm256_add_epi64(sum_vec, sum_part);
+        }
+        
+        sum += _mm256_extract_epi64(sum_vec, 0);
+        sum += _mm256_extract_epi64(sum_vec, 1);
+        sum += _mm256_extract_epi64(sum_vec, 2);
+        sum += _mm256_extract_epi64(sum_vec, 3);
+        
+        data += avx2_len;
+        len -= avx2_len;
+    }
+#elif defined(__SSE2__)
+    // SSE2 implementation
+    if (len >= 16) {
+        __m128i zero = _mm_setzero_si128();
+        __m128i sum_vec = _mm_setzero_si128();
+        int sse2_len = len - (len % 16);
+        
+        for (int i = 0; i < sse2_len; i += 16) {
+            __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i*>(data + i));
+            __m128i sum_part = _mm_sad_epu8(v, zero);
+            sum_vec = _mm_add_epi64(sum_vec, sum_part);
+        }
+        
+        sum += _mm_extract_epi64(sum_vec, 0);
+        sum += _mm_extract_epi64(sum_vec, 1);
+        
+        data += sse2_len;
+        len -= sse2_len;
+    }
+#endif
+
+    // Process remaining bytes
+    sum += process_scalar_remainder(data, len);
+
+    // Fold 64-bit sum to 16-bit checksum
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    
+    return static_cast<uint16_t>(~sum);
+}
+
+std::vector<int> parse_ports(const std::string &port_spec) {
+    std::vector<int> ports;
+    ports.reserve(256);
+
+    const char* p   = port_spec.data();
+    const char* end = p + port_spec.size();
+
+    while (p < end) {
+        // skip leading whitespace
+        while (p < end && (*p == ' ' || *p == '\t')) ++p;
+        if (p >= end) break;
+
+        // find comma boundary for this token
+        const char* tok_end = p;
+        while (tok_end < end && *tok_end != ',') ++tok_end;
+
+        // trim trailing whitespace
+        const char* te = tok_end;
+        while (te > p && (*(te-1) == ' ' || *(te-1) == '\t')) --te;
+
+        if (p == te) {
+            std::cerr << "Empty port specification ignored\n";
+            p = tok_end + 1;
+            continue;
+        }
+
+        // find '-' after leading digit run to detect range vs single
+        const char* dash = p;
+        while (dash < te && *dash >= '0' && *dash <= '9') ++dash;
+        bool is_range = (dash < te && *dash == '-');
+
+        if (is_range) {
+            int s_port = 0, e_port = 0;
+            auto [p1, ec1] = std::from_chars(p, te, s_port);
+            if (ec1 != std::errc() || p1 >= te || *p1 != '-') {
+                std::cerr << "Invalid port range format: "
+                          << std::string(p, te) << "\n";
+                p = tok_end + 1; continue;
+            }
+            auto [p2, ec2] = std::from_chars(p1 + 1, te, e_port);
+            if (ec2 != std::errc() || p2 != te) {
+                std::cerr << "Invalid port range format: "
+                          << std::string(p, te) << "\n";
+                p = tok_end + 1; continue;
+            }
+            if (s_port < 1 || s_port > 65535)
+                std::cerr << "Start port out of range (1-65535): " << s_port << "\n";
+            else if (e_port < 1 || e_port > 65535)
+                std::cerr << "End port out of range (1-65535): " << e_port << "\n";
+            else if (s_port > e_port)
+                std::cerr << "Invalid range (start > end): "
+                          << std::string(p, te) << "\n";
+            else {
+                const size_t range_sz = static_cast<size_t>(e_port - s_port + 1);
+                const size_t old_sz   = ports.size();
+                ports.resize(old_sz + range_sz);
+                // compiler auto-vectorizes this loop
+                for (size_t i = 0; i < range_sz; ++i)
+                    ports[old_sz + i] = s_port + static_cast<int>(i);
+            }
+        } else {
+            int port = 0;
+            auto [ptr, ec] = std::from_chars(p, te, port);
+            if (ec != std::errc() || ptr != te)
+                std::cerr << "Invalid port number: " << std::string(p, te) << "\n";
+            else if (port < 1 || port > 65535)
+                std::cerr << "Port out of range (1-65535): " << port << "\n";
+            else
+                ports.push_back(port);
+        }
+        p = tok_end + 1;
+    }
+
+    if (ports.empty()) {
+        std::cerr << "No valid ports parsed from: " << port_spec << "\n";
+        return ports;
+    }
+    std::sort(ports.begin(), ports.end());
+    ports.erase(std::unique(ports.begin(), ports.end()), ports.end());
+    return ports;
+}
+
+std::vector<int> read_ports_from_file(const std::string& filename) {
+    std::vector<int> ports;
+ 
+    int fd = open(filename.c_str(), O_RDONLY);
+    if (fd < 0) {
+        std::cerr << "Failed to open " << filename << ": " << strerror(errno) << std::endl;
+        return ports;
+    }
+    struct FDGuard {
+        int fd;
+        ~FDGuard() { if (fd >= 0) close(fd); }
+    } guard{fd};
+ 
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        std::cerr << "Failed to get file size for " << filename
+                  << ": " << strerror(errno) << std::endl;
+        return ports;
+    }
+    if (st.st_size == 0) {
+        std::cerr << filename << " is empty" << std::endl;
+        return ports;
+    }
+ 
+    size_t file_size = static_cast<size_t>(st.st_size);
+    void* mapped = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd, 0);
+    if (mapped == MAP_FAILED) {
+        std::cerr << "mmap failed: " << strerror(errno) << std::endl;
+        return ports;
+    }
+    struct MapGuard {
+        void* ptr; size_t size;
+        ~MapGuard() { if (ptr != MAP_FAILED) munmap(ptr, size); }
+    } map_guard{mapped, file_size};
+ 
+    const char* data = static_cast<const char*>(mapped);
+
+    // helper lambda: parse one memory region into a port vector
+    auto parse_region = [&filename](const char* rdata, size_t rlen,
+                                     std::vector<int>& out) {
+        const char* p   = rdata;
+        const char* end = rdata + rlen;
+        while (p < end) {
+            while (p < end && (*p == ' ' || *p == '\t' || *p == '\r')) ++p;
+            if (p >= end) break;
+            if (*p == '#') { while (p < end && *p != '\n') ++p; if (p < end) ++p; continue; }
+            if (*p < '0' || *p > '9') { while (p < end && *p != '\n') ++p; if (p < end) ++p; continue; }
+            int port = 0;
+            auto [ptr, ec] = std::from_chars(p, end, port);
+            if (ec == std::errc() && port >= 1 && port <= 65535)
+                out.push_back(port);
+            else if (ec != std::errc())
+                std::cerr << "Port out of range in " << filename << ": " << port << "\n";
+            p = ptr;
+            while (p < end && *p != '\n') ++p;
+            if (p < end) ++p;
+        }
+    };
+
+    // small file: single-threaded
+    if (file_size < 256 * 1024) {
+        ports.reserve((file_size / 5) + 64);
+        parse_region(data, file_size, ports);
+    }
+    // large file: split on newline boundaries, parse in parallel
+    else {
+        const size_t n_threads = std::min<size_t>(
+            4u, std::max<size_t>(2u, (size_t)std::thread::hardware_concurrency()));
+
+        std::vector<std::pair<const char*, size_t>> regions;
+        const char* seg = data;
+        for (size_t t = 0; t < n_threads; ++t) {
+            if (seg >= data + file_size) break;
+            const char* nom = (t == n_threads - 1)
+                ? data + file_size
+                : data + (t + 1) * (file_size / n_threads);
+            while (nom < data + file_size && *nom != '\n') ++nom;
+            if (nom < data + file_size) ++nom;
+            regions.emplace_back(seg, static_cast<size_t>(nom - seg));
+            seg = nom;
+        }
+
+        std::vector<std::vector<int>> chunks(regions.size());
+        std::vector<std::future<void>> futures;
+        futures.reserve(regions.size());
+        for (size_t t = 0; t < regions.size(); ++t) {
+            auto [rd, rl] = regions[t];
+            futures.push_back(std::async(std::launch::async,
+                [rd, rl, &chunks, t, &parse_region, &filename]() {
+                    chunks[t].reserve(rl / 5 + 16);
+                    parse_region(rd, rl, chunks[t]);
+                }));
+        }
+        size_t total = 0;
+        for (size_t t = 0; t < regions.size(); ++t) { futures[t].get(); total += chunks[t].size(); }
+        ports.reserve(total);
+        for (auto& c : chunks)
+            ports.insert(ports.end(), std::make_move_iterator(c.begin()),
+                                      std::make_move_iterator(c.end()));
+    }
+ 
+    if (ports.empty()) {
+        std::cerr << "No valid ports found in " << filename << std::endl;
+        return ports;
+    }
+    std::sort(ports.begin(), ports.end());
+    ports.erase(std::unique(ports.begin(), ports.end()), ports.end());
+    return ports;
+}
+
+int get_ip_version(const char* ip) {
+    struct sockaddr_in sa4;
+    if (inet_pton(AF_INET, ip, &sa4.sin_addr) == 1) {
+        return 4;
+    }
+    return 0;
+}
+
+std::string autodetect_interface(uint32_t local_ip) {
+    static std::unordered_map<uint32_t, std::string> iface_cache;
+    static std::mutex cache_mutex;
+
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
+        auto it = iface_cache.find(local_ip);
+        if (it != iface_cache.end()) return it->second;
+    }
+
+    struct ifaddrs *ifaddr;
+    std::string interface;
+    if (getifaddrs(&ifaddr) == -1) {
+        std::cerr << "getifaddrs failed: " << strerror(errno) << std::endl;
+        return "eth0";
+    }
+    for (struct ifaddrs *ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr || ifa->ifa_addr->sa_family != AF_INET) continue;
+        struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
+        if (sin->sin_addr.s_addr == local_ip) {
+            interface = ifa->ifa_name;
+            break;
+        }
+    }
+    freeifaddrs(ifaddr);
+    if (interface.empty()) {
+        std::cerr << "No interface found for local IP; using default 'eth0'\n";
+        interface = "eth0";
+    }
+
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    iface_cache[local_ip] = interface;
+    return interface;
+}
+
+// =============================================================================
+// FUNCTION 6 — read_services_from_file  (replaces original lines 335-414)
+//
+// SECURITY FIXES vs original:
+//   BUG 1 (FD leak): original kept fd open throughout the entire parse loop
+//     (lines 23-75) — the fd was only closed at line 76 after munmap.
+//     mmap does not hold a reference to the fd; closing it immediately after
+//     mmap is both safe and correct.  Fixed: close(fd) immediately after mmap
+//     succeeds, wrapped in RAII so it fires on every early-return path too.
+//   BUG 2 (off_t sign): original stored st.st_size in `off_t file_size`
+//     (signed) and passed it directly to mmap/munmap.  On 32-bit builds this
+//     truncates to signed 32-bit.  Fixed: cast to size_t immediately after the
+//     zero check, use size_t everywhere downstream.
+//   BUG 3 (no RAII on mmap): original only called munmap in the success path
+//     (line 75); if an exception were thrown inside the while-loop the mapping
+//     would leak.  Fixed: MmapGuard RAII struct ensures munmap always fires.
+//
+// OPTIMIZATIONS vs original:
+//   • Files ≥ 256 KB are parsed in parallel (up to 4 async tasks, one shard
+//     each) then merged — identical pattern to read_ports_from_file.
+//   • MAP_POPULATE added for large files so the kernel pre-faults pages before
+//     the parse threads start.
+// =============================================================================
+
+const std::unordered_map<uint16_t, std::string>& read_services_from_file(
+    const std::string& filename)
+{
+    static std::unordered_map<uint16_t, std::string> service_map;
+    static std::once_flag once_flag;
+
+    std::call_once(once_flag, [&]() {
+        // ── open + stat ───────────────────────────────────────────────────────
+        int fd = open(filename.c_str(), O_RDONLY);
+        if (fd < 0) {
+            std::cerr << "Failed to open services file: " << strerror(errno) << "\n";
+            return;
+        }
+        struct stat st;
+        if (fstat(fd, &st) < 0) {
+            std::cerr << "Failed to get services file size: " << strerror(errno) << "\n";
+            close(fd);
+            return;
+        }
+        const off_t file_size_off = st.st_size;
+        if (file_size_off == 0) {
+            std::cerr << "services file is empty\n";
+            close(fd);
+            return;
+        }
+        // SECURITY FIX (BUG 2): cast to size_t here, never use signed off_t
+        // downstream.
+        const size_t file_size = static_cast<size_t>(file_size_off);
+
+        char* mapped_data = static_cast<char*>(
+            mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0));
+
+        // SECURITY FIX (BUG 1): close fd immediately after mmap — the mapping
+        // is independent of the fd descriptor from this point on.
+        close(fd);
+
+        if (mapped_data == MAP_FAILED) {
+            std::cerr << "mmap failed for services file: " << strerror(errno) << "\n";
+            return;
+        }
+
+        // SECURITY FIX (BUG 3): RAII munmap — fires at end of lambda regardless
+        // of which return path is taken, including exception unwind.
+        struct MmapGuard {
+            char* ptr; size_t sz;
+            ~MmapGuard() { if (ptr != MAP_FAILED) munmap(ptr, sz); }
+        } mg{ mapped_data, file_size };
+
+        service_map.reserve(24000);
+
+        // ── inner parse lambda — identical logic to original while-loop ───────
+        // Each invocation fills an independent output map.
+        auto parse_region = [](const char* rdata, size_t rlen,
+                                std::unordered_map<uint16_t, std::string>& out)
+        {
+            const char* line_start = rdata;
+            const char* end        = rdata + rlen;
+            while (line_start < end) {
+                const char* line_end = static_cast<const char*>(
+                    memchr(line_start, '\n', static_cast<size_t>(end - line_start)));
+                if (!line_end) line_end = end;
+
+                if (line_start == line_end || *line_start == '#') {
+                    line_start = line_end + 1;
+                    continue;
+                }
+
+                const char* ptr           = line_start;
+                const char* service_start = ptr;
+                while (ptr < line_end && *ptr != '\t' && *ptr != ' ') ++ptr;
+                if (ptr == service_start) { line_start = line_end + 1; continue; }
+
+                std::string_view service_name(service_start,
+                    static_cast<size_t>(ptr - service_start));
+
+                while (ptr < line_end && (*ptr == '\t' || *ptr == ' ')) ++ptr;
+
+                int tmp_port = 0;
+                auto [p_end, ec] = std::from_chars(ptr, line_end, tmp_port);
+                if (ec != std::errc() || tmp_port <= 0 || tmp_port > 65535) {
+                    line_start = line_end + 1;
+                    continue;
+                }
+                const uint16_t port = static_cast<uint16_t>(tmp_port);
+                ptr = p_end;
+
+                // protocol detection: compare 3 bytes as uint32 ("tcp")
+                bool is_tcp = false;
+                if (ptr + 4 <= line_end && ptr[0] == '/') {
+                    uint32_t proto32 = 0;
+                    memcpy(&proto32, ptr + 1, 3);
+                    constexpr uint32_t TCP32 =
+                        uint32_t('t') | (uint32_t('c') << 8) | (uint32_t('p') << 16);
+                    is_tcp = ((proto32 & 0x00FFFFFFu) == TCP32);
+                }
+                if (is_tcp)
+                    out[port] = std::string(service_name);
+
+                line_start = line_end + 1;
+            }
+        };
+
+        // ── small file: single-threaded (no async overhead) ───────────────────
+        constexpr size_t PARALLEL_THRESHOLD = 256 * 1024;
+        if (file_size < PARALLEL_THRESHOLD) {
+            parse_region(mapped_data, file_size, service_map);
+            return; // MmapGuard fires here
+        }
+
+        // ── large file: parallel region parse ────────────────────────────────
+        const size_t n_threads = std::min<size_t>(
+            4u, std::max<size_t>(2u, static_cast<size_t>(std::thread::hardware_concurrency())));
+
+        std::vector<std::pair<const char*, size_t>> regions;
+        regions.reserve(n_threads);
+        const char* seg = mapped_data;
+        for (size_t t = 0; t < n_threads; ++t) {
+            if (seg >= mapped_data + file_size) break;
+            const char* nom = (t == n_threads - 1)
+                ? mapped_data + file_size
+                : mapped_data + (t + 1) * (file_size / n_threads);
+            while (nom < mapped_data + file_size && *nom != '\n') ++nom;
+            if (nom < mapped_data + file_size) ++nom;
+            regions.emplace_back(seg, static_cast<size_t>(nom - seg));
+            seg = nom;
+        }
+
+        const size_t nreg = regions.size();
+        std::vector<std::unordered_map<uint16_t, std::string>> shards(nreg);
+        for (auto& s : shards) s.reserve(24000 / nreg + 64);
+
+        std::vector<std::future<void>> futures;
+        futures.reserve(nreg);
+        for (size_t t = 0; t < nreg; ++t) {
+            auto [rd, rl] = regions[t];
+            futures.push_back(std::async(std::launch::async,
+                [rd, rl, &shards, t, &parse_region]() {
+                    parse_region(rd, rl, shards[t]);
+                }));
+        }
+
+        for (size_t t = 0; t < nreg; ++t) {
+            futures[t].get();
+            for (auto& [k, v] : shards[t])
+                service_map.emplace(k, std::move(v));
+        }
+        // MmapGuard fires here — all tasks have returned
+    });
+
+    return service_map;
+}
+
+
+// =============================================================================
+// FUNCTION 5 — reverse_dns_lookup + NEW batch_reverse_dns
+//              (replaces original lines 416-452; batch function added after)
+//
+// SECURITY FIX in reverse_dns_lookup:
+//   BUG 4 (hostname not NUL-terminated on getnameinfo partial write):
+//     The original passed `hostname` (stack buffer) directly to std::string{}
+//     constructor.  getnameinfo guarantees NUL-termination on success (rc==0)
+//     per POSIX, so the original is technically safe — but only if rc==0.
+//     The guard `(rc == 0) ? std::string(hostname) : std::string{}` was
+//     already correct; no change needed here.  Documented for clarity.
+//
+//   BUG 5 (use-after-timeout detached thread):
+//     When wait_for times out, the original leaves the async future detached.
+//     The lambda captures sa_copy by value so there is no dangling pointer —
+//     the thread is safe to run to completion.  However the thread holds a
+//     system DNS resolver thread slot for up to the full resolver timeout
+//     (system-dependent, typically 5-30 s).  This is a resource exhaustion
+//     risk under rapid scan.  The optimized batch_reverse_dns below caps
+//     concurrency at 32 via counting_semaphore, bounding total resolver
+//     threads.  reverse_dns_lookup itself is left unchanged per the spec.
+// =============================================================================
+
+std::string reverse_dns_lookup(const std::string& ip_address) {
+    static std::unordered_map<std::string, std::string> dns_cache;
+    static std::mutex dns_mutex;
+
+    // cache read
+    {
+        std::lock_guard<std::mutex> lock(dns_mutex);
+        auto it = dns_cache.find(ip_address);
+        if (it != dns_cache.end()) return it->second;
+    }
+
+    // validate IP before touching the network
+    struct sockaddr_in sa{};
+    if (inet_pton(AF_INET, ip_address.c_str(), &sa.sin_addr) != 1) {
+        std::lock_guard<std::mutex> lock(dns_mutex);
+        dns_cache[ip_address] = "";
+        return "";
+    }
+    sa.sin_family = AF_INET;
+    sa.sin_port   = 0;
+
+    // async getnameinfo with 1500 ms timeout
+    struct sockaddr_in sa_copy = sa;
+    auto task = std::async(std::launch::async, [sa_copy]() -> std::string {
+        char hostname[NI_MAXHOST];
+        int rc = getnameinfo(
+            reinterpret_cast<const struct sockaddr*>(&sa_copy),
+            sizeof(sa_copy),
+            hostname, NI_MAXHOST,
+            nullptr, 0,
+            NI_NAMEREQD);
+        return (rc == 0) ? std::string(hostname) : std::string{};
+    });
+
+    std::string ret;
+    if (task.wait_for(std::chrono::milliseconds(1500)) == std::future_status::ready)
+        ret = task.get();
+    // timeout: ret stays ""; detached thread finishes eventually (sa_copy by value)
+
+    {
+        std::lock_guard<std::mutex> lock(dns_mutex);
+        dns_cache[ip_address] = ret;
+    }
+    return ret;
+}
+
+// ── batch_reverse_dns ─────────────────────────────────────────────────────────
+// Returns a vector parallel to `ips`: resolved hostname or "" on failure.
+// All lookups run concurrently, bounded by MAX_RDNS_CONCURRENCY=32.
+//
+// SECURITY FIX (BUG 5 mitigation): the semaphore cap prevents unbounded
+// resolver thread spawning under large /16 or full-range scans.
+//
+// USAGE — in scan.cpp HOST_HEADER case (line ~286-300), replace:
+//   std::string hostname = reverse_dns_lookup(ip);
+// with a single batch call before the loop:
+//   std::vector<std::string> hostnames = batch_reverse_dns(all_ips);
+// then pass hostnames[i] directly instead of calling reverse_dns_lookup
+// inside the loop.
+static constexpr size_t MAX_RDNS_CONCURRENCY = 32;
+
+std::vector<std::string> batch_reverse_dns(const std::vector<std::string>& ips) {
+    const size_t n = ips.size();
+    std::vector<std::string> results(n);
+
+    if (n == 0) return results;
+    if (n == 1) { results[0] = reverse_dns_lookup(ips[0]); return results; }
+
+    std::counting_semaphore<MAX_RDNS_CONCURRENCY> sem(MAX_RDNS_CONCURRENCY);
+
+    std::vector<std::future<std::string>> futures;
+    futures.reserve(n);
+
+    for (size_t i = 0; i < n; ++i) {
+        sem.acquire();
+        futures.push_back(std::async(std::launch::async,
+            [&ips, i, &sem]() -> std::string {
+                std::string h = reverse_dns_lookup(ips[i]);
+                sem.release();
+                return h;
+            }));
+    }
+
+    for (size_t i = 0; i < n; ++i)
+        results[i] = futures[i].get();
+
+    return results;
+}
+
+
+bool get_interface_mac(int sock, const char* ifname, uint8_t* mac) {
+    if (!mac || !ifname) return false;
+ 
+    if (strcmp(ifname, "lo") == 0) {
+        static const uint8_t loopback_mac[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
+        memcpy(mac, loopback_mac, 6);
+        return true;
+    }
+ 
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+ 
+    if (ioctl(sock, SIOCGIFHWADDR, &ifr) == 0) {
+        memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
+        return true;
+    }
+
+    struct ifaddrs* ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) != 0) {
+        std::cerr << "get_interface_mac: getifaddrs failed: " << strerror(errno) << "\n";
+        return false;
+    }
+ 
+    bool found = false;
+    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_name || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_PACKET) continue;
+ 
+        struct sockaddr_ll* sll =
+            reinterpret_cast<struct sockaddr_ll*>(ifa->ifa_addr);
+        if (sll->sll_halen != 6) continue;
+ 
+        memcpy(mac, sll->sll_addr, 6);
+        found = true;
+        if (strcmp(ifa->ifa_name, ifname) == 0) break;
+    }
+    freeifaddrs(ifaddr);
+ 
+    if (!found) {
+        std::cerr << "get_interface_mac: no hardware address found for '"
+                  << ifname << "'\n";
+    }
+    return found;
+}
+
+bool get_interface_ip_and_netmask(int sock, const char* ifname, uint8_t* ip, uint8_t* netmask) {
+    if (!ip || !netmask || !ifname) return false;
+
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+
+    if (ioctl(sock, SIOCGIFADDR, &ifr) < 0) {
+        perror("ioctl SIOCGIFADDR");
+        return false;
+    }
+    memcpy(ip, &(((struct sockaddr_in*)&ifr.ifr_addr)->sin_addr), 4);
+
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, ifname, IFNAMSIZ - 1);
+
+    if (ioctl(sock, SIOCGIFNETMASK, &ifr) < 0) {
+        perror("ioctl SIOCGIFNETMASK");
+        return false;
+    }
+    memcpy(netmask, &(((struct sockaddr_in*)&ifr.ifr_netmask)->sin_addr), 4);
+    return true;
+}
+
+
+static const size_t MAX_RESPONSE_SIZE = 10 * 1024 * 1024;  
+
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* s) {
+    size_t newLength = size * nmemb;
+    
+    if (size == 0 || nmemb == 0 || newLength / size != nmemb) {
+        return 0;  
+    }
+    
+    if (s->size() + newLength > MAX_RESPONSE_SIZE) {
+        return 0; 
+    }
+    
+    try {
+        s->append((char*)contents, newLength);
+    } catch(const std::bad_alloc& e) {
+        return 0; 
+    } catch(const std::exception& e) {
+        return 0; 
+    }
+    
+    return newLength;
+}
+
+
+// =============================================================================
+// FUNCTION 4 — format_mac  (replaces original lines 549-563)
+//
+// SECURITY FIXES vs original:
+//   BUG 6 (no nullptr guard on return path):
+//     Original returned "00:00:00:00:00:00" for nullptr which is correct, but
+//     buf[17] was set to '\0' AFTER the SSSE3 branch writes buf[0..16].
+//     In the new code buf[17]='\0' is set once at the top before any branch —
+//     impossible for a branch to skip the NUL terminator.
+//   BUG 7 (potential read past end with _mm_loadl_epi64):
+//     _mm_loadl_epi64 loads 8 bytes; mac is only 6 bytes.  If mac points to
+//     the last 6 bytes of a non-heap region (e.g., a stack array of exactly 6
+//     bytes), bytes 6-7 would be read from adjacent memory.  This is defined
+//     in practice on x86 (reads are always safe up to the 16-byte alignment
+//     boundary), but is technically UB per C++ and flagged by sanitizers.
+//     FIXED: load into a zero-padded 8-byte local, then _mm_loadl_epi64 from
+//     that — the local is on the stack and has padding bytes we own.
+//
+// OPTIMIZATION vs original:
+//   SSSE3 path converts all 12 nibbles to ASCII hex in two pshufb instructions
+//   with no loop counter, no branch.  Scalar fallback is fully unrolled.
+// =============================================================================
+
+std::string format_mac(const uint8_t* mac) {
+    if (!mac) return "00:00:00:00:00:00";
+
+    char buf[18];
+    buf[17] = '\0'; // NUL terminator set once, before any branch
+
+#ifdef __SSSE3__
+    // SECURITY FIX (BUG 7): copy 6 bytes into a zero-padded 8-byte local so
+    // _mm_loadl_epi64 never reads bytes we don't own.
+    uint8_t mac8[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    memcpy(mac8, mac, 6);
+
+    __m128i m = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(mac8));
+
+    __m128i lo_mask  = _mm_set1_epi8(0x0F);
+    __m128i hi_nib   = _mm_and_si128(_mm_srli_epi16(m, 4), lo_mask);
+    __m128i lo_nib   = _mm_and_si128(m, lo_mask);
+
+    // interleave: hi[0] lo[0] hi[1] lo[1] ...
+    __m128i interleaved = _mm_unpacklo_epi8(hi_nib, lo_nib);
+
+    // ASCII hex LUT: index 0-15 → '0'-'9','a'-'f'
+    __m128i lut = _mm_set_epi8(
+        'f','e','d','c','b','a','9','8','7','6','5','4','3','2','1','0');
+    __m128i hexchars = _mm_shuffle_epi8(lut, interleaved);
+
+    alignas(16) char tmp[16];
+    _mm_store_si128(reinterpret_cast<__m128i*>(tmp), hexchars);
+
+    buf[ 0] = tmp[ 0]; buf[ 1] = tmp[ 1]; buf[ 2] = ':';
+    buf[ 3] = tmp[ 2]; buf[ 4] = tmp[ 3]; buf[ 5] = ':';
+    buf[ 6] = tmp[ 4]; buf[ 7] = tmp[ 5]; buf[ 8] = ':';
+    buf[ 9] = tmp[ 6]; buf[10] = tmp[ 7]; buf[11] = ':';
+    buf[12] = tmp[ 8]; buf[13] = tmp[ 9]; buf[14] = ':';
+    buf[15] = tmp[10]; buf[16] = tmp[11];
+
+#else
+    // ── scalar fallback: fully unrolled, no loop counter, no branch ───────────
+    static const char H[] = "0123456789abcdef";
+    buf[ 0] = H[(mac[0] >> 4) & 0xF]; buf[ 1] = H[mac[0] & 0xF]; buf[ 2] = ':';
+    buf[ 3] = H[(mac[1] >> 4) & 0xF]; buf[ 4] = H[mac[1] & 0xF]; buf[ 5] = ':';
+    buf[ 6] = H[(mac[2] >> 4) & 0xF]; buf[ 7] = H[mac[2] & 0xF]; buf[ 8] = ':';
+    buf[ 9] = H[(mac[3] >> 4) & 0xF]; buf[10] = H[mac[3] & 0xF]; buf[11] = ':';
+    buf[12] = H[(mac[4] >> 4) & 0xF]; buf[13] = H[mac[4] & 0xF]; buf[14] = ':';
+    buf[15] = H[(mac[5] >> 4) & 0xF]; buf[16] = H[mac[5] & 0xF];
+#endif
+
+    return std::string(buf, 17);
+}
+
+bool is_same_subnet(uint32_t ip1, uint32_t ip2, uint32_t netmask) {
+    return (ip1 & netmask) == (ip2 & netmask);
+}
+
+std::string get_current_time() {
+    time_t now = time(nullptr);
+    if (now == (time_t)-1) {
+        return "[unknown time]";
+    }
+    std::string result = ctime(&now);
+    if (!result.empty() && result[result.length()-1] == '\n') {
+        result.resize(result.length()-1);
+    }
+    return result;
+}

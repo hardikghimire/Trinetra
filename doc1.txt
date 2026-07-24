@@ -1,0 +1,746 @@
+# Project Tripundra — Complete, Exhaustive Documentation
+
+Repository: hardikghimire/project-tripundra  
+Description: Linux io_uring-based advanced TCP port scanner (raw sockets, ARP, public DB enrichment, many scan types, advanced packet manipulation, high-performance concurrency).
+
+This document aims to be a single authoritative reference for every feature and behavior implemented in the repository as of the provided source. It documents CLI options, internal data structures, file responsibilities, exact behaviors of important functions and modules, design rationales, operational guidance, tuning recommendations, and troubleshooting.
+
+---
+
+Table of contents
+1. Quick summary
+2. Feature checklist (exhaustive)
+3. Build & runtime quickstart
+4. Permissions & safety
+5. High-level architecture and data flow
+6. Core components deep-dive
+   - io_uring usage (what, why, how Tripundra uses it)
+   - moodycamel::ConcurrentQueue (why, how used)
+   - PacketBufferPool (design, lifecycle, thread-local)
+   - Packet lifecycle: PacketTask → build_packet → send_tcp_packets → receive_response → process_response
+   - ARP handling (send/receive ARP)
+   - State-machine handshake (-G)
+   - Checksum manipulation strategies
+   - TCP options & TFO cookie injection
+7. CLI / Options (complete list & semantics)
+8. Important data structures and types (full field-level explanations)
+9. File-by-file summary (what each file contains, key functions & symbols)
+10. Output formats & enrichment (Shodan/SecurityTrails integration)
+11. Concurrency, thread model & resource tracking
+12. Error handling, signals & emergency cleanup
+13. Performance tuning (all knobs) and recommended defaults
+14. Testing, debugging and capture tips
+15. Security, legal, and operational considerations
+16. Known limitations and recommended future work
+17. Appendix: example commands and typical workflows
+18. Appendix: mapping of features to implementation locations (where in code)
+
+---
+
+1 — Quick summary
+- Tripundra is a direct, raw-packet TCP scanner built for Linux that leverages the io_uring API for asynchronous high-throughput sending and receiving. It provides many advanced scanning features: multiple TCP-flag scans (SYN/ACK/FIN/etc.), stateful handshake mode, ARP-based MAC discovery, checksum corruption experiments, custom TCP options (TFO cookie injection, timestamps, MSS, window scaling, SACK), and integration with public databases (Shodan InternetDB & SecurityTrails). It uses a thread-local buffer pool and a fast concurrent queue to minimize per-packet allocation overhead and maximize throughput.
+
+---
+
+2 — Feature checklist (exhaustive)
+- IO & performance:
+  - Asynchronous I/O via io_uring for send and receive operations.
+  - Configurable send/rcv io_uring depths (`--send-uring`, `--rcv-uring`).
+  - Send batches and io_uring batching logic to reduce syscalls.
+  - Fallback send (sendmsg) if required.
+- Packet construction:
+  - Raw IP + TCP header building (IP fields: src/dst, TTL, flags, ID).
+  - TCP fields: src/dst ports, seq/ack, tcp flags, window, urg/psh, etc.
+  - TCP options: MSS, Window Scale, SACK permitted, Timestamp (TSval/TSecr), NOP padding.
+  - TCP Fast Open Cookie injection with multiple encodings (len:, str:, hex:, numeric).
+- Checksum manipulation:
+  - Normal correct TCP checksum.
+  - `--badsum` for full invalid checksum (optional explicit value).
+  - `--prsum` for partial / varied corruption strategies: lower, upper, bitflip, middle, swap, incremental, pattern, rfc1141, seq-tied, port-tied, carry-break, valid-ish, null, msb, lsb3, walking-bit, entropy, ones-complement, goodbye, timestamp-lie, etc.
+- Scan types:
+  - SYN (default), FIN, ACK, NULL, XMAS, WINDOW, MAIMON, CWR, ECE, URG, PSH.
+  - Custom named scans: HANUMAN, KAKABHUSUNDI, GANESH, RAM, GARUD, JATAYU — each a combination of flags (see scan.hpp ScanInfo map).
+- Stateful mode:
+
+  
+         Client                           Server
+           ------------- SYN ------------->
+           <---------- SYN/ACK ------------ 
+           ------------- ACK -------------> 
+               (Connection established)
+           ------------- FIN/ACK ---------> 
+           <------------ ACK -------------- 
+           <------------ FIN/ACK ----------
+           ------------- ACK -------------> 
+
+               (Connection fully closed)
+        
+
+  - `-G` state machine mode: complete TCP handshake & graceful close (4-way) instead of immediate RST.
+  - Sends ACK to complete handshake after receiving SYN/ACK
+  - Sends FIN+ACK and responds to final FIN for graceful closure
+  - Behaves like legitimate TCP client to avoid generating noisy RSTs
+
+    - Important: Kernel RST Interference
+
+       - Local kernel TCP stack may see raw-injected packets as unexpected
+
+       - Kernel generates outgoing RSTs that interfere with scanner's state machine
+
+       - Causes premature connection teardown and inaccurate port classification
+
+    - Workaround: Block Outgoing RSTs
+
+       - Command: sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j REJECT
+
+         - What it does:
+
+           - Drops locally generated TCP RST packets before they leave host
+
+           - Allows Tripundra's ACK/FIN packets to complete without interference
+
+           - Ensures accurate open/closed port detection in -G mode
+
+     - Important Cautions:
+
+       - System-wide impact: Affects all processes; can cause application hangs
+
+       - Controlled use only: Apply only on dedicated scanning host/isolated network
+
+       - Cleanup required: Remove rule after scanning: sudo iptables -F && sudo iptables -X
+
+       - Firewall compatibility: Translate to nftables if needed
+
+       - Privileges: Requires root or CAP_NET_ADMIN
+
+     - Future Plans:
+
+       - Complete kernel stack bypass for targeted flows
+
+       - Fine-grained RST suppression via NFQUEUE/eBPF
+
+       - Automated firewall rule management within tool
+
+       - Until then, iptables workaround is necessary for reliable stateful scanning
+
+- ARP:
+  - Send batched ARP requests on same-subnet targets using AF_PACKET and io_uring.
+  - Receive ARP replies and map IP → MAC; vendor lookup via mac-vendor.txt.
+- Port specification:
+  - Read ports from `ports.txt` by default; also supports `-p` (list, ranges), `--exclude-ports`.
+  - `read_ports_from_file()` uses mmap and safely parses very large files.
+- Target specification:
+  - Single IP/domain, comma-separated list, CIDR expansion (descending order broadcast-1 to network+1), and `-iL` file with comments and domain resolution.
+  - `--trial` integrates SecurityTrails subdomain enumeration (requires API key), supports jq and fallback parsing.
+- Enrichment & DB:
+  - Shodan InternetDB fetch for IP (https://internetdb.shodan.io/<ip>), formatted pretty via nlohmann::json.
+  - SecurityTrails fetch (via curl), jq-based parsing when available, fallback JSON parsing implemented.
+- Output:
+  - Pretty console output with Unicode icons and color-coded states.
+  - Save results to `.txt`, `.xml`, `.json`, `.csv` via `-o`.
+- Buffer & concurrency:
+  - PacketBufferPool (thread_local buffers with moodycamel queue).
+  - moodycamel::ConcurrentQueue for packet tasks and buffer queues.
+  - Sender thread for batch sends; receiver thread for io_uring receives and processing.
+- Misc:
+  - Reverse DNS lookup for host display.
+  - Adaptive RTT learning to tune timeouts.
+  - RAIIManager for scoped cleanup, and global emergency cleanup for signals/crashes.
+  - Debugging options (packet details print).
+  - Many advanced TCP option / payload controls: `--data`, `--data-length`, `--nops`, `--sack`, `--mss`, `--ws`, `--t`, `--tsecr`.
+  - Options to control IP flags and fixed/random IP ID.
+
+---
+
+3 — Build & runtime quickstart (concise)
+Prerequisites:
+- Linux kernel with io_uring support (preferred >= 5.6+).
+- g++ with C++17, liburing dev, libcurl dev, nlohmann::json dev, concurrentqueue header.
+Build:
+- make
+Run (must be root or have CAP_NET_RAW):
+- sudo ./shiv <target> -p <ports> [options]
+Examples:
+- sudo ./shiv 192.168.1.71 -p 22,80 -o result.json
+- sudo ./shiv 10.0.0.0/24 -t 4 --send-uring 256 --rcv-uring 128 -p 1-1024
+
+---
+
+4 — Permissions & safety
+- Raw sockets require CAP_NET_RAW or root (sudo). ARP requires AF_PACKET raw sockets.
+- Scanning without permission may be illegal—only test allowed systems.
+- Advanced features (badsum, malformed TFO cookies) can break or trigger IDS—use in lab first.
+
+---
+
+5 — High-level architecture & data flow
+
+Components:
+- CLI/Orchestrator (main.cpp): parse args, read targets & ports, create threads.
+- Worker threads: each assigned a subset of IPs; run thread_worker to process host(s).
+- Per-host scanning flow:
+  - prepare port batches → call receive_response for batch → inside receive_response:
+    - start a sender thread that consumes PacketTasks and calls send_tcp_packets
+    - open a receive io_uring ring on a raw socket and wait for replies, parsing them and calling process_response
+  - collect RecPross and aggregate outputs
+- Utilities: service mapping, ports parsing, mac vendor mapping, reverse DNS.
+
+Data flow:
+1. Targets & ports enumerated in main.
+2. For each batch, PacketTask objects created and queued.
+3. Sender builds raw packets in PacketBufferPool buffers, submits io_uring sends.
+4. Receiver receives raw packets, parses, maps to PortState and result lists.
+5. Aggregated results printed & optionally saved.
+
+---
+
+6 — Core components deep-dive
+
+6.1 io_uring — primer & Tripundra usage
+
+Primer:
+- io_uring provides a submission queue (SQ) and completion queue (CQ) shared between user and kernel via memory mapped ring.
+- Typical calls:
+  - io_uring_queue_init(depth, &ring, flags)
+  - io_uring_get_sqe(&ring)
+  - io_uring_prep_sendmsg / io_uring_prep_recvmsg / io_uring_prep_sendto
+  - io_uring_submit(&ring)
+  - io_uring_peek_cqe / io_uring_wait_cqe_timeout / io_uring_cqe_seen
+
+Tripundra usage:
+- Send path: build packet buffer, get SQE, io_uring_prep_sendmsg/sendto, set_data to buffer pointer, io_uring_submit, then wait for CQEs to release buffers.
+- ARP: io_uring_prep_sendto with AF_PACKET sockaddr_ll broadcast destination, batch multiple ARP requests.
+- Receive path: io_uring_prep_recvmsg on raw socket, wait for CQE with timeout (io_uring_wait_cqe_timeout) to process replies efficiently.
+
+Important notes:
+- The code handles cases where get_sqe returns NULL (ring full) or io_uring_queue_init fails (log and fall back).
+- Completions are regularly polled or waited with timeouts to ensure prompt buffer release and to avoid memory leaks.
+
+6.2 moodycamel::ConcurrentQueue (why & how)
+- High-performance lock-free queue used for:
+  - Per-thread buffer queue (PacketBufferPool::buffer_queue).
+  - PacketTask queue used in receive_response for decoupling producer (port state/timeouts) and sender.
+- Bulk dequeue (try_dequeue_bulk) used to build send batches efficiently.
+
+6.3 PacketBufferPool (design & usage)
+- Purpose: minimize heap allocations per packet by reusing pre-allocated fixed-size buffers (4096 bytes).
+- Strategy:
+  - thread_local `buffers` vector: each thread owns a set of vector<char> buffers.
+  - thread_local moodycamel queue of char* pointers to available buffers.
+  - pool_size and max_buffers heuristically computed based on ports and threads (log2(ports) scaling).
+- acquire():
+  - initialize thread-local buffers lazily, then try dequeue a char*.
+  - if empty and under max_buffers, allocate new buffer and return.
+- release():
+  - enqueue buffer pointer back for reuse.
+- Integration with io_uring:
+  - when a buffer is used for send, it's passed to SQE and io_uring_sqe_set_data(sqe, buffer) is set.
+  - on CQE, code extracts that pointer via io_uring_cqe_get_data(cqe) and passes it to pool.release().
+
+6.4 Packet lifecycle (end-to-end)
+1. PacketTask created with destination sockaddrs, src port, seq, flags, and options.
+2. Sender dequeues PacketTask bulk, acquires buffers, calls build_packet to populate IP/TCP headers, options, payload.
+3. send_tcp_packets prepares msghdr and iovec for each packet and either:
+   - submits via io_uring (preferred) in IO_URING_BATCH groups, or
+   - sends via sendmsg fallback; in both cases buffers are returned to PacketBufferPool when done.
+4. receive_response has an io_uring ring waiting for replies; when a response arrives, extract IP and TCP headers, build PacketDetails and call process_response to determine port state.
+5. process_response updates RecPross (open_ports, filtered_ports or closed_ports count) and may enqueue follow-up packets (ACK/FIN) depending on scan_type and graceful mode.
+
+6.5 ARP handling
+- For same-subnet targets (determined via autodetect_interface and netmask), thread_worker performs ARP pre-resolution to determine MAC addresses:
+  - collect same_subnet_target_ips -> send_arp_request over AF_PACKET raw socket with io_uring
+  - receive_arp_reply listens and fills MAC buffers
+  - results[*].mac_address set for discovered MAC and vendor lookup performed via mac_vendor_map (loaded from mac-vendor.txt).
+
+6.6 Stateful handshake (-G)
+- Upon SYN-ACK for SYN scan when `-G` (graceful) is set:
+  - send ACK to complete handshake
+  - send FIN+ACK then respond to the final FIN to close gracefully
+  - meant to behave like a legitimate TCP client and avoid generating RSTs that may be noisy
+
+6.7 Checksum strategies
+- Normal: computed pseudo-header + TCP segment sum; build_packet computes if `use_manual_tcp_checksum` is false.
+- --badsum: set tcph->th_sum to specified value or a random/known bad pattern.
+- --prsum: variety of partial corruption methods applied to computed checksum; selection affects how target stacks respond and can be used for fingerprinting.
+
+6.8 TCP options & TFO cookie injection
+- Option building respects the 40-byte TCP options maximum in typical stacks (code allows extension for intentional malformed tests).
+- TFO cookie option constructed as Kind 34 with subtype 0xF9 in build_packet (custom handling). Supports:
+  - random cookie of length N (`len:N`), forces odd lengths and min 5 bytes; auto padding enforcement.
+  - string (`str:`) and hex (`hex:`) encodings.
+  - legacy numeric handling if plain digits provided.
+- NOP padding auto added to align options to multiple of 4 bytes.
+
+---
+
+7 — CLI / Options (complete list and semantics)
+
+Parsed options (as implemented in main.cpp, option_handlers, scan_type_map):
+
+- Target input:
+  - <IP/CIDR/domain> — positional arguments; supports comma-separated tokens and CIDR expansion
+  - -iL <file> — read IPs/domains from file (file supports comments and will resolve domain names)
+
+- Scan type flags (scan_type_map):
+  - --syn-scan, -sS        → ScanType::SYN (default)
+  - --fin-scan, -sF        → FIN
+  - --ack-scan, -sA        → ACK
+  - --null-scan, -sN       → NULL
+  - --xmas-scan, -sX       → XMAS
+  - --window-scan, -sW     → ACK (Response with positive windows size in rst packet means "open" , If zero means "closed"
+  - --maimon-scan, -sM     → FIN+ACK
+  - --cwr-scan, -sCW       → CWR
+  - --ece-scan, -sE        → ECE
+  - --urg-scan, -sUG       → URG
+  - --psh-scan, -sPH       → PSH
+  - --hanuman-scan, -sH    → HANUMAN (CWR|PSH|URG)
+  - --kakabhusundi-scan, -sK → KAKABHUSUNDI (ECE|URG|CWR)
+  - --ganesh-scan, -sG     → GANESH (SYN|ECE)
+  - --ram-scan, -sR        → RAM (SYN|CWR|PSH)
+  - --garud-scan, -sD      → GARUD (SYN|URG|CWR)
+  - --jatayu-scan, -sJ     → JATAYU (SYN|CWR)
+
+- Port input:
+  - -p <port|list|range> — e.g., -p 22 or -p 22,80 or -p 1-1024
+  - --exclude-ports <portspec> — exclude ports from scanning
+  - Default: use ports.txt via read_ports_from_file("ports.txt")
+
+- Batch & concurrency:
+  - -b <scan_batch>/<main_batch> — batching (scan batch / grouping batch). Example: -b 100/100
+  - --send-uring <depth> — io_uring send queue depth values allowed: 2,4,6,8,16,32,64,128,256,512,1024,2048,4096
+  - --rcv-uring <depth> — io_uring receive queue depth (same allowed set)
+
+- Network / packet control:
+  - -S <ip> — source IP override
+  - -g <value> — base source port / fixed source port
+  - --ttl <value> — IP TTL (0-259)
+  - --ip-flags <hex> — ip fragment flags in hex (e.g., 0x4000 for DF)
+  - --fixed-ip-id <value> — set fixed ip id (disables random IP ID)
+  - --rcvbuf <size> — set receive buffer size (supports k/m/g suffix); determines SO_RCVBUF used on recv socket
+
+- TCP option controls:
+  - --ws <value> — window scale (0.5..30)
+  - --mss <value> — MSS value (<= 66666 considered)
+  - --t <value> — TCP timestamp TSval
+  - --tsecr <value> — TSecr (supports 0x prefix)
+  - --nops <count> — add NOPs to options; code will auto-align
+  - --sack <on|off> — enable/disable SACK permitted
+  - --seq-num <value> — set TCP sequence number (0..2^32-1)
+
+- Payload / TFO:
+  - --data <string> — custom payload
+  - --data-length <size> — generate random payload of size bytes (max 1000)
+  - --inj-tfo-cookie <val> — inject TFO cookie (formats: len:N, str:S, hex:HEX, or legacy forms). Handled by option alias --inject-tfo-cookie mapped to same handler.
+  - Options around TFO: use_random/hex/str/random length etc.
+
+- Checksum controls:
+  - --badsum [value] — enable invalid TCP checksum (optional explicit value)
+  - --prsum <type> — partial checksum manipulation type (see supported list above)
+
+- Scan behavior:
+  - -G — grace (state-machine handshake)
+  - -p small lists auto-enable `print_individual_closed_filtered` to show closed/filtered details for small scans
+
+- Debug Options:
+  - --debug (mode) Enable debug features
+  - --debug [packet] ->  Display detailed packet information
+  - --debug [rtt] -> Display RTT (Round Trip Time) calculations
+  - --debug [wsn] -> Detect WSN (Window Size Negotiation) inconsistent anomalies
+  - --debug [ttl] -> Display TTL (Time To Live) and target hop distance
+
+- Public DB:
+  - --trial <api-key> — run securitytrails enumeration for a domain (requires domain positional arg)
+  - --enum — use internetdb (Shodan InternetDB) to fetch enrichment (when enabled, will iterate unique IPs and call fetch_shodan_info)
+
+- IP fregmentation:
+  - -f [value] — valid range: 22 to 65534
+
+- Reassembly Variations:
+  - --frag ofo : send out-of-order fragments
+
+- MTU (Maximum Transmission Unit):
+  - --mtu [value] — valid range: 22 to 64435
+
+- Output:
+  - -o <file> — write results to file (.txt, .xml, .json, .csv supported)
+
+- Misc:
+  - --timeout <ms> — per-batch timeout (1..10000)
+  - --rcvbuf <size> — set receive buffer size; can be 128k, 2m, etc.
+  - --use-... (various flags handled via config struct keys)
+
+Notes:
+- Many options have validation (range checks) and will exit if invalid.
+- Some options auto-adjust behavior (e.g., TFO cookie length even/odd adjustments, nops auto-align).
+
+---
+
+8 — Important data structures & their field-level meanings
+
+(Defined primarily in scan.hpp)
+
+- enum class ScanType { SYN, FIN, ACK, NULL_SCAN, XMAS, WINDOW, MAIMON, CWR, ECE, URG, PSH, HANUMAN, KAKABHUSUNDI, GANESH, RAM, GARUD, JATAYU }
+  - Represents configured scan type and determines TCP flags and response expectations.
+
+- struct PacketDetails
+  - port (uint16_t) — remote source port from response (i.e., target port)
+  - tcp_flags (uint8_t) — flags from TCP header in response
+  - seq_num / ack_num (uint32_t) — seq and ack info
+  - window_size, length, window_scale, sack_permitted, tsval, tsecr, tfo_data (string) — various parsed option details
+  - payload / checksum / ip_id / ttl — details for debugging & fingerprinting
+  - has_* flags indicate presence of specific options
+  - Used to store parsed information about received packets and included in RecPross.packet_details map (port→PacketDetails)
+
+- struct RecPross
+  - closed_ports (int) — count of ports classified closed (RST)
+  - open_ports (vector<uint16_t>) — ports classified open
+  - filtered_ports (vector<uint16_t>) — ports classified filtered (no response after retries)
+  - mac_address (string) — if resolved via ARP
+  - packet_details (unordered_map<uint16_t,PacketDetails>) — per-port details parsed for debugging/analysis
+  - learned_rtt_ms (int) — RTT learned by the batch
+
+- struct PortState
+  - src_port, seq, ack_seq — stateful values for current port flow
+  - connection_established, fin_sent, fin_ack_received — state booleans for handshake progress
+  - start_time — time point used for timeout/retry scheduling
+  - retry_count, timeout_ms — per-port retry bookkeeping
+  - rtt_measured, syn_sent_time, sent_tsval, ewma_rtt — RTT measurements for adaptive timeouts
+  - final_state_determined — true when no further work needed for this port
+  - reported_state (enum) — None / Open / Closed / Filtered used to prevent duplicate reporting
+
+- struct PacketTask
+  - dest (sockaddr_in) — destination ip/port
+  - src_port (uint16_t) — source port used for packet
+  - seq, ack (uint32_t) — TCP seq/ack numbers
+  - flags (uint8_t) — TCP flags to use
+  - data (string), include_timestamp, window_scale, mss_value, custom_timestamp, timestamp_ecr_custom, nops_count, sack_permitted, custom_data flags, use_badsum, custom_badsum_value, use_partial_badsum, partial_badsum_type, tfo cookie fields (use_tfo_cookie, tfo_cookie_str, tfo_cookie_num, tfo_cookie_length, tfo_cookie_as_hex, tfo_cookie_random)
+  - dest_port (ntohs(dest.sin_port)) — convenience
+  - Methods include get_scan_type_name(), get_flags_for_scan_type(), expects_rst_response(), and helpers to set TFO cookie options. PacketTask is move-only and optimized for queueing.
+
+---
+
+9 — File-by-file summary (what each file contains & key functions)
+
+- main.cpp
+  - Responsibilities:
+    - Load mac vendor map from mac-vendor.txt (load_mac_vendors).
+    - Register signal handler for many signals (SignalRegistrar).
+    - Parse command line into Config struct (option_handlers and scan_type_map).
+    - Read target ips (process_ip_string, expand CIDR, read_ips_from_file).
+    - For `--trial`: call fetch_subdomains_from_api / fallback; DNS resolution; presentation of subdomains and IP mapping.
+    - Prepare PacketBufferPool and spawn worker threads.
+    - Create raw send sockets per thread; configure IP_HDRINCL, SO_REUSEPORT.
+    - Join threads, aggregate all_results and print/save results via save_scan_results.
+    - emergency_cleanup() and track_global_resource() implementations track global resources and perform forced cleanup for crashes.
+  - Key functions to review:
+    - expand_cidr, read_ips_from_file, process_ip_string, save_scan_results, signal_handler, emergency_cleanup, thread_worker wrapper code.
+
+- scan.cpp
+  - Core scanning logic:
+    - PacketBufferPool implementation (thread_local buffers + queue wrappers).
+    - print_output: elaborate pretty printing of host, scan, port result, summary, timing, RTT info, packet details, thread summaries.
+    - ARP functions: send_arp_request, receive_arp_reply (use io_uring with AF_PACKET sockets).
+    - get_local_ip (determines local IP used to reach a remote IP via UDP connect).
+    - build_packet: constructs IP + TCP headers, builds TCP options, payloads and computes TCP checksum or sets custom/bad checksum; supports TFO building and many special cases (intentional_malformed flows).
+    - send_tcp_packets: acquires buffers, builds packets, and either submits via io_uring or sendmsg fallback in balanced batches. Handles CQE processing and pool releases.
+    - process_completions: helper to wait for send completions.
+    - receive_response: creates raw recv socket, sets buffer sizes, initializes io_uring receive ring, spawns a sender thread that drains a packet_queue built by receive_response's port loop; waits for replies, uses process_response to classify ports; returns RecPross.
+    - process_response: core logic mapping incoming responses to port states based on scan_type (SYN-only logic, FIN/NULL/XMAS logic, ACK scan window analysis, WINDOW scan interpreting window size for open/closed, etc.). It handles printing and state transitions (open/closed/filtered).
+    - display_packet_details: detailed human-readable debug output showing flags, seq/ack, window, options (TFO hexified), payload excerpt, DF flag, checksum etc.
+    - worker_thread: orchestrates per-IP scanning using receive_response and prints summary per IP.
+  - Key classes/types used: PacketTask, PacketBufferPool, PacketDetails, RecPross, PortState.
+
+- scan.hpp
+  - Declarations for everything used by scan.cpp: RAIIManager, ScopedRAII, PacketBufferPool, PacketTask, PacketDetails, RecPross, PortState, send_arp_request/receive_arp_reply prototypes, send_tcp_packets and receive_response prototypes, print_output declarations, concurrency externs, and supporting constants (TH_CWR/ECE definitions if missing).
+  - Contains implementation-level helper templates (RAIIManager) for registering cleanup handlers.
+
+- utils.cpp / utils.hpp
+  - Utilities:
+    - checksum(void *b, int len)
+    - parse_ports(const std::string &port_spec)
+    - read_ports_from_file(const std::string &filename) (mmap-based)
+    - get_ip_version()
+    - autodetect_interface(uint32_t local_ip)
+    - read_services_from_file(const std::string &filename) (mmap parsing of services file -> unordered_map<uint16_t,string>)
+    - reverse_dns_lookup(const std::string&)
+    - get_interface_mac / get_interface_ip_and_netmask (ioctl wrappers)
+    - WriteCallback for curl
+    - format_mac (thread_local buffer)
+    - is_same_subnet, get_current_time
+  - These provide the scanner's basic building blocks and file parsing performance.
+
+- public_db.cpp / public_db.hpp
+  - fetch_shodan_info(const std::string& ip) — uses libcurl to GET internetdb.shodan.io/<ip> and returns raw JSON string.
+  - display_shodan_info — parse JSON via nlohmann::json and pretty-print sections (network info, cpes, hostnames, ports, tags, vulns).
+  - fetch_subdomains_from_api / fetch_subdomains_from_api_no_jq — SecurityTrails API using curl + jq or fallback string parsing.
+
+- Makefile
+  - Builds with g++ and flags: -std=c++17 -pthread -march=native -O3 -mavx2 -D__AVX2__
+  - Security flags: -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -pie -Wl,-z,relro,-z,now
+  - Links: -luring -lcurl -lpthread
+  - OBJ_DIR object; target binary named `shiv`.
+
+- ports.txt
+  - Long default list of ports used by scanner when no -p specified.
+
+- services
+  - File similar to /etc/services or nmap-services that maps service names to port/protocol. Only `tcp` entries are loaded into service_map.
+
+- mac-vendor.txt
+  - OUI -> vendor mappings used by get_mac_vendor() and loaded at startup for lookups.
+
+---
+
+10 — Output formats & enrichment
+
+- Console output: printed by print_output() with types:
+  - HOST_HEADER, SCAN_HEADER, PORT_TABLE_HEADER, PORT_RESULT, PORT_RESULT_CUSTOM, SCAN_SUMMARY, SCAN_TIMING, RTT_INFO, MAC_ADDRESS, THREAD_SUMMARY, MULTI_IP_SEPARATOR, DOWN_HOSTS_SUMMARY, NOT_SHOWN_MESSAGE, OVERALL_HEADER, OVERALL_COMPLETION, INTERRUPTION_MESSAGE
+  - Prints icons, color, timing, counts, per-port states and optional packet details (on debug).
+- File output (save_scan_results):
+  - .txt: human-readable grouped listing with MAC vendor if present.
+  - .xml: simple XML tags for open ports, filtered ports, counts and mac info.
+  - .json: structured JSON { "hmap_scan": {...} } with arrays of ports and service names.
+  - .csv: Port,Protocol,Service,Status rows and a final closed count note.
+- Shodan/InternetDB:
+  - fetch_shodan_info uses libcurl; display_shodan_info parses JSON to show ASN, org, country, hostnames, ports, tags, vulnerabilities.
+- SecurityTrails:
+  - fetch_subdomains_from_api uses curl + jq to produce a list of subdomains; fallback implements a naive JSON substring parse.
+
+---
+
+11 — Concurrency, thread model & resource tracking
+
+- Top-level threads: main spawns up to config.num_threads worker threads; each owns a subset of IPs.
+- Inside receive_response:
+  - A sender thread is launched to drain packet_queue and call send_tcp_packets; the main receive thread waits for replies on io_uring.
+- Synchronization:
+  - cout_mutex serialized printing
+  - atomic terminate_flag controls cooperative shutdown
+  - RAIIManager used to register cleanup actions per-scope; RAIIManager.release_all invoked in destructors or explicit cleanup.
+  - track_global_resource() tracks raw sockets, io_uring* and std::thread* in global vectors protected by global_resources_mutex for emergency_cleanup path.
+- Emergency cleanup:
+  - emergency_cleanup closes sockets gracefully, attempts to shutdown and close io_uring rings, attempts to join/detach threads with timeouts, iterates file descriptors in range and closes sockets where getsockopt indicates a socket.
+
+---
+
+12 — Error handling, signals & emergency cleanup
+
+- Signals registered: SIGINT, SIGSEGV, SIGABRT, SIGTERM, SIGFPE, SIGBUS, SIGILL, SIGSYS, SIGPIPE, SIGXCPU, SIGXFSZ.
+- SIGINT sets terminate_flag for graceful stop.
+- Other fatal signals trigger emergency_cleanup and re-raise default handler.
+- Many functions return early and print errors if essential syscalls (socket, setsockopt, io_uring_queue_init) fail.
+- read_ports_from_file and read_services_from_file use mmap with RAII-style guard objects to ensure munmap & close.
+
+---
+
+13 — Performance tuning (all knobs & recommendations)
+
+Tuneable knobs (how they affect behavior & recommended ranges):
+- num_threads (-t): number of worker threads; affects per-host concurrency and CPU usage. Default and allowed 1..10. Increase for many hosts but ensure NIC/CPU capacity.
+- --send-uring / --rcv-uring: io_uring depths. Allowed set: {2,4,6,8,16,32,64,128,256,512,1024,2048,4096}. Larger improves throughput but increases memory usage.
+- -b <scan_batch/main_batch>: controls how many ports scanned per batch and grouping; larger scan_batch -> more parallel packet generation.
+- --timeout: time to wait for responses; default near 500ms adaptive. Reduce for local networks, increase for wide-area networks.
+- --rcvbuf: socket receive buffer in bytes; increase for high-rate scanning to avoid dropped replies.
+- --nops & options: affects built packet size; increase only for testing edge cases.
+- PacketBufferPool sizing: automatic by code; if you see acquire() failing, reduce main_batch_size or increase pool sizing heuristics in PacketBufferPool code.
+- IO batching (IO_URING_BATCH in send_tcp_packets): default 16; tweak for NIC/driver behavior.
+
+Practical steps:
+1. Start small: 1-2 threads, send-uring 64, rcv-uring 64.
+2. Run local tests with tcpdump and monitor /proc/net/netstat and NIC queue stalls.
+3. Increase send_uring in increments and watch for kernel CPU or packet loss.
+4. Match receive buffer size to expected number of replies per second.
+
+---
+
+14 — Testing, debugging & capture tips
+
+- Capture packets:
+  - sudo tcpdump -i <iface> -w capture.pcap host <target_ip>
+  - Use Wireshark for TCP options analysis (TFO option, timestamps).
+- To inspect crafted packets locally before sending:
+  - Consider adding a `--dry-run` mode in code to build_packet() and write to pcap for validation (not currently implemented).
+- Common troubleshooting:
+  - io_uring_queue_init fail → check liburing and kernel compatibility.
+  - Socket creation fail → ensure CAP_NET_RAW or sudo.
+  - No replies → verify local route and that target isn't on a different network or NATs block raw replies.
+  - ARP failures → confirm interface IP & netmask (autodetect_interface) and that interface supports AF_PACKET raw.
+- Logging:
+  - The code prints many warnings/errors to stderr; enabling debug (--debug packet) will show packet details parsed from replies.
+
+---
+
+15 — Security, legal & operational considerations
+
+- Legal: scanning without authorization is potentially illegal and unethical.
+- Operational impact: aggressive scanning can saturate networks, trigger IDS/IPS, and generate audit logs on targets.
+- Malformed packets and checksum manipulations can crash buggy stacks—use on lab networks first.
+- Avoid scanning cloud providers without permission—many providers have strict scanning policies.
+
+---
+
+16 — Known limitations & recommended future work
+
+Limitations:
+- IPv6 not supported — main/internal code assumes IPv4 (inet_pton AF_INET everywhere).
+- No built-in rate limiter or politeness settings beyond batch/uring sizes.
+- No automated retries across threads for failed host resolution beyond immediate exits.
+- SecurityTrials / Shodan integrations have limited error handling for API rate limiting and may rely on jq in the environment.
+- The info.html manual is large and helpful but docs could be better integrated (split developer vs user docs).
+
+Recommended future work:
+- Add IPv6 support for raw sockets and packet building/parsing.
+- Implement dry-run and pcap export mode for safe debugging.
+- Add an optional rate limiter/token-bucket to avoid overload.
+- Implement structured logging and verbosity levels.
+- Add unit/integration tests and CI.
+- Add optional capability dropper (privilege separation) to reduce running as root.
+
+---
+
+17 — Appendix: example commands & workflows
+
+1. Basic SYN scan:
+   sudo ./shiv 192.168.1.71 -p 22,80
+
+2. CIDR scan with more concurrency:
+   sudo ./shiv 10.0.0.0/24 -t 4 -b 70/70 --send-uring 256 --rcv-uring 128
+
+3. Use SecurityTrails trial API to enumerate subdomains and scan:
+   sudo ./shiv example.com -p 22 --trial <api-key>
+
+4. Dump results into JSON:
+   sudo ./shiv 192.168.1.71 -p 22,80 -o results.json
+
+5. Graceful handshake on a host:
+   sudo ./shiv 198.51.100.12 -p 22 -G
+
+6. Inject TFO cookie (string):
+   sudo ./shiv 203.0.113.5 -p 80 --inj-tfo-cookie str:hacker
+
+7. Use partial bad checksum:
+   sudo ./shiv 203.0.113.5 -p 80 --prsum bitflip
+
+---
+
+18 — Feature → Implementation mapping (quick reference)
+
+- io_uring send/recv → scan.cpp: send_tcp_packets(), receive_response(), send_arp_request(), receive_arp_reply()
+- PacketBufferPool → scan.cpp (PacketBufferPool class and thread_local buffers)
+- ARP resolution → scan.cpp: send_arp_request, receive_arp_reply; main.cpp: thread_worker uses ARP to populate mac/vendor
+- Packet building & options → scan.cpp: build_packet()
+- Checksum manipulations → scan.cpp: build_packet() (use_badsum / use_partial_badsum logic)
+- Packet parsing & details → scan.cpp: extract_packet_details(), display_packet_details()
+- State machine (graceful handshake) → scan.cpp: process_response() + worker_thread() logic
+- CLI parsing & orchestration → main.cpp (option_handlers, scan_type_map, threads creation)
+- Ports parsing → utils.cpp: parse_ports(), read_ports_from_file()
+- Services mapping → utils.cpp: read_services_from_file()
+- MAC vendor mapping → main.cpp: load_mac_vendors() & get_mac_vendor()
+- Shodan / SecurityTrails → public_db.cpp
+
+
+# State Determination
+
+This describes how the scanner classifies TCP port states based on observed packet responses. Use these rules when reading scan results and when choosing scan types.
+
+## Reference: TCP 3-way handshake (normal)
+This is the standard TCP connection establishment for reference (client completes handshake with ACK). The scanner may avoid completing the handshake to remain stealthy or fast.
+
+```
+Client                      Server
+  | --- SYN (connect) --->   |
+  |                          |
+  | <--- SYN/ACK (reply) --- |
+  |                          |
+  | --- ACK (complete) --->  |
+  |                          |
+(connected)
+```
+
+[Port States Informations]
+
+- **open**
+  - Condition: Scanner receives a SYN/ACK in response to a SYN.
+  - Meaning: The port is accepting connections (open).
+  - Typical scan: `-sS` (SYN scan).
+  - Scanner behavior (common): after receiving SYN/ACK the scanner sends an RST to terminate the connection instead of completing the full handshake. This avoids completing the connection while still proving the port is open.
+  - Diagram (scanner's observed flow):
+  ```
+  Scanner(Client)             Target(Server)
+    | --- SYN (probe) --->     |
+    |                          |
+    | <--- SYN/ACK (reply) --- |
+    |                          |
+    | --- RST (terminate) -->  |
+    |                          |
+  (Scanner reports "open" based on SYN/ACK; RST prevents completing the connection)
+  ```
+
+- **closed**
+  - Condition: Scanner receives an RST in response to a probe (commonly after a SYN).
+  - Meaning: The port exists on the host but is not accepting connections (closed).
+  - Diagram:
+  ```
+  Client                      Server
+    | --- SYN (probe) --->     |
+    |                          |
+    | <--- RST (reject) -----  |
+    |                          |
+  (Port is closed: server actively rejects with RST)
+  ```
+
+- **filtered**
+  - Condition: No response is received (the probe is dropped).
+  - Meaning: A firewall or filter is blocking probes to that port; the scanner cannot determine whether the port is open or closed.
+  - Diagram:
+  ```
+  Client       Firewall        Server
+    | --- SYN ---> | --X-->     |
+    |              | (drop)     |
+    | <--- NONE ---|           |
+    | (no response)            |
+  (Scanner reports "filtered")
+  ```
+
+- **unfiltered**
+  - Condition: Observed when performing an ACK scan (`-sA`). The target responds with an RST to an ACK probe.
+  - Meaning: The host/port is reachable (alive) but the ACK scan does not indicate whether the port is open or closed. Use ACK scans to differentiate “filtered” (no response) from “unfiltered” (RST reply).
+  - Notes:
+    - Receiving RST to an unsolicited ACK typically indicates the host's TCP stack is aware of the traffic and actively rejects the connection attempt.
+    - “Unfiltered” does not imply “open.”
+  - Diagram:
+  ```
+  Client                      Server
+    | --- ACK (no prior SYN) -> |
+    |                          |
+    | <--- RST (no such conn) - |
+    |                          |
+  (Scanner sees RST to ACK → "unfiltered": host reachable, port state unknown)
+  ```
+
+- **confused**
+  - Condition: Inconsistent or unexpected responses, often seen with non-SYN scans (e.g., XMAS `-sX`, NULL `-sN`, FIN `-sF`).
+  - Meaning: The scanner cannot reliably classify the port. Many systems ignore unusual flag combinations, while some respond—behavior is inconsistent across implementations.
+  - Diagram (examples of inconsistent outcomes):
+  ```
+  Client                      Server
+    | --- XMAS / NULL / FIN --> |
+    |                          |
+    | <--- RST (possible) ----- |   OR   | <--- NONE --- |
+    |                          |         |                |
+  (Responses vary by OS/firewall; scanner marks "confused")
+  ```
+
+## Why ACK probes receive RST (for `-sA` / unfiltered)
+- A normal TCP 3-way handshake requires SYN → SYN/ACK → ACK. Sending a standalone ACK (without prior SYN exchange) is out-of-order for connection setup.
+- Many kernels respond with an RST when they receive an unexpected but valid TCP packet (like an ACK) to signal "no such connection." This response shows the host is reachable but does not indicate whether the port accepts connections.
+
+## Practical guidance
+- Use the default SYN scan (`-sS`) for fast and reliable detection of open vs. closed ports.
+- If a port is reported as **filtered** (no response), run an ACK scan (`-sA`) to check whether the host is reachable (unfiltered) or the probes are truly being dropped.
+- If you see **confused** results from XMAS/NULL/FIN scans, try SYN/ACK/ACK variations or increase verbosity/timeouts to collect more evidence.
+- When in doubt, combine multiple scan techniques and adjust timeouts/retries to improve confidence.
+
+## Short examples
+- SYN scan (default): `./scan 192.168.1.71 -p 1-1000 -sS`
+- ACK scan to check filtered ports: `./scan 192.168.1.71 -p 80 -sA`

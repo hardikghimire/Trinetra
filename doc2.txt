@@ -1,0 +1,131 @@
+# System-level I/O — Quick Reference
+
+A short, well-formatted summary of common operating-system level I/O concepts.
+
+---
+
+## What is I/O (Input / Output)?
+I/O refers to any operation that moves data into or out of a process. Common examples:
+- Reading/writing files (disk)
+- Sending/receiving network data
+- Mouse / keyboard input
+- Display output
+
+In general, I/O is any operation that takes input and produces output (often involving devices or other processes outside the CPU).
+
+---
+
+## What is mmap (memory mapping)?
+`mmap` maps a file (or other object) into a process's virtual address space. It lets a program access file data like regular memory, which can improve performance by:
+- Eliminating explicit data copies between kernel and user buffers
+- Allowing the kernel to page file data in/out on demand
+- Enabling efficient sharing of memory between processes
+
+Example (POSIX-style):
+```c
+void *addr = mmap(NULL, length, PROT_READ, MAP_PRIVATE, fd, 0);
+```
+
+---
+
+## Blocking vs Non-blocking I/O
+
+- Blocking I/O  
+  The calling thread/process waits until the operation completes. Example: a `read()` that blocks until data arrives. This is simple but can be inefficient for long-latency operations.
+
+- Non-blocking I/O  
+  The call returns immediately. If data isn’t ready, the operation returns an error (or a special result like `EAGAIN`/`EWOULDBLOCK`) and the program can do other work and try again later. Often used with polling or event loops.
+
+---
+
+## Synchronous vs Asynchronous I/O
+
+- Synchronous I/O  
+  The program issues an operation and waits for each operation to complete before issuing the next. Example flow:
+  - Read file A → WAIT → got it → Read file B → WAIT → got it  
+  This can be inefficient when many small operations are needed.
+
+- Asynchronous I/O  
+  The program issues multiple operations and gets notified when they complete (via callbacks, events, or completion ports). Example flow:
+  - Issue Read A, Issue Read B → Do other work → Receive notifications when A and B are ready  
+  More efficient for batching and concurrent I/O.
+
+---
+
+## What is a syscall (system call)?
+A syscall is the mechanism for a user-space program to request services from the kernel. A syscall causes a mode switch (user → kernel → user) and has non-trivial overhead (often estimated roughly on the order of 1000–2000 CPU cycles depending on architecture and context).
+
+Typical syscall flow:
+1. User program calls `read(fd, buf, size)`
+2. CPU switches from user mode → kernel mode
+3. Kernel performs the I/O
+4. CPU switches back to user mode
+5. Result returned to user program
+
+ASCII diagram:
+```
+┌─────────────────┐      knock       ┌─────────────────┐
+│  User Program   │ ─────────────▶  │     Kernel      │
+│   (user space)  │ ◀─────────────  │   (kernel)      │
+└─────────────────┘                  └─────────────────┘
+```
+
+---
+
+## What is a kernel buffer?
+A kernel buffer is memory the kernel uses as an intermediary between fast CPU memory and slower devices. It:
+- Caches frequently used data
+- Batches many small writes into fewer large writes
+- Prefetches data that may be needed
+- Reduces the number of device-level operations
+
+---
+
+## Copies in typical file→network paths
+Traditional file-to-network transfer may involve multiple copies:
+1. Disk → Kernel buffer (COPY 1)
+2. Kernel buffer → User buffer (COPY 2)
+3. User buffer → Network (COPY 3)
+
+Multiple copies waste CPU time and memory bandwidth.
+
+---
+
+## Zero-copy
+Zero-copy refers to techniques that reduce or eliminate these intermediate copies, allowing data to move from disk to network (or similar) with fewer copies and less CPU involvement.
+
+Goal: reduce copies (often down to a single DMA transfer) so the NIC or device can pull data directly from memory.
+
+Two common zero-copy approaches:
+
+1. sendfile() — file to network (Linux example)
+   - Avoids copying file pages into a user-space buffer.
+   - Example usage (Linux):
+   ```c
+   // ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
+   ssize_t sent = sendfile(socket_fd, file_fd, &offset, count);
+   ```
+   Data path effectively: Disk -> kernel page cache -> NIC (bypassing user-space buffer copy).
+
+2. DMA (Direct Memory Access)
+   - The device (e.g., NIC) reads/writes memory directly without continuous CPU intervention.
+   - CPU sets up the transfer and the device performs the memory movement, freeing CPU cycles.
+
+Before zero-copy:
+```
+Disk -> Kernel Buffer -> User Buffer -> Network Card
+  read     copy           copy           send
+```
+
+After zero-copy (idealized):
+```
+Disk  ━━━━━━━━━━━━━━━▶  Network (via DMA)
+```
+
+---
+
+## Summary / When to use what
+- Use blocking I/O for simple programs or when latency and concurrency are not a concern.
+- Use non-blocking + event-driven/asynchronous I/O in servers or programs that must handle many concurrent operations efficiently.
+- Use `mmap` when you want to treat file data like memory and avoid explicit read/write calls.
+- Use `sendfile` or DMA-based techniques when transferring large file data to a socket and you want to minimize copies and CPU overhead.

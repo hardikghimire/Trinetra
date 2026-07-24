@@ -1,0 +1,188 @@
+case 1:
+
+
+shiv -sS -Pn 192.168.1.254,8.8.8.8,nmap.org,1.1.1.1         
+
+Starting Shiv (SYN) at Sat Jun 20 15:24:20 2026
+Shiv scan report for 192.168.1.254
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+23/tcp    open      telnet ⌨️
+80/tcp    open      http 🌐
+443/tcp   open      https 🌐🔒
+8099/tcp  open      unknown
+
+Packets sent   : 1316
+MAC Address    : 14:58:08:35:e7:c0 (Taicang T&W Electronics)
+Not shown      : 1311 closed tcp ports (reset)
+Duration       : 840ms
+RTT            : 0.049s
+
+--------------------------------------------------
+
+Shiv scan report for dns.google (8.8.8.8)
+
+PORT      STATE     SERVICE
+53/tcp    open      domain 📡
+443/tcp   open      https 🌐🔒
+
+Packets sent   : 3944
+Not shown      : 1314 tcp ports filtered (no response)
+Duration       : 16.02s
+RTT            : 0.040s
+
+--------------------------------------------------
+
+Shiv scan report for ack.nmap.org (50.116.1.184)
+
+PORT      STATE     SERVICE
+80/tcp    open      http 🌐
+22/tcp    open      ssh 🔐
+
+Packets sent   : 3939
+Not shown      : 3 closed tcp ports (reset) | 1311 tcp ports filtered (no response)
+Duration       : 17.04s
+RTT            : 0.281s
+
+--------------------------------------------------
+
+Shiv scan report for one.one.one.one (1.1.1.1)
+
+PORT      STATE     SERVICE
+80/tcp    open      http 🌐
+53/tcp    open      domain 📡
+443/tcp   open      https 🌐🔒
+8080/tcp  open      http-proxy 🔧
+8443/tcp  open      https-alt 🔧
+
+Packets sent   : 3938
+Not shown      : 1311 tcp ports filtered (no response)
+Duration       : 15.19s
+RTT            : 0.049s
+
+SYN done: 4 IP addresses scanned  |  14 open  1314 closed  3936 filtered
+
+
+SYN scan completed at Sat Jun 20 15:25:09 2026
+Overall scan completed in 49.36 seconds
+Final results: 14 open, 1314 closed, 3936 filtered ports
+13137 packets sent
+
+
+
+sudo tcpdump -i eth0 \(dst host 1.1.1.1 and dst port \(443 or 80 or 53 or 8443 or 8080\)\) or \(src host 1.1.1.1 and src port \(443 or 80 or 53 or 8443 or 8080\)\)
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+15:24:54.200211 IP 192.168.1.81.https > one.one.one.one.domain: Flags [S], seq 4288103602, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:24:54.200399 IP 192.168.1.81.https > one.one.one.one.http: Flags [S], seq 1279735583, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:24:54.245313 IP one.one.one.one.http > 192.168.1.81.https: Flags [S.], seq 1270814952, ack 1279735584, win 65535, options [mss 1412,sackOK,TS val 857948399 ecr 1234567,nop,wscale 13], length 0
+15:24:54.245401 IP 192.168.1.81.https > one.one.one.one.http: Flags [R], seq 1279735584, win 0, length 0
+15:24:54.245488 IP one.one.one.one.domain > 192.168.1.81.https: Flags [S.], seq 322179463, ack 4288103603, win 65535, options [mss 1412,sackOK,TS val 1068966230 ecr 1234567,nop,wscale 13], length 0
+15:24:54.245495 IP 192.168.1.81.https > one.one.one.one.domain: Flags [R], seq 4288103603, win 0, length 0
+15:24:54.631941 IP 192.168.1.81.https > one.one.one.one.https: Flags [S], seq 2349714587, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:24:54.671222 IP one.one.one.one.https > 192.168.1.81.https: Flags [S.], seq 531390411, ack 2349714588, win 65535, options [mss 1412,sackOK,TS val 4285751081 ecr 1234567,nop,wscale 13], length 0
+15:24:54.671256 IP 192.168.1.81.https > one.one.one.one.https: Flags [R], seq 2349714588, win 0, length 0
+15:25:04.078208 IP 192.168.1.81.https > one.one.one.one.http-alt: Flags [S], seq 3026942603, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:25:04.126486 IP one.one.one.one.http-alt > 192.168.1.81.https: Flags [S.], seq 2881685800, ack 3026942604, win 65535, options [mss 1412,sackOK,TS val 3592349013 ecr 1234567,nop,wscale 13], length 0
+15:25:04.126528 IP 192.168.1.81.https > one.one.one.one.http-alt: Flags [R], seq 3026942604, win 0, length 0
+15:25:04.512245 IP 192.168.1.81.https > one.one.one.one.8443: Flags [S], seq 1838999373, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:25:04.551648 IP one.one.one.one.8443 > 192.168.1.81.https: Flags [S.], seq 4245604406, ack 1838999374, win 65535, options [mss 1412,sackOK,TS val 980606533 ecr 1234567,nop,wscale 13], length 0
+15:25:04.551722 IP 192.168.1.81.https > one.one.one.one.8443: Flags [R], seq 1838999374, win 0, length 0
+^C
+15 packets captured
+15 packets received by filter
+0 packets dropped by kernel
+
+
+case 2:
+
+shiv -sS -Pn 192.168.1.254,8.8.8.8,1.1.1.1,nmap.org
+
+Starting Shiv (SYN) at Sat Jun 20 15:27:13 2026
+Shiv scan report for 192.168.1.254
+
+PORT      STATE     SERVICE
+22/tcp    open      ssh 🔐
+23/tcp    open      telnet ⌨️
+80/tcp    open      http 🌐
+443/tcp   open      https 🌐🔒
+8099/tcp  open      unknown
+
+Packets sent   : 1316
+MAC Address    : 14:58:08:35:e7:c0 (Taicang T&W Electronics)
+Not shown      : 1311 closed tcp ports (reset)
+Duration       : 809ms
+RTT            : 0.049s
+
+--------------------------------------------------
+
+Shiv scan report for dns.google (8.8.8.8)
+
+PORT      STATE     SERVICE
+53/tcp    open      domain 📡
+443/tcp   open      https 🌐🔒
+
+Packets sent   : 3944
+Not shown      : 1314 tcp ports filtered (no response)
+Duration       : 16.11s
+RTT            : 0.048s
+
+--------------------------------------------------
+
+Shiv scan report for one.one.one.one (1.1.1.1)
+
+PORT      STATE     SERVICE
+53/tcp    open      domain 📡
+80/tcp    open      http 🌐
+
+Packets sent   : 3944
+Not shown      : 1314 tcp ports filtered (no response)
+Duration       : 16.57s
+RTT            : 0.051s
+
+--------------------------------------------------
+
+Shiv scan report for ack.nmap.org (50.116.1.184)
+
+PORT      STATE     SERVICE
+80/tcp    open      http 🌐
+22/tcp    open      ssh 🔐
+443/tcp   open      https 🌐🔒
+
+Packets sent   : 3938
+Not shown      : 2 closed tcp ports (reset) | 1311 tcp ports filtered (no response)
+Duration       : 16.97s
+RTT            : 0.282s
+
+SYN done: 4 IP addresses scanned  |  12 open  1313 closed  3939 filtered
+
+
+SYN scan completed at Sat Jun 20 15:28:04 2026
+Overall scan completed in 50.64 seconds
+Final results: 12 open, 1313 closed, 3939 filtered ports
+13142 packets sent
+
+
+sudo tcpdump -i eth0 \(dst host 1.1.1.1 and dst port \(443 or 80 or 53 or 8443 or 8080\)\) or \(src host 1.1.1.1 and src port \(443 or 80 or 53 or 8443 or 8080\)\)
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+15:27:30.796658 IP 192.168.1.81.https > one.one.one.one.domain: Flags [S], seq 796037115, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:30.796808 IP 192.168.1.81.https > one.one.one.one.http: Flags [S], seq 1397062326, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:30.844132 IP one.one.one.one.domain > 192.168.1.81.https: Flags [S.], seq 833529903, ack 796037116, win 65535, options [mss 1412,sackOK,TS val 3019919881 ecr 1234567,nop,wscale 13], length 0
+15:27:30.844175 IP 192.168.1.81.https > one.one.one.one.domain: Flags [R], seq 796037116, win 0, length 0
+15:27:30.846916 IP one.one.one.one.http > 192.168.1.81.https: Flags [S.], seq 3009444595, ack 1397062327, win 65535, options [mss 1412,sackOK,TS val 1227199798 ecr 1234567,nop,wscale 13], length 0
+15:27:30.846960 IP 192.168.1.81.https > one.one.one.one.http: Flags [R], seq 1397062327, win 0, length 0
+15:27:31.248469 IP 192.168.1.81.https > one.one.one.one.https: Flags [S], seq 4158131326, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:31.541538 IP 192.168.1.81.8443 > one.one.one.one.https: Flags [S], seq 4158131326, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:31.836388 IP 192.168.1.81.8443 > one.one.one.one.https: Flags [S], seq 4158131326, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:41.098782 IP 192.168.1.81.https > one.one.one.one.http-alt: Flags [S], seq 892696627, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:41.409957 IP 192.168.1.81.8443 > one.one.one.one.http-alt: Flags [S], seq 892696627, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:41.703760 IP 192.168.1.81.8443 > one.one.one.one.http-alt: Flags [S], seq 892696627, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:41.981322 IP 192.168.1.81.https > one.one.one.one.8443: Flags [S], seq 2768130093, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:42.298459 IP 192.168.1.81.8443 > one.one.one.one.8443: Flags [S], seq 2768130093, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+15:27:42.604738 IP 192.168.1.81.8443 > one.one.one.one.8443: Flags [S], seq 2768130093, win 65535, options [mss 1460,wscale 7,sackOK,TS val 1234567 ecr 0,nop], length 0
+^C
+15 packets captured
+15 packets received by filter
+0 packets dropped by kernel

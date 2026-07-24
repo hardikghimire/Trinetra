@@ -1,0 +1,84 @@
+OS Signatures (What Different OS Send)
+Operating System	Window Scale Value	What It Means
+Linux 2.6+	7	Modern Linux, good performance
+Linux 3.x	7	Same as above
+Linux 4.x	7	Same as above
+Linux 5.x	7	Same as above
+Windows 10/11	7	Modern Windows
+Windows 8	7	Modern Windows
+Windows 7	7	Modern Windows
+Windows XP	0 or none	Old Windows, no scaling
+Windows Vista	2	Transitional
+macOS	8	Apple uses 8 (unique)
+FreeBSD	1 or none	BSD conservative
+OpenBSD	0 or none	Very conservative
+Solaris	7 or 8	Enterprise Unix
+Android	7	Linux-based
+iOS	8	Apple-based
+Response Scenarios & What They Mean
+Scenario 1: Normal Negotiation
+text
+
+You send: WS=7
+Server replies: WS=7
+
+Meaning: 
+✅ Direct connection
+✅ No firewall interference  
+✅ Target uses modern OS (Linux/Windows)
+✅ Good performance possible
+
+Scenario 2: STRIPPED (Most Important)
+text
+
+You send: WS=7
+Server replies: (no WS option)
+
+Meaning:
+⚠️ FIREWALL DETECTED!
+⚠️ Device between you stripped TCP option
+⚠️ Likely deep packet inspection
+⚠️ Performance will be poor (64KB limit)
+
+Scenario 3: DOWNGRADED
+text
+
+You send: WS=7
+Server replies: WS=0
+
+Meaning:
+⚠️ Old firewall/proxy detected
+⚠️ Device understands WS but forces zero
+⚠️ Very common with legacy hardware
+
+Scenario 4: MODIFIED
+text
+
+You send: WS=7
+Server replies: WS=5
+
+Meaning:
+🔧 Active manipulation
+🔧 Load balancer or application proxy
+🔧 Rare but significant
+
+Scenario 5: OS Fingerprinting
+text
+
+You send: WS=7
+Server replies: WS=8
+
+Meaning:
+🖥️ Target is likely macOS or iOS
+🖥️ Apple uses scale 8 (unique signature)
+
+Scenario 6: No Request, Got Reply
+text
+
+You send: (no WS)
+Server replies: WS=7
+
+Meaning:
+📢 Server wants scaling but you didn't ask
+📢 Common with some Linux servers
+📢 Shows server capability anyway

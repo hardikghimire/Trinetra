@@ -1,0 +1,104 @@
+import re
+
+# ============================================
+# LEVEL 1: Direct String Patterns
+# ============================================
+
+# 1. Basic assignments - direct quoted strings
+PATTERN_DIRECT_QUOTED = r'(?:window|document|self|top|parent)?\.?location(?:\.href)?\s*=\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# 2. Method calls (replace/assign)
+PATTERN_METHOD_CALL = r'(?:window|document|self|top|parent)?\.?location\.(?:replace|assign)\s*\(\s*[\'\"`]([^\'\"`]+)[\'\"`]\s*\)'
+
+# 3. Concatenation - path on right side
+PATTERN_CONCAT_RIGHT = r'location(?:\.href)?\s*=\s*.+\s*\+\s*[\'\"`]([^\'\"`]+\.(?:html?|php|jsp|js|htm|json|asp|aspx))[\'\"`]'
+
+# 4. Concatenation - path on left side
+PATTERN_CONCAT_LEFT = r'location(?:\.href)?\s*=\s*[\'\"`]([^\'\"`]+\.(?:html?|php|jsp|js|htm|json|asp|aspx))[\'\"`]\s*\+'
+
+# 5. Concatenation with variable
+PATTERN_CONCAT_LEFT_VAR = r'[\'\"`]([^\'\"`]*\.(?:html?|php|jsp|js|htm|json|asp|aspx))[\'\"`]\s*\+\s*(?:base|path|url|loc|root)'
+
+# ============================================
+# Regex/Dynamic Construction Patterns
+# ============================================
+
+# 6. match() + array index + concatenation (Plex style)
+PATTERN_REGEX_MATCH = r'\.match\([^)]+\)\[\d\]\s*\+\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# 7. replace() construction
+PATTERN_REPLACE = r'\.replace\([^,]+,\s*[\'\"`]([^\'\"`]+)[\'\"`]\)'
+
+# 8. split() + array index + concatenation
+PATTERN_SPLIT = r'\.split\([^)]+\)\[\d\]\s*\+\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# 9. substring() + concatenation
+PATTERN_SUBSTRING = r'\.substring\([^)]+\)\s*\+\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# ============================================
+# Template Literals
+# ============================================
+
+# 10. Template literal assignment
+PATTERN_TEMPLATE = r'location\s*=\s*`([^`]+)`'
+
+# 11. Template literal with href
+PATTERN_TEMPLATE_HREF = r'location\.href\s*=\s*`([^`]+)`'
+
+# ============================================
+# Location Properties
+# ============================================
+
+# 12. Pathname assignment
+PATTERN_PATHNAME = r'location\.pathname\s*=\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# 13. Hash assignment
+PATTERN_HASH = r'location\.hash\s*=\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# ============================================
+# Event Handlers
+# ============================================
+
+# 14. Inline event handlers (onclick, onload, onsubmit, onchange)
+PATTERN_EVENT_HANDLER = r'on(?:click|load|submit|change)\s*=\s*[\'\"][^\'\"]*location\s*=\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# 15. addEventListener
+PATTERN_EVENT_LISTENER = r'addEventListener\([\'\"](?:click|load|submit)[\'\"],\s*function\s*\(\s*\)\s*\{\s*location\s*=\s*[\'\"`]([^\'\"`]+)[\'\"`]'
+
+# ============================================
+# JavaScript HREF
+# ============================================
+
+# 16. JavaScript protocol in href
+PATTERN_JS_HREF = r'href\s*=\s*[\'\"](?:javascript:)?location(?:\.href)?\s*=\s*([^\'\"]+)[\'\"]'
+
+# ============================================
+# Variable Assignments
+# ============================================
+
+# 17. Variable containing paths
+PATTERN_VARIABLE_PATH = r'var\s+(\w+)\s*=\s*[\'\"`]([^\'\"`]*(?:index|dashboard|admin|login|home|app|ui|web)[^\'\"`]*\.(?:html?|php|jsp|js))[\'\"`]'
+
+# ============================================
+# LEVEL 2: Common Path Patterns (Catch-All)
+# ============================================
+
+# 18. Common web paths (admin, dashboard, web, etc.)
+PATTERN_COMMON_PATHS = r'[\'\"`](/(?:web|admin|dashboard|ui|app|home|login|index|static|assets|public)/(?:[^\'\"`]*\.(?:html?|php|jsp|js))?|[\w\-]+/index\.html)[\'\"`]'
+
+# ============================================
+# LEVEL 3: HTTP Headers
+# ============================================
+
+# 19. Extract path from Location/Refresh headers
+PATTERN_HEADER_PATH = r'/([\w\-\./]+\.(?:html?|php|jsp|js|htm))'
+
+# ============================================
+# META Refresh Tags
+# ============================================
+
+# 20. Meta refresh with http-equiv first
+PATTERN_META_REFRESH_1 = r'<meta[^>]*http-equiv\s*=\s*[\'"]?refresh[\'"]?[^>]*content\s*=\s*[\'"]?\d+\s*;\s*url\s*=\s*([^\'">\s]+)'
+
+# 21. Meta refresh with content first
+PATTERN_META_REFRESH_2 = r'<meta[^>]*content\s*=\s*[\'"]?\d+\s*;\s*url\s*=\s*([^\'">\s]+)[\'"]?[^>]*http-equiv\s*=\s*[\'"]?refresh[\'"]?'
