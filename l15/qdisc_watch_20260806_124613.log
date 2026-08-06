@@ -1,0 +1,224 @@
+===== 2026-08-06 12:46:13.635 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 143196627 bytes 1356701 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2339 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:14.153 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 143630704 bytes 1362568 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2459 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:14.659 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 144107002 bytes 1368962 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2462 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:15.167 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 144383974 bytes 1372701 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:15.674 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 144587996 bytes 1375458 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:16.183 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 144770998 bytes 1377931 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:16.710 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 145066090 bytes 1381919 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:17.215 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 145231924 bytes 1384160 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:17.728 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 145397758 bytes 1386401 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:18.235 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 145563592 bytes 1388642 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:18.745 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 145711000 bytes 1390634 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:19.253 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 145858450 bytes 1392627 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:19.763 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 146079562 bytes 1395615 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:20.271 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 146263900 bytes 1398106 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:20.776 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 146479980 bytes 1401026 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:21.290 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 146724550 bytes 1404331 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2463 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:21.808 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 146964450 bytes 1407573 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:22.316 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 147203988 bytes 1410810 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:22.823 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 147406674 bytes 1413549 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:23.336 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 147634742 bytes 1416631 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:23.858 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 147904176 bytes 1420272 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:24.369 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148051584 bytes 1422264 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:24.885 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148051584 bytes 1422264 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:25.405 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148051584 bytes 1422264 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:25.923 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148051899 bytes 1422268 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:26.429 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148051899 bytes 1422268 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:26.938 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148052175 bytes 1422272 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:27.443 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148052175 bytes 1422272 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:27.956 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148052393 bytes 1422274 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:28.470 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148052393 bytes 1422274 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:28.985 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148052459 bytes 1422275 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
+===== 2026-08-06 12:46:29.490 =====
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+ Sent 148052459 bytes 1422275 pkt (dropped 0, overlimits 0 requeues 1) 
+ backlog 0b 0p requeues 1
+  maxpacket 7330 drop_overlimit 0 new_flow_count 2466 ecn_mark 0
+  new_flows_len 0 old_flows_len 0
+
