@@ -1,0 +1,230 @@
+Best near-accurate fix without hardware timestamping
+
+Without hardware, you can't get true wire-departure time — but you can get much closer than a userspace steady_clock::now() taken before the packet even reaches the kernel. The right tool is SO_TIMESTAMPING with software flags, which makes the kernel itself stamp the packet at the moment it hands off to the NIC driver (dev_queue_xmit time) — this is the standard technique tools like ptp4l's software fallback and precise latency tools use.
+
+Why this beats your current approach
+
+Right now tx_ref is captured in on_pre_submit (scan.cpp ~2753) before send_tcp_packets() is even called — so it includes packet-build time, io_uring SQE setup, and submission queueing, none of which is real network latency. SOF_TIMESTAMPING_TX_SOFTWARE moves the stamp to the point the kernel's af_packet/socket layer actually pushes the frame to the driver — cutting out all of that userspace slop.
+
+What it requires, concretely
+Enable it on the send socket, once at setup:
+
+int ts_flags = SOF_TIMESTAMPING_TX_SOFTWARE
+             | SOF_TIMESTAMPING_SOFTWARE
+             | SOF_TIMESTAMPING_OPT_ID;      // tags each timestamp with the SQE's ID so you can match it back
+setsockopt(sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags));
+
+
+After a send completes, the timestamp doesn't come back on the normal recv path — the kernel queues it on the socket's error queue. You retrieve it with a recvmsg(sock, &msg, MSG_ERRQUEUE) that pulls a SCM_TIMESTAMPING cmsg containing a struct scm_timestamping (3 timespecs; index [0] is the software one you want).
+Matching it back to the right port/packet: with SOF_TIMESTAMPING_OPT_ID set, the kernel echoes back a per-socket sequence number in the error-queue cmsg (SO_EE_ORIGIN_TIMESTAMPING) that increments per send — you tag each io_uring_prep_sendmsg with that same counter and use it as the key into tx_ts_table instead of (or alongside) the current pidx-keyed pre-submit stamp.
+In your io_uring architecture specifically: the clean way to fit this in without extra blocking syscalls is to io_uring_prep_recvmsg(sqe, sock, &errq_msg, MSG_ERRQUEUE) as its own persistent SQE (same pattern you already use for the ARP recv pool) — so the error-queue drain rides the same event loop as everything else, no extra thread, no extra blocking recvmsg.
+
+The tradeoff, honestly
+
+This is meaningfully more plumbing than the current single steady_clock::now() line — you're adding a second per-socket completion stream to track and match up. If that's more complexity than you want right now, a much cheaper partial fix is just moving the existing tx_ref capture from before send_tcp_packets() (line 2753, in on_pre_submit) to immediately after io_uring_submit() returns inside send_tcp_packets — that alone removes the packet-construction and SQE-setup slop, and it's a one-line relocation instead of a new timestamping subsystem. It won't be as accurate as SO_TIMESTAMPING, but it's a real improvement for near-zero added complexity, and a reasonable stopgap before you invest in the error-queue approach.
+
+If you want, I can walk through the exact on_pre_submit/send_tcp_packets call chain and show you precisely where the "after submit" capture point should go for that cheaper fix, or sketch the full SO_TIMESTAMPING + error-queue integration against your existing io_uring structures — which one do you want to go deeper on?
+
+sudo ethtool -T eth0
+Time stamping parameters for eth0:
+Capabilities:
+        software-transmit
+        software-receive
+        software-system-clock
+PTP Hardware Clock: none
+Hardware Transmit Timestamp Modes: none
+Hardware Receive Filter Modes: none
+
+This confirms it: software-transmit / software-receive / software-system-clock only, no hardware. So SOF_TIMESTAMPING_TX_SOFTWARE is exactly what your NIC/driver supports — that's the correct target. Let me find precisely where to wire it into your actual send socket setup.
+Architected software timestamp extraction via io_uring error queue
+
+Good — that matches the assumption. software-transmit capability confirmed, no PHC. So SOF_TIMESTAMPING_TX_SOFTWARE is exactly what your kernel/driver combo supports — that's the right target. Here's how to wire it into your actual code.
+Step 1 — enable it on the TX socket
+
+File: scan.cpp, function init_global_send_ctx
+Location: right after the sndbuf setup, around line 4837, before the depth calculation at 4851.
+
+
+if (sock6 >= 0) {
+        if (setsockopt(sock6, SOL_SOCKET, SO_SNDBUFFORCE,
+                       &sndbuf, sizeof(sndbuf)) < 0)
+            setsockopt(sock6, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+    }
+
+    // ---- NEW: kernel-side software TX timestamping ----
+    {
+        int ts_flags = SOF_TIMESTAMPING_TX_SOFTWARE
+                     | SOF_TIMESTAMPING_SOFTWARE
+                     | SOF_TIMESTAMPING_OPT_ID;
+        if (setsockopt(sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0)
+            std::cerr << "[GlobalSend] SO_TIMESTAMPING setsockopt failed: " << strerror(errno) << "\n";
+        if (sock6 >= 0) {
+            if (setsockopt(sock6, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0)
+                std::cerr << "[GlobalSend] SO_TIMESTAMPING (v6) setsockopt failed: " << strerror(errno) << "\n";
+        }
+    }
+
+
+SOF_TIMESTAMPING_OPT_ID is the critical flag — it makes the kernel attach a monotonically increasing per-socket sequence number to every timestamp it generates, so you can match a returned timestamp back to the specific send that produced it.
+
+Step 2 — the ordering requirement (read this before building further)
+
+This is the part that makes the feature genuinely nontrivial, not the plumbing:
+
+The OPT_ID counter increments inside the kernel, in the order sendmsg() actually executes on that socket — not in the order you call io_uring_prep_sendmsg(). For a single ring without SQPOLL, submission order and execution order are the same, so you can safely assign id = tx_seq++ at the exact moment you call io_uring_prep_sendmsg (same place as your on_pre_submit lambda, scan.cpp ~2751–2764) and trust it lines up with what the kernel echoes back.
+
+But you're using IORING_SETUP_SQPOLL (line 4862) for this ring. With SQPOLL, a kernel poller thread drains your SQ asynchronously — sends from a batch can still execute in submission order relative to each other, but you need to be careful not to reset or reuse tx_seq across the fixed-file/registered-socket boundary, and not to mix v4/v6 counters (each socket has its own independent OPT_ID sequence — sock and sock6 need separate counters).
+
+If you can live with that constraint (single counter per socket, incremented at SQE-prep time, never skipped/reordered by you), this works reliably. If your sender ever fans out across multiple threads pushing to the same ring concurrently, you'd need to make tx_seq atomic and accept that the kernel's execution order still matches increment order as long as increment happens under the same lock/ordering as the actual io_uring_submit() call.
+
+Step 3 — draining the error queue
+
+The software timestamp does not arrive on your normal completion path. It shows up asynchronously on the socket's error queue, retrieved via recvmsg(sock, &msg, MSG_ERRQUEUE). Fold this into the same io_uring event loop you already have — reuse the idle_ring_ptr pattern (scan.cpp ~3232–3244) or add a small persistent SQE, same style as your ARP recv pool (arp_handler.cpp ~423–437):
+
+
+struct io_uring_sqe* esqe = io_uring_get_sqe(&idle_ring or a dedicated errq ring);
+io_uring_prep_recvmsg(esqe, sock, &errq_msg, MSG_ERRQUEUE);
+io_uring_sqe_set_data64(esqe, ERRQ_TAG);
+
+
+On completion, parse the cmsg chain for SCM_TIMESTAMPING (gives you struct scm_timestamping, take ts[0] — the software one) and IP_RECVERR/SCM_TIMESTAMPING_OPT_STATS origin data (struct sock_extended_err, field ee_data holds the OPT_ID sequence number that matches what you assigned in Step 2). That sequence number is your key into tx_ts_table — overwrite the coarse pre-submit stamp with this precise one when it arrives, same table, same lookup you already do at scan.cpp line 3395.
+
+Honest scope check
+
+This is meaningfully more than the syscall fix from before — a second socket-level counter, a second recvmsg path, and cmsg parsing you don't currently have anywhere in the codebase (your existing SO_TIMESTAMP/cmsg handling at 5701/5786 is the simple single-timeval kind, not the SCM_TIMESTAMPING struct). Given that, do you want me to write out the full cmsg-parsing function and the tx_seq/table integration against your actual PortState/tx_ts_table structures, or would you rather start with the cheap relocation fix (move tx_ref capture to after io_uring_submit() returns) and treat SO_TIMESTAMPING as a follow-up once that's validated?
+
+
+Step-by-step plan — accurate software TX timestamping
+
+1. Confirm capability (done)
+ethtool -T eth0 → software-transmit present, no hardware → target is SOF_TIMESTAMPING_TX_SOFTWARE.
+
+2. Enable timestamping on both TX sockets
+In init_global_send_ctx (scan.cpp, right after the sndbuf block, ~line 4837), call setsockopt(sock, SOL_SOCKET, SO_TIMESTAMPING, ...) with:
+SOF_TIMESTAMPING_TX_SOFTWARE | SOF_TIMESTAMPING_SOFTWARE | SOF_TIMESTAMPING_OPT_ID
+Do it separately for sock (v4) and sock6 (v6) — each socket needs its own call.
+
+3. Add a per-socket sequence counter
+One uint32_t/atomic<uint32_t> for sock, one for sock6. This mirrors the kernel's internal OPT_ID counter, which increments once per sendmsg() executed on that socket.
+
+4. Assign the sequence ID at SQE-prep time
+In on_pre_submit / wherever you call io_uring_prep_sendmsg for TCP sends (scan.cpp ~2751–2764), increment the matching counter and record id → port_idx in a new lookup table (e.g. std::unordered_map<uint32_t,int32_t> id_to_pidx, or a fixed array if IDs wrap predictably).
+Keep the existing steady_clock::now() capture too — it becomes your fallback value, not a replacement.
+
+5. Respect ordering
+Do the increment+assign in the exact order SQEs are submitted to that socket, on a single thread (or under a lock if multi-threaded). With SQPOLL enabled, submission order still equals kernel execution order per socket — just don't let two threads race on the same counter.
+
+6. Set up an error-queue drain path
+Add a persistent recvmsg(sock, &msg, MSG_ERRQUEUE) SQE, same pattern as your ARP recv pool (arp_handler.cpp ~423–437) or riding your existing idle_ring_ptr loop (scan.cpp ~3232–3244). Re-arm it after each completion, one for sock, one for sock6.
+
+7. Parse the completion
+On each error-queue completion, walk the cmsg chain:
+
+SCM_TIMESTAMPING → struct scm_timestamping, take ts[0] (the software timestamp).
+IP_RECVERR/IPV6_RECVERR → struct sock_extended_err, field ee_data = the OPT_ID you assigned in step 4.
+
+8. Match and overwrite
+Look up ee_data in id_to_pidx → get the port index → overwrite that port's entry in tx_ts_table with the precise kernel timestamp (converted to the same steady_clock-comparable base you use at line 3397–3399).
+
+9. Handle the race
+The RX reply can arrive and compute RTT (line 3415) before the error-queue timestamp shows up. Two options:
+
+Simple: keep using the fallback pre-submit stamp for that one RTT sample if the precise one isn't in yet — accept the occasional less-accurate sample.
+Better: delay RTT finalization a few hundred µs / one event-loop tick if the port's id_to_pidx entry hasn't resolved yet, since on a healthy system the error-queue completion typically lands within microseconds of the actual send.
+
+10. Clean up stale table entries
+Evict id_to_pidx entries once matched (or once the corresponding port is finalized/timed out) so the map doesn't grow unbounded over a long scan.
+
+11. Do the same for sock6 — separate counter, separate map, separate error-queue SQE, same logic.
+
+12. Validate
+Compare RTTs before/after on the same target: run a batch with the old pre-submit timestamp and the new kernel timestamp side by side (log both, don't discard the old one yet), confirm the new numbers are consistently lower/tighter and jitter drops, especially under load where queueing delay was previously being counted as RTT.
+
+
+I checked the discussion against the actual scan.cpp/main.cpp you uploaded, line by line. Overall it's solid — the diagnosis is real and the line references check out — but there are a few points that are imprecise or incomplete.
+
+What's correct:
+
+on_pre_submit is exactly where it's claimed (scan.cpp:2751–2764), and it does fire before io_uring_prep_sendmsg and before the batched io_uring_submit() call (confirmed at 2288–2289 vs. 2332). So real submission-queueing delay is going into your RTT numbers today.
+init_global_send_ctx, the sndbuf block, and the IORING_SETUP_SQPOLL flag are all at the line numbers cited (4834–4841, 4862) — the suggested insertion point for SO_TIMESTAMPING (right after sndbuf, before the depth calc) is correct.
+The tx_ts_table design (atomic uint64_t per port, store/load/zero pattern) and the RTT calc at 3392–3415 match exactly what's described, including the fallback to state.syn_sent_time when the table entry is empty.
+The clock-domain point is right and important: tx_ts_table stores steady_clock microseconds, but SO_TIMESTAMPING's software TX timestamp will come back on CLOCK_REALTIME (like kernel_rx_us_val already does). The plan does flag "converted to the same steady_clock-comparable base" — good, though it should say explicitly: reuse steady_from_system() (scan.cpp:93), the exact helper already used for RX timestamps at line 3408–3410, rather than inventing a new conversion path.
+
+Where it overstates or is imprecise:
+
+"tx_ref... includes packet-build time" — not quite. build_packet() runs in a separate loop over the whole batch (line 1984) before the pipeline loop that calls on_pre_submit. By the time on_pre_submit fires for packet pi, that packet is already built. So the gap being measured is SQE-setup + submission-queueing time, not build time. Doesn't change the conclusion (there's still real slop to cut), but the stated cause is wrong.
+SQPOLL isn't a given. The doc says "you're using IORING_SETUP_SQPOLL" as settled fact. In your actual code (main.cpp:2417–2421), SQPOLL is conditional — only enabled via force_sqpoll or when estimated scan duration/volume crosses a threshold. The OPT_ID-ordering caveat the doc raises only matters on the SQPOLL path; on the non-SQPOLL path ordering is trivially preserved (synchronous submit). Worth designing the sequence-counter logic to be correct in both branches rather than assuming SQPOLL is always on.
+The bigger gap: port-slot reuse across retries isn't handled. tx_ts_table is indexed by port index (pidx/didx), and the same port index gets reused across up to 6 retry attempts (PortState::retry_count, attempt_src_ports[6] in scan.hpp). The plan's Step 9 talks about racing against the RX reply, but there's a sharper hazard: if an id_to_pidx entry resolves late — after that port slot has already been zeroed and reused for a subsequent retry's SYN — you'll silently stamp the new attempt's tx_ts_table[pidx] with the previous attempt's TX timestamp. id_to_pidx needs to key on (or validate against) something like (pidx, attempt/generation), not just pidx, or stale completions need to be dropped when the generation doesn't match current state.
+arp_handler.cpp references (~423–437) are unverifiable — that file wasn't part of this upload, so I can't confirm the pattern match is accurate. Not wrong, just unchecked.
+
+Bottom line: the core diagnosis (userspace pre-submit timestamp is measuring queueing/setup slop, not wire time) is correct and the code navigation is accurate. Before implementing, I'd fix the packet-build-time claim, make the SQPOLL-ordering logic branch-safe, and add generation/attempt tagging to the OPT_ID→port lookup so late error-queue completions can't alias onto a reused port slot.
+
+
+Before I hand you line numbers, I traced two things the original discussion didn't check, and both change where the code goes. Quick findings first, then the patch list.
+
+Two things that change the plan:
+
+send_sock/send_sock6 are created once in main() (line 2040, 2158) and reused across every batch. But GlobalSendCtx gets destroyed and rebuilt per batch-group (main.cpp:2448, inside the outer batch loop). If the OPT_ID sequence counter lives in GlobalSendCtx, it resets to 0 every time a new ctx is built — while the kernel's real per-socket counter on that same fd never resets. After the first batch group, your userspace counter and the kernel's counter go out of sync and every ID match breaks silently. The counter has to be tied to the fd's lifetime (whole program), not the ctx's lifetime.
+reap_cqes (scan.cpp:2196–2266) treats every CQE's user_data as a packet buffer pointer and calls pool.release(buf) on it unconditionally. If we drop an error-queue recvmsg SQE into send_ring (as the original doc suggested via idle_ring_ptr), that completion's user_data will get passed to pool.release() and corrupt the buffer pool. idle_ring_ptr is also the wrong ring anyway — it belongs to the RX/idle-wait path, not guaranteed to relate to the TX socket. The error-queue drain needs its own small dedicated ring, not send_ring or idle_ring_ptr.
+
+One open question before you start: is receive_response/send_tcp_packets ever called concurrently by multiple threads against the same send_sock/send_ring (i.e. is thread_worker — not in this upload — spawning per-host threads that share the global send context)? I found no mutex guarding send_ring access, which suggests single-threaded sending, but I can't confirm without that file. Everything below assumes single-threaded submission on send_ring. If that's wrong, flag it before you implement step 6 — the sequence assignment needs an atomic swap instead of a plain increment.
+
+
+Let me back up and explain the whole thing in plain terms.
+
+The problem we're solving
+
+Right now, when Shiva measures RTT (round-trip time) for a port, it takes a timestamp with steady_clock::now() in your own code, at the moment your code is about to hand a packet to the kernel. But there's a gap between "my code touched a timestamp variable" and "the packet actually left the network card." That gap includes:
+
+waiting for io_uring_submit() to actually be called (packets get batched up to WINDOW size before that happens)
+the kernel's io_uring worker (or SQPOLL thread) actually picking up the send
+
+That gap gets counted as "network latency" even though it's really just your program's internal bookkeeping delay. So your RTT numbers are inflated and noisy, especially under load.
+
+The fix
+
+Linux can timestamp a packet itself, at the exact moment the kernel driver actually sends it (SO_TIMESTAMPING with the software-TX flag). That's a much more accurate stamp than anything userspace can produce. The catch: the kernel doesn't hand this timestamp back to you directly — it queues it on a separate "error queue" on the socket, and you have to go fetch it with a special recvmsg(MSG_ERRQUEUE) call, then match it back to the right port using a sequence number the kernel provides (OPT_ID).
+
+So the whole patch set is really: "turn on kernel packet timestamping, then build the plumbing to collect those timestamps asynchronously and slot them into the RTT table before you use it."
+
+What each patch actually does, in plain terms:
+
+Includes — pulls in the Linux header definitions for the timestamping flags and error-queue structs. Housekeeping, nothing functional.
+Sequence counters — Every time the kernel timestamps a send, it tags it with a number that goes up by one each time (per socket). Your code needs to keep its own matching counter so when a timestamp comes back with "this was send #47," you know which port that was for. This has to be a variable that lives as long as the socket itself does (which is the whole program run) — not something that gets reset every time a batch of hosts starts, or the numbers stop lining up.
+Turn on the feature — the actual setsockopt(SO_TIMESTAMPING, ...) call that tells the kernel "please timestamp my sends and tag them with that sequence number."
+A separate small mailbox for picking up timestamps — the kernel delivers these timestamps via a mechanism that needs its own little io_uring "ring" (a queue Shiva uses to talk to the kernel efficiently) to poll for them without blocking. It has to be a separate ring from the one already sending packets, because that existing ring's completion-handling code assumes every completion it sees is "a packet finished sending, free its buffer" — if we mixed timestamp deliveries into that same stream, the code would try to treat a timestamp as a packet buffer and corrupt memory.
+A lookup table for "which port does this sequence number belong to" — plus a little safety tag ("generation number") so that if a timestamp arrives late — after that port slot has already been reused for a retry — we don't accidentally stamp the wrong attempt with the wrong time.
+Actually assigning the sequence number when a packet is sent — right at the point in the code where a packet is handed to the kernel, tag it with the next sequence number and remember "sequence #47 = port 443."
+The part that fetches and applies the timestamp — periodically check the mailbox from #4, and when a timestamp shows up, look up which port it belongs to (using #5/#6), convert it into the right time format, and store it as that port's precise send-time — overwriting the rough guess.
+No change needed — once #7 writes the precise timestamp into the same table the RTT calculation already reads from, the RTT math itself doesn't need to change at all.
+
+What "leave out fragmented packet correlation" means
+
+Shiva can send a single logical packet as several IP fragments (when fragmentation options are turned on). Each fragment is its own separate send to the kernel. The precise-timestamp scheme needs one sequence number per actual send call — so a fragmented packet would need multiple sequence numbers, one per fragment, and then you'd need to decide which fragment's timestamp actually represents "when did this logical packet finish going out" (probably the last one).
+
+That's extra complexity I haven't designed yet. So my suggestion is: for now, only wire up the precise kernel timestamp for normal, unfragmented packets — which is the vast majority of scans. Fragmented packets will just keep using the existing rough steady_clock timestamp, exactly like today. Nothing breaks, fragmented scans just don't get the accuracy improvement yet. It's a "ship the common case first, handle the edge case later" decision, not a bug.
+
+Good news on the brace error first: I traced the braces in your uploaded scan.cpp with a script (skipping strings/comments), and receive_response() opens at line 2524 and closes cleanly at line 4035 — balanced. display_packet_details starts right after at line 4037. The file you just uploaded does not actually contain the code that produced that error — it doesn't have GlobalSendCtx* g_send in the signature anywhere, and drain_tx_errqueue() is still the empty stub from before. So that specific error must be from an in-between attempt that got reverted before this upload. Good — nothing to fix there, but it means we're starting the last round's changes from scratch.
+
+Status check — here's what's actually in your files right now, confirmed by direct inspection:
+
+✅ Done (compiled successfully, present in current files):
+
+g_tx_ts_seq_v4 / g_tx_ts_seq_v6 atomic counters (~line 130)
+SO_TIMESTAMPING enabled on both sockets in init_global_send_ctx (~line 4885)
+errq_ring_v4/errq_ring_v6 created (but bare — no mutex/buffers yet) in GlobalSendCtx (scan.hpp:1447) and initialized (~line 4896)
+on_pre_submit lambda extended with is_ipv6/precise_eligible, both call sites updated (lines 2292, 2383–2385)
+PendingTxTs at global scope (line 2502)
+id_to_pidx_v4, id_to_pidx_v6, tx_seq_map_mutex, port_generation (atomic vector) declared (lines 2684–2688)
+Sequence-ID assignment writing into id_to_pidx_v4/v6 inside on_pre_submit (lines 2777–2785)
+
+❌ Not yet done (what's actually still missing — this is the real "what's left"):
+
+drain_tx_errqueue() is still an empty function body (line 2508) — it compiles, but does nothing.
+Nothing calls drain_tx_errqueue() anywhere.
+receive_response() has no way to reach GlobalSendCtx (no g_send parameter) — so it couldn't call drain_tx_errqueue() even if we added the call.
+port_generation is never incremented on retry — so the "stale timestamp" safety check has nothing to guard against yet (harmless right now since nothing writes to id_to_pidx from the kernel side, but needed before step 1 does anything real).
+main.cpp doesn't pass g_send into receive_response().
+
+So — this is exactly the same set of patches I gave last time; they just didn't make it into this upload. Let's do it again, but one patch at a time, compiling after each one, since bundling all of them together seems to be where things went wrong last round. I'll give you the exact current line numbers for each, freshly re-checked against what you just uploaded.
+
