@@ -1,0 +1,1799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Topology Mapper</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <style>
+        /* ============================================================
+           ROOT VARIABLES
+           ============================================================ */
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.85);
+            --bg-hover: rgba(31, 41, 55, 0.6);
+            --border-color: rgba(75, 85, 99, 0.3);
+            --border-hover: rgba(96, 165, 250, 0.4);
+            
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            
+            --accent-blue: #3b82f6;
+            --accent-blue-glow: rgba(59, 130, 246, 0.25);
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+            
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 24px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 8px 48px rgba(0, 0, 0, 0.5);
+            --shadow-glow: 0 0 40px rgba(59, 130, 246, 0.1);
+            
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+            
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ============================================================
+           RESET & BASE
+           ============================================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            user-select: none;
+            overflow-x: hidden;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
+        ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+        /* ============================================================
+           HEADER
+           ============================================================ */
+        .app-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding: 16px 24px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            backdrop-filter: blur(20px);
+            margin-bottom: 24px;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .app-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .app-brand .logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .app-brand h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #f1f5f9, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .app-brand .version {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            background: var(--bg-hover);
+            padding: 2px 10px;
+            border-radius: 12px;
+            -webkit-text-fill-color: var(--text-muted);
+        }
+
+        .app-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* ============================================================
+           BUTTONS
+           ============================================================ */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: var(--transition);
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            color: var(--text-primary);
+            background: var(--bg-hover);
+            border-color: var(--border-hover);
+        }
+
+        .btn-primary {
+            color: #fff;
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            border-color: #2563eb;
+            box-shadow: 0 0 20px var(--accent-blue-glow);
+        }
+
+        .btn-success {
+            color: #fff;
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        .btn-success:hover {
+            background: #16a34a;
+            border-color: #16a34a;
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.25);
+        }
+
+        .btn-outline {
+            color: var(--text-secondary);
+            background: transparent;
+            border-color: var(--border-color);
+        }
+
+        .btn-outline:hover {
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+
+        .btn-icon {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-sm);
+        }
+
+        .btn-sm {
+            padding: 5px 12px;
+            font-size: 0.7rem;
+        }
+
+        /* ============================================================
+           UPLOAD SECTION
+           ============================================================ */
+        .upload-area {
+            background: var(--bg-card);
+            border: 1px dashed var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 20px 32px;
+            margin-bottom: 24px;
+            max-width: 1400px;
+            margin-left: auto;
+            margin-right: auto;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            transition: var(--transition);
+        }
+
+        .upload-area:hover {
+            border-color: var(--border-hover);
+        }
+
+        .upload-area .file-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .upload-area .file-status .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            display: inline-block;
+        }
+
+        .upload-area .file-status .status-dot.active {
+            background: var(--accent-green);
+            box-shadow: 0 0 12px rgba(34, 197, 94, 0.3);
+        }
+
+        .upload-area .file-status .filename {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .upload-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        /* ============================================================
+           MIND MAP CONTAINER
+           ============================================================ */
+        .map-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+            min-height: 650px;
+            height: calc(100vh - 280px);
+            min-height: 500px;
+        }
+
+        .map-container .map-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .map-container .map-toolbar .toolbar-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+        }
+
+        .map-container .map-toolbar .toolbar-group {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .map-container .map-toolbar .divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border-color);
+            margin: 0 6px;
+        }
+
+        .map-wrapper {
+            position: relative;
+            width: 100%;
+            height: calc(100% - 53px);
+            overflow: hidden;
+        }
+
+        .map-wrapper .mindmap {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+        }
+
+        /* ============================================================
+           SVG CONNECTIONS
+           ============================================================ */
+        #connections-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        #connections-svg path {
+            stroke: rgba(148, 163, 184, 0.15);
+            stroke-width: 1.5;
+            fill: none;
+            transition: stroke 0.4s ease, stroke-width 0.4s ease;
+        }
+
+        #connections-svg path.dashed {
+            stroke: rgba(148, 163, 184, 0.08);
+            stroke-dasharray: 6, 4;
+            stroke-width: 1.2;
+        }
+
+        #connections-svg path.highlight {
+            stroke: var(--accent-blue);
+            stroke-width: 2.5;
+            filter: drop-shadow(0 0 8px var(--accent-blue-glow));
+        }
+
+        #connections-svg path.connection-hover {
+            stroke: rgba(148, 163, 184, 0.3);
+            stroke-width: 2;
+        }
+
+        /* ============================================================
+           NODES
+           ============================================================ */
+        .node-wrapper {
+            position: absolute;
+            cursor: grab;
+            z-index: 2;
+            transition: filter 0.3s ease, transform 0.15s ease;
+            touch-action: none;
+        }
+
+        .node-wrapper:active {
+            cursor: grabbing;
+        }
+
+        .node-wrapper.dragging {
+            z-index: 100;
+            filter: drop-shadow(0 8px 40px rgba(0, 0, 0, 0.6));
+        }
+
+        .node-wrapper .node-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            transition: var(--transition);
+            position: relative;
+            pointer-events: none;
+            backdrop-filter: blur(8px);
+            min-width: 48px;
+            min-height: 48px;
+        }
+
+        .node-wrapper:hover .node-content {
+            border-color: var(--border-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .node-wrapper .node-label {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            text-align: center;
+            line-height: 1.3;
+            letter-spacing: -0.01em;
+        }
+
+        .node-wrapper .node-detail {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            margin-top: 1px;
+            font-weight: 400;
+        }
+
+        .node-wrapper .node-badge {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: var(--accent-red);
+            color: #fff;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            font-size: 0.55rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid var(--bg-secondary);
+            pointer-events: none;
+        }
+
+        /* ---- Subnet ---- */
+        .node-subnet .node-content {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05));
+            border-color: rgba(59, 130, 246, 0.3);
+            padding: 12px 24px;
+            border-radius: var(--radius-md);
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+        }
+
+        .node-subnet .node-content .node-label {
+            color: #60a5fa;
+            font-weight: 600;
+        }
+
+        .node-subnet:hover .node-content {
+            border-color: rgba(59, 130, 246, 0.5);
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.1);
+        }
+
+        /* ---- Host ---- */
+        .node-host .node-content {
+            background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.04));
+            border-color: rgba(34, 197, 94, 0.2);
+            padding: 8px 18px;
+            border-radius: var(--radius-sm);
+        }
+
+        .node-host .node-content .node-label {
+            color: #4ade80;
+        }
+
+        .node-host:hover .node-content {
+            border-color: rgba(34, 197, 94, 0.4);
+            box-shadow: 0 0 30px rgba(34, 197, 94, 0.08);
+        }
+
+        /* ---- Port ---- */
+        .node-port .node-content {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+            border-color: rgba(245, 158, 11, 0.2);
+            border-radius: 50%;
+            padding: 6px 10px;
+            min-width: 56px;
+            min-height: 56px;
+            width: 56px;
+            height: 56px;
+            cursor: pointer;
+        }
+
+        .node-port .node-content .node-label {
+            color: #fbbf24;
+            font-size: 0.6rem;
+        }
+
+        .node-port .node-content .node-detail {
+            font-size: 0.55rem;
+            color: rgba(251, 191, 36, 0.6);
+        }
+
+        .node-port:hover .node-content {
+            border-color: rgba(245, 158, 11, 0.5);
+            box-shadow: 0 0 30px rgba(245, 158, 11, 0.12);
+            transform: scale(1.08);
+        }
+
+        .node-port .node-content .click-hint {
+            position: absolute;
+            bottom: -18px;
+            font-size: 0.5rem;
+            color: var(--text-muted);
+            opacity: 0;
+            transition: var(--transition);
+            white-space: nowrap;
+        }
+
+        .node-port:hover .node-content .click-hint {
+            opacity: 1;
+        }
+
+        /* ---- Highlighted ---- */
+        .node-wrapper.highlighted .node-content {
+            border-color: var(--accent-blue) !important;
+            box-shadow: 0 0 40px var(--accent-blue-glow) !important;
+        }
+
+        /* ============================================================
+           TOOLTIP
+           ============================================================ */
+        .node-tooltip {
+            position: fixed;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 14px 18px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 280px;
+            line-height: 1.6;
+            box-shadow: var(--shadow-lg);
+            display: none;
+            transition: opacity 0.15s ease;
+        }
+
+        .node-tooltip .tip-title {
+            font-weight: 600;
+            color: #fff;
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+        }
+
+        .node-tooltip .tip-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .node-tooltip .tip-row .tip-value {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .node-tooltip .tip-row .tip-value.highlight {
+            color: var(--accent-blue);
+        }
+
+        .node-tooltip .tip-divider {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 6px 0;
+        }
+
+        .node-tooltip .tip-url {
+            font-size: 0.7rem;
+            color: var(--accent-blue);
+            word-break: break-all;
+        }
+
+        /* ============================================================
+           LEGEND
+           ============================================================ */
+        .legend-bar {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 10px 20px;
+            border-top: 1px solid var(--border-color);
+            flex-wrap: wrap;
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        .legend-bar .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            font-weight: 400;
+        }
+
+        .legend-bar .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            flex-shrink: 0;
+        }
+
+        .legend-bar .legend-dot.subnet { background: var(--accent-blue); border-radius: 0; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+        .legend-bar .legend-dot.host { background: var(--accent-green); border-radius: 2px; }
+        .legend-bar .legend-dot.port { background: var(--accent-orange); }
+        .legend-bar .legend-dot.connection { background: transparent; border: 1.5px dashed var(--text-muted); width: 16px; height: 0; border-radius: 0; }
+
+        .legend-bar .legend-hint {
+            margin-left: auto;
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .legend-bar .legend-hint kbd {
+            background: var(--bg-hover);
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            font-family: 'Inter', monospace;
+        }
+
+        /* ============================================================
+           EMPTY STATE
+           ============================================================ */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 40px;
+        }
+
+        .empty-state .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state .empty-title {
+            font-size: 1rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .empty-state .empty-desc {
+            font-size: 0.85rem;
+            margin-top: 4px;
+            max-width: 400px;
+        }
+
+        /* ============================================================
+           TOAST NOTIFICATIONS
+           ============================================================ */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 12px 20px;
+            backdrop-filter: blur(16px);
+            box-shadow: var(--shadow-lg);
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            animation: slideUp 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 280px;
+        }
+
+        .toast .toast-icon { font-size: 1.1rem; }
+        .toast .toast-msg { flex: 1; }
+        .toast .toast-close { 
+            cursor: pointer; 
+            opacity: 0.4;
+            transition: var(--transition);
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+        .toast .toast-close:hover { opacity: 1; }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(16px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* ============================================================
+           RESPONSIVE
+           ============================================================ */
+        @media (max-width: 1024px) {
+            body { padding: 16px; }
+            .app-header { padding: 12px 18px; }
+            .upload-area { padding: 16px 20px; flex-direction: column; align-items: stretch; }
+            .map-container { height: calc(100vh - 340px); min-height: 400px; }
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .app-header { flex-direction: column; align-items: stretch; gap: 12px; }
+            .app-actions { justify-content: flex-start; flex-wrap: wrap; }
+            .app-brand h1 { font-size: 1rem; }
+            .map-container { height: calc(100vh - 380px); min-height: 350px; border-radius: var(--radius-md); }
+            .map-container .map-toolbar { padding: 8px 12px; flex-direction: column; align-items: stretch; gap: 6px; }
+            .map-container .map-toolbar .toolbar-group { flex-wrap: wrap; }
+            .upload-area .file-status { font-size: 0.75rem; flex-wrap: wrap; }
+            .legend-bar { padding: 8px 12px; gap: 12px; }
+            .legend-bar .legend-hint { margin-left: 0; width: 100%; justify-content: flex-start; }
+            .node-wrapper .node-content { padding: 4px 10px; min-width: 32px; min-height: 32px; }
+            .node-wrapper .node-label { font-size: 0.6rem; }
+            .node-wrapper .node-detail { font-size: 0.5rem; }
+            .node-port .node-content { width: 42px; height: 42px; min-width: 42px; min-height: 42px; padding: 4px 6px; }
+            .node-port .node-content .node-label { font-size: 0.5rem; }
+            .node-subnet .node-content { padding: 8px 14px; }
+            .btn { font-size: 0.7rem; padding: 6px 12px; }
+            .btn-icon { width: 30px; height: 30px; }
+        }
+
+        @media (max-width: 480px) {
+            .app-actions .btn span { display: none; }
+            .app-actions .btn { padding: 6px 10px; }
+            .upload-actions .btn span { display: none; }
+            .upload-actions .btn { padding: 6px 10px; }
+            .map-container .map-toolbar .toolbar-label { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ============================================================
+    HEADER
+    ============================================================ -->
+    <header class="app-header">
+        <div class="app-brand">
+            <div class="logo">✦</div>
+            <div>
+                <h1>Topology Mapper</h1>
+            </div>
+            <span class="version">v2.0</span>
+        </div>
+        <div class="app-actions">
+            <button class="btn btn-outline btn-sm" id="resetLayoutBtn" title="Reset to default layout">
+                <span>⟳</span> <span>Reset</span>
+            </button>
+            <button class="btn btn-outline btn-sm" id="autoLayoutBtn" title="Auto-arrange nodes">
+                <span>⊞</span> <span>Auto</span>
+            </button>
+            <button class="btn btn-outline btn-sm" id="exportLayoutBtn" title="Export positions as JSON">
+                <span>⬇</span> <span>Export</span>
+            </button>
+            <button class="btn btn-outline btn-sm" id="importLayoutBtn" title="Import positions from JSON">
+                <span>⬆</span> <span>Import</span>
+            </button>
+            <input type="file" id="importLayoutInput" accept=".json" style="display:none">
+            <span style="color:var(--text-muted);font-size:0.7rem;margin:0 4px;">|</span>
+            <button class="btn btn-outline btn-sm" id="fullscreenBtn" title="Toggle fullscreen">
+                <span>⛶</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- ============================================================
+    UPLOAD AREA
+    ============================================================ -->
+    <div class="upload-area" id="uploadArea">
+        <div class="file-status">
+            <span class="status-dot" id="statusDot"></span>
+            <span id="fileStatusText">Ready — upload a .txt file or load sample</span>
+            <span class="filename" id="fileNameDisplay"></span>
+        </div>
+        <div class="upload-actions">
+            <button class="btn btn-primary btn-sm" id="loadSampleBtn">📊 Sample Data</button>
+            <label class="btn btn-outline btn-sm" for="fileInput">
+                📁 Upload TXT
+                <input type="file" id="fileInput" accept=".txt">
+            </label>
+            <button class="btn btn-outline btn-sm" id="resetBtn">✕ Clear</button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+    MAP CONTAINER
+    ============================================================ -->
+    <div class="map-container" id="mapContainer">
+        <div class="map-toolbar">
+            <span class="toolbar-label">Network Topology</span>
+            <div class="toolbar-group">
+                <span style="font-size:0.7rem;color:var(--text-muted);">
+                    <span id="nodeCount">0</span> nodes
+                </span>
+                <span class="divider"></span>
+                <span style="font-size:0.65rem;color:var(--text-muted);">
+                    <span id="connectionCount">0</span> connections
+                </span>
+                <span class="divider"></span>
+                <span style="font-size:0.65rem;color:var(--text-muted);">
+                    🖱 Drag to reposition
+                </span>
+                <span class="divider"></span>
+                <span style="font-size:0.65rem;color:var(--text-muted);">
+                    <kbd style="background:var(--bg-hover);padding:1px 6px;border-radius:3px;font-size:0.6rem;color:var(--text-secondary);">↻</kbd> Click port for URL
+                </span>
+            </div>
+        </div>
+        <div class="map-wrapper" id="mapWrapper">
+            <div class="mindmap" id="mindmap">
+                <svg id="connections-svg"></svg>
+                <div id="nodes-container">
+                    <div class="empty-state">
+                        <div class="empty-icon">📡</div>
+                        <div class="empty-title">No network data loaded</div>
+                        <div class="empty-desc">Upload a TXT file or load the sample data to visualize your network topology.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="legend-bar">
+            <span class="legend-item"><span class="legend-dot subnet"></span> Subnet</span>
+            <span class="legend-item"><span class="legend-dot host"></span> Host</span>
+            <span class="legend-item"><span class="legend-dot port"></span> Port / Service</span>
+            <span class="legend-item"><span class="legend-dot connection"></span> Connection</span>
+            <span class="legend-hint">
+                <span>🖱 Drag nodes · </span>
+                <span>🔍 Hover for details</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- ============================================================
+    TOOLTIP
+    ============================================================ -->
+    <div class="node-tooltip" id="tooltip">
+        <div class="tip-title" id="tipTitle">Node</div>
+        <hr class="tip-divider">
+        <div id="tipBody"></div>
+    </div>
+
+    <!-- ============================================================
+    TOAST CONTAINER
+    ============================================================ -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- ============================================================
+    JAVASCRIPT
+    ============================================================ -->
+    <script>
+        // ============================================================
+        // 1. STATE
+        // ============================================================
+        let currentData = null;
+        let nodePositions = {};
+        let nodeElements = {};
+        let isDragging = false;
+        let dragOffsetX = 0, dragOffsetY = 0;
+        let activeDragNode = null;
+        let nodeIdCounter = 0;
+        let isFullscreen = false;
+
+        // ============================================================
+        // 2. TOAST SYSTEM
+        // ============================================================
+        function showToast(message, icon = '✓', duration = 3000) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerHTML = `
+                <span class="toast-icon">${icon}</span>
+                <span class="toast-msg">${message}</span>
+                <button class="toast-close">✕</button>
+            `;
+            toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
+            container.appendChild(toast);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, duration);
+        }
+
+        // ============================================================
+        // 3. TXT PARSER
+        // ============================================================
+        function parsePortScanTXT(text) {
+            const lines = text.split('\n').filter(line => line.trim());
+            const data = { subnet: null, hosts: [], connections: [] };
+            let currentHost = null;
+
+            for (let line of lines) {
+                line = line.trim();
+                if (line.startsWith('#') || line === '') continue;
+
+                if (line.match(/^SUBNET:/i)) {
+                    data.subnet = line.split(':')[1].trim();
+                    continue;
+                }
+
+                if (line.match(/^HOST:/i)) {
+                    const parts = line.split('|').map(p => p.trim());
+                    const ip = parts[0].replace(/^HOST:/i, '').trim();
+                    const name = parts[1] || ip;
+                    const status = parts[2] || 'alive';
+                    currentHost = { id: `host-${ip}`, ip, name, status, ports: [], connections: [] };
+                    data.hosts.push(currentHost);
+                    continue;
+                }
+
+                if (line.match(/^PORT:/i) && currentHost) {
+                    const parts = line.split('|').map(p => p.trim());
+                    const port = parts[0].replace(/^PORT:/i, '').trim();
+                    const service = parts[1] || `Port ${port}`;
+                    const status = parts[2] || 'open';
+                    currentHost.ports.push({ port, service, status });
+                    continue;
+                }
+
+                if (line.match(/^CONNECT:/i)) {
+                    const parts = line.replace(/^CONNECT:/i, '').split('->').map(p => p.trim());
+                    if (parts.length === 2) data.connections.push({ from: parts[0], to: parts[1] });
+                }
+            }
+            return data;
+        }
+
+        // ============================================================
+        // 4. NODE ID GENERATION
+        // ============================================================
+        function generateNodeId(type, ip, port = null) {
+            nodeIdCounter++;
+            if (type === 'subnet') return `subnet-${nodeIdCounter}`;
+            if (type === 'host') return `host-${ip.replace(/\./g, '-')}`;
+            return `port-${ip.replace(/\./g, '-')}-${port}`;
+        }
+
+        // ============================================================
+        // 5. GET SERVICE URL
+        // ============================================================
+        function getServiceUrl(ip, port, service) {
+            const commonPorts = {
+                '80': 'http://{ip}',
+                '443': 'https://{ip}',
+                '22': 'ssh://{ip}',
+                '3306': 'mysql://{ip}:3306',
+                '5432': 'postgresql://{ip}:5432',
+                '3389': 'rdp://{ip}:3389',
+                '445': 'smb://{ip}',
+                '53': 'dns://{ip}',
+                '8080': 'http://{ip}:8080',
+                '8443': 'https://{ip}:8443'
+            };
+            let template = commonPorts[port] || `http://{ip}:{port}`;
+            return template.replace(/\{ip\}/g, ip).replace(/\{port\}/g, port);
+        }
+
+        // ============================================================
+        // 6. MIND MAP GENERATOR
+        // ============================================================
+        function generateMindMap(data) {
+            currentData = data;
+            const container = document.getElementById('nodes-container');
+            const svg = document.getElementById('connections-svg');
+            svg.innerHTML = '';
+            container.innerHTML = '';
+            nodeElements = {};
+            nodePositions = {};
+            nodeIdCounter = 0;
+
+            if (!data.subnet && data.hosts.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📡</div>
+                        <div class="empty-title">No network data loaded</div>
+                        <div class="empty-desc">Upload a TXT file or load the sample data to visualize your network topology.</div>
+                    </div>
+                `;
+                updateStats(0, 0);
+                return;
+            }
+
+            const mindmap = document.getElementById('mindmap');
+            const containerWidth = mindmap.offsetWidth || 1200;
+            const containerHeight = mindmap.offsetHeight || 700;
+
+            const allNodes = [];
+            const hostIds = {};
+            let nodeIndex = 0;
+
+            // Subnet
+            if (data.subnet) {
+                const id = generateNodeId('subnet');
+                allNodes.push({
+                    id, type: 'subnet', ip: data.subnet,
+                    label: data.subnet, detail: `Subnet • ${data.hosts.length} hosts`,
+                    data: { hosts: data.hosts.length }
+                });
+                nodeIndex++;
+            }
+
+            // Hosts & Ports
+            data.hosts.forEach(host => {
+                const hostId = generateNodeId('host', host.ip);
+                hostIds[host.ip] = hostId;
+                const portCount = host.ports.length;
+                const statusIcon = host.status === 'alive' ? '●' : '○';
+                allNodes.push({
+                    id: hostId, type: 'host', ip: host.ip,
+                    label: `${host.name}`,
+                    detail: `${host.ip} • ${portCount} ports`,
+                    data: { status: host.status, ports: portCount, icon: statusIcon }
+                });
+                nodeIndex++;
+
+                host.ports.forEach(port => {
+                    const portId = generateNodeId('port', host.ip, port.port);
+                    allNodes.push({
+                        id: portId, type: 'port', ip: host.ip, port: port.port,
+                        label: port.service,
+                        detail: `:${port.port}`,
+                        data: { service: port.service, status: port.status, url: getServiceUrl(host.ip, port.port, port.service) }
+                    });
+                    nodeIndex++;
+                });
+            });
+
+            // Calculate positions
+            const subnetNodes = allNodes.filter(n => n.type === 'subnet');
+            const hostNodes = allNodes.filter(n => n.type === 'host');
+            const portNodes = allNodes.filter(n => n.type === 'port');
+
+            if (subnetNodes.length > 0) {
+                nodePositions[subnetNodes[0].id] = { x: containerWidth / 2 - 80, y: 40 };
+            }
+
+            const hostCount = hostNodes.length;
+            const hostSpacing = Math.min(200, (containerWidth - 80) / Math.max(hostCount, 1));
+            const startX = (containerWidth - (hostCount - 1) * hostSpacing) / 2;
+
+            hostNodes.forEach((host, index) => {
+                nodePositions[host.id] = { x: startX + index * hostSpacing, y: 160 };
+            });
+
+            portNodes.forEach((port, index) => {
+                const hostId = hostIds[port.ip];
+                if (!hostId) return;
+                const hostPos = nodePositions[hostId];
+                if (!hostPos) return;
+
+                const hostPorts = portNodes.filter(p => p.ip === port.ip);
+                const portIndex = hostPorts.indexOf(port);
+                const totalPorts = hostPorts.length;
+                const spread = Math.min(120, totalPorts * 36);
+                const offsetX = totalPorts > 1 ? (portIndex / (totalPorts - 1) - 0.5) * spread : 0;
+                const row = Math.floor(portIndex / 4);
+                nodePositions[port.id] = {
+                    x: hostPos.x + offsetX,
+                    y: 280 + row * 65 + (portIndex % 4) * 12
+                };
+            });
+
+            // Create DOM elements
+            allNodes.forEach(node => {
+                const pos = nodePositions[node.id];
+                if (!pos) return;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = `node-wrapper node-${node.type}`;
+                wrapper.id = `node-${node.id}`;
+                wrapper.dataset.nodeId = node.id;
+                wrapper.dataset.type = node.type;
+                wrapper.dataset.ip = node.ip || '';
+                wrapper.dataset.port = node.port || '';
+                wrapper.dataset.service = node.data?.service || '';
+                wrapper.dataset.status = node.data?.status || '';
+                wrapper.dataset.hosts = node.data?.hosts || '';
+                wrapper.dataset.ports = node.data?.ports || '';
+                wrapper.dataset.url = node.data?.url || '';
+
+                wrapper.style.left = pos.x + 'px';
+                wrapper.style.top = pos.y + 'px';
+
+                let labelHtml = node.type === 'host' ? 
+                    `<span class="node-label">${node.data?.icon || ''} ${node.label}</span>` :
+                    `<span class="node-label">${node.label}</span>`;
+
+                let clickHint = node.type === 'port' ? 
+                    `<span class="click-hint">↗ click to open</span>` : '';
+
+                wrapper.innerHTML = `
+                    <div class="node-content">
+                        ${labelHtml}
+                        <span class="node-detail">${node.detail}</span>
+                        ${clickHint}
+                    </div>
+                `;
+
+                if (node.type === 'host' && node.data?.ports > 0) {
+                    const badge = document.createElement('span');
+                    badge.className = 'node-badge';
+                    badge.textContent = node.data.ports;
+                    wrapper.querySelector('.node-content').appendChild(badge);
+                }
+
+                container.appendChild(wrapper);
+                nodeElements[node.id] = wrapper;
+
+                setupDrag(wrapper);
+                setupTooltip(wrapper);
+                setupClick(wrapper);
+                setupPortClick(wrapper);
+            });
+
+            updateStats(allNodes.length, data.connections.length + data.hosts.length);
+
+            setTimeout(() => {
+                drawConnections(data);
+                const loaded = loadPositionsFromStorage();
+                if (!loaded) resetLayout();
+                drawConnections(data);
+            }, 80);
+
+            setTimeout(() => drawConnections(data), 200);
+        }
+
+        // ============================================================
+        // 7. UPDATE STATS
+        // ============================================================
+        function updateStats(nodes, connections) {
+            document.getElementById('nodeCount').textContent = nodes;
+            document.getElementById('connectionCount').textContent = connections;
+        }
+
+        // ============================================================
+        // 8. DRAG
+        // ============================================================
+        function setupDrag(element) {
+            let isDragging = false;
+            let startX, startY, origX, origY;
+
+            element.addEventListener('mousedown', startDrag);
+            element.addEventListener('touchstart', startDragTouch, { passive: false });
+
+            function startDrag(e) {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                const rect = element.getBoundingClientRect();
+                startX = e.clientX;
+                startY = e.clientY;
+                origX = parseFloat(element.style.left) || 0;
+                origY = parseFloat(element.style.top) || 0;
+                isDragging = true;
+                element.classList.add('dragging');
+                document.addEventListener('mousemove', onDrag);
+                document.addEventListener('mouseup', endDrag);
+                highlightConnections(element.dataset.nodeId);
+            }
+
+            function startDragTouch(e) {
+                e.preventDefault();
+                const touch = e.touches[0];
+                startX = touch.clientX;
+                startY = touch.clientY;
+                origX = parseFloat(element.style.left) || 0;
+                origY = parseFloat(element.style.top) || 0;
+                isDragging = true;
+                element.classList.add('dragging');
+                document.addEventListener('touchmove', onDragTouch, { passive: false });
+                document.addEventListener('touchend', endDragTouch);
+                highlightConnections(element.dataset.nodeId);
+            }
+
+            function onDrag(e) {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                updatePosition(element, origX + dx, origY + dy);
+            }
+
+            function onDragTouch(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+                const touch = e.touches[0];
+                const dx = touch.clientX - startX;
+                const dy = touch.clientY - startY;
+                updatePosition(element, origX + dx, origY + dy);
+            }
+
+            function updatePosition(el, x, y) {
+                const mindmap = document.getElementById('mindmap');
+                const maxX = Math.max(mindmap.offsetWidth - 80, 200);
+                const maxY = Math.max(mindmap.offsetHeight - 60, 200);
+                x = Math.max(0, Math.min(x, maxX));
+                y = Math.max(0, Math.min(y, maxY));
+                el.style.left = x + 'px';
+                el.style.top = y + 'px';
+                const nodeId = el.dataset.nodeId;
+                if (nodeId) nodePositions[nodeId] = { x, y };
+                drawConnections(currentData);
+            }
+
+            function endDrag() {
+                if (isDragging) {
+                    isDragging = false;
+                    element.classList.remove('dragging');
+                    document.removeEventListener('mousemove', onDrag);
+                    document.removeEventListener('mouseup', endDrag);
+                    document.querySelectorAll('#connections-svg path').forEach(p => p.classList.remove('highlight'));
+                    savePositionsToStorage();
+                }
+            }
+
+            function endDragTouch() {
+                if (isDragging) {
+                    isDragging = false;
+                    element.classList.remove('dragging');
+                    document.removeEventListener('touchmove', onDragTouch);
+                    document.removeEventListener('touchend', endDragTouch);
+                    document.querySelectorAll('#connections-svg path').forEach(p => p.classList.remove('highlight'));
+                    savePositionsToStorage();
+                }
+            }
+        }
+
+        function highlightConnections(nodeId) {
+            document.querySelectorAll('#connections-svg path').forEach(p => {
+                p.classList.remove('highlight');
+                if (p.dataset.from === nodeId || p.dataset.to === nodeId) {
+                    p.classList.add('highlight');
+                }
+            });
+        }
+
+        // ============================================================
+        // 9. CONNECTIONS
+        // ============================================================
+        function drawConnections(data) {
+            const svg = document.getElementById('connections-svg');
+            svg.innerHTML = '';
+            if (!data) return;
+
+            const mindmap = document.getElementById('mindmap');
+            const containerRect = mindmap.getBoundingClientRect();
+
+            function getNodeCenter(nodeId) {
+                const el = nodeElements[nodeId];
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2 - containerRect.left,
+                    y: rect.top + rect.height / 2 - containerRect.top
+                };
+            }
+
+            function drawCurve(x1, y1, x2, y2, fromId, toId, dashed = false) {
+                const midY = (y1 + y2) / 2;
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
+                path.setAttribute('d', d);
+                if (dashed) path.classList.add('dashed');
+                path.dataset.from = fromId;
+                path.dataset.to = toId;
+                svg.appendChild(path);
+            }
+
+            const subnetIds = Object.keys(nodeElements).filter(id =>
+                document.getElementById(`node-${id}`)?.dataset.type === 'subnet'
+            );
+            const hostIds = Object.keys(nodeElements).filter(id =>
+                document.getElementById(`node-${id}`)?.dataset.type === 'host'
+            );
+            const portIds = Object.keys(nodeElements).filter(id =>
+                document.getElementById(`node-${id}`)?.dataset.type === 'port'
+            );
+
+            subnetIds.forEach(subnetId => {
+                const sc = getNodeCenter(subnetId);
+                if (!sc) return;
+                hostIds.forEach(hostId => {
+                    const hc = getNodeCenter(hostId);
+                    if (!hc) return;
+                    drawCurve(sc.x, sc.y, hc.x, hc.y, subnetId, hostId);
+                });
+            });
+
+            if (data && data.hosts) {
+                data.hosts.forEach(host => {
+                    const hostId = Object.keys(nodeElements).find(id => {
+                        const el = document.getElementById(`node-${id}`);
+                        return el?.dataset.ip === host.ip && el?.dataset.type === 'host';
+                    });
+                    if (!hostId) return;
+                    const hc = getNodeCenter(hostId);
+                    if (!hc) return;
+
+                    host.ports.forEach(port => {
+                        const portId = Object.keys(nodeElements).find(id => {
+                            const el = document.getElementById(`node-${id}`);
+                            return el?.dataset.ip === host.ip &&
+                                el?.dataset.port === port.port &&
+                                el?.dataset.type === 'port';
+                        });
+                        if (!portId) return;
+                        const pc = getNodeCenter(portId);
+                        if (!pc) return;
+                        drawCurve(hc.x, hc.y, pc.x, pc.y, hostId, portId);
+                    });
+                });
+            }
+
+            if (data && data.connections) {
+                data.connections.forEach(conn => {
+                    const fromId = Object.keys(nodeElements).find(id => {
+                        const el = document.getElementById(`node-${id}`);
+                        return el?.dataset.ip === conn.from && el?.dataset.type === 'host';
+                    });
+                    const toId = Object.keys(nodeElements).find(id => {
+                        const el = document.getElementById(`node-${id}`);
+                        return el?.dataset.ip === conn.to && el?.dataset.type === 'host';
+                    });
+                    if (fromId && toId) {
+                        const fc = getNodeCenter(fromId);
+                        const tc = getNodeCenter(toId);
+                        if (fc && tc) drawCurve(fc.x, fc.y, tc.x, tc.y, fromId, toId, true);
+                    }
+                });
+            }
+        }
+
+        // ============================================================
+        // 10. TOOLTIP
+        // ============================================================
+        function setupTooltip(element) {
+            const tooltip = document.getElementById('tooltip');
+
+            element.addEventListener('mouseenter', (e) => {
+                const type = element.dataset.type;
+                const ip = element.dataset.ip || '';
+                const port = element.dataset.port || '';
+                const service = element.dataset.service || '';
+                const status = element.dataset.status || '';
+                const hosts = element.dataset.hosts || '';
+                const ports = element.dataset.ports || '';
+                const url = element.dataset.url || '';
+                const label = element.querySelector('.node-label')?.textContent?.trim() || '';
+
+                document.getElementById('tipTitle').textContent = label;
+
+                let body = '';
+                body += `<div class="tip-row"><span>Type</span><span class="tip-value">${type}</span></div>`;
+
+                if (type === 'subnet') {
+                    body += `<div class="tip-row"><span>Network</span><span class="tip-value highlight">${ip}</span></div>`;
+                    body += `<div class="tip-row"><span>Hosts</span><span class="tip-value">${hosts}</span></div>`;
+                } else if (type === 'host') {
+                    body += `<div class="tip-row"><span>IP</span><span class="tip-value highlight">${ip}</span></div>`;
+                    body += `<div class="tip-row"><span>Status</span><span class="tip-value">${status || 'Unknown'}</span></div>`;
+                    body += `<div class="tip-row"><span>Open Ports</span><span class="tip-value">${ports}</span></div>`;
+                } else if (type === 'port') {
+                    body += `<div class="tip-row"><span>Service</span><span class="tip-value highlight">${service}</span></div>`;
+                    body += `<div class="tip-row"><span>Port</span><span class="tip-value">${port}</span></div>`;
+                    body += `<div class="tip-row"><span>Host</span><span class="tip-value">${ip}</span></div>`;
+                    body += `<div class="tip-row"><span>Status</span><span class="tip-value" style="color:var(--accent-green)">● ${status || 'Open'}</span></div>`;
+                    if (url) {
+                        body += `<hr class="tip-divider">`;
+                        body += `<div class="tip-url">↗ ${url}</div>`;
+                    }
+                }
+
+                document.getElementById('tipBody').innerHTML = body;
+                tooltip.style.display = 'block';
+                updateTooltipPosition(e);
+            });
+
+            element.addEventListener('mousemove', updateTooltipPosition);
+            element.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+        }
+
+        function updateTooltipPosition(e) {
+            const tooltip = document.getElementById('tooltip');
+            let x = e.clientX + 16;
+            let y = e.clientY + 16;
+            const maxX = window.innerWidth - tooltip.offsetWidth - 16;
+            const maxY = window.innerHeight - tooltip.offsetHeight - 16;
+            if (x > maxX) x = e.clientX - tooltip.offsetWidth - 16;
+            if (y > maxY) y = e.clientY - tooltip.offsetHeight - 16;
+            tooltip.style.left = Math.max(8, x) + 'px';
+            tooltip.style.top = Math.max(8, y) + 'px';
+        }
+
+        // ============================================================
+        // 11. CLICK HANDLING
+        // ============================================================
+        function setupClick(element) {
+            element.addEventListener('click', (e) => {
+                // Don't trigger if dragging
+                if (isDragging) return;
+                document.querySelectorAll('.node-wrapper.highlighted').forEach(n => n.classList.remove('highlighted'));
+                element.classList.add('highlighted');
+                document.querySelectorAll('#connections-svg path').forEach(p => {
+                    p.classList.remove('highlight');
+                    if (p.dataset.from === element.dataset.nodeId || p.dataset.to === element.dataset.nodeId) {
+                        p.classList.add('highlight');
+                    }
+                });
+                setTimeout(() => {
+                    document.querySelectorAll('#connections-svg path').forEach(p => p.classList.remove('highlight'));
+                }, 2500);
+            });
+        }
+
+        function setupPortClick(element) {
+            if (element.dataset.type !== 'port') return;
+            element.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                const url = element.dataset.url;
+                if (url) {
+                    window.open(url, '_blank');
+                    showToast(`Opening ${url}`, '🌐');
+                }
+            });
+            // Also support single click with modifier
+            element.addEventListener('click', (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    const url = element.dataset.url;
+                    if (url) {
+                        window.open(url, '_blank');
+                        showToast(`Opening ${url}`, '🌐');
+                    }
+                }
+            });
+        }
+
+        // ============================================================
+        // 12. STORAGE
+        // ============================================================
+        function savePositionsToStorage() {
+            try { localStorage.setItem('topology_positions', JSON.stringify(nodePositions)); } catch (e) {}
+        }
+
+        function loadPositionsFromStorage() {
+            try {
+                const saved = localStorage.getItem('topology_positions');
+                if (saved) {
+                    const positions = JSON.parse(saved);
+                    Object.keys(positions).forEach(id => {
+                        if (nodeElements[id]) {
+                            const pos = positions[id];
+                            nodeElements[id].style.left = pos.x + 'px';
+                            nodeElements[id].style.top = pos.y + 'px';
+                            nodePositions[id] = pos;
+                        }
+                    });
+                    return true;
+                }
+            } catch (e) {}
+            return false;
+        }
+
+        // ============================================================
+        // 13. LAYOUT
+        // ============================================================
+        function resetLayout() {
+            const mindmap = document.getElementById('mindmap');
+            const containerWidth = mindmap.offsetWidth || 1200;
+
+            const allNodes = Object.keys(nodeElements).map(id => {
+                const el = document.getElementById(`node-${id}`);
+                return { id, type: el?.dataset.type || 'unknown', ip: el?.dataset.ip || '', element: el };
+            });
+
+            const subnetNodes = allNodes.filter(n => n.type === 'subnet');
+            const hostNodes = allNodes.filter(n => n.type === 'host');
+            const portNodes = allNodes.filter(n => n.type === 'port');
+
+            if (subnetNodes.length > 0) {
+                nodePositions[subnetNodes[0].id] = { x: containerWidth / 2 - 80, y: 40 };
+                if (subnetNodes[0].element) {
+                    subnetNodes[0].element.style.left = (containerWidth / 2 - 80) + 'px';
+                    subnetNodes[0].element.style.top = '40px';
+                }
+            }
+
+            const hostCount = hostNodes.length;
+            const hostSpacing = Math.min(200, (containerWidth - 80) / Math.max(hostCount, 1));
+            const startX = (containerWidth - (hostCount - 1) * hostSpacing) / 2;
+
+            hostNodes.forEach((host, index) => {
+                nodePositions[host.id] = { x: startX + index * hostSpacing, y: 160 };
+                if (host.element) {
+                    host.element.style.left = (startX + index * hostSpacing) + 'px';
+                    host.element.style.top = '160px';
+                }
+            });
+
+            portNodes.forEach((port, index) => {
+                const host = hostNodes.find(h => h.ip === port.ip);
+                if (!host || !host.element) return;
+                const hostPos = nodePositions[host.id];
+                if (!hostPos) return;
+                const hostPorts = portNodes.filter(p => p.ip === port.ip);
+                const portIndex = hostPorts.indexOf(port);
+                const totalPorts = hostPorts.length;
+                const spread = Math.min(120, totalPorts * 36);
+                const offsetX = totalPorts > 1 ? (portIndex / (totalPorts - 1) - 0.5) * spread : 0;
+                const row = Math.floor(portIndex / 4);
+                const pos = {
+                    x: hostPos.x + offsetX,
+                    y: 280 + row * 65 + (portIndex % 4) * 12
+                };
+                nodePositions[port.id] = pos;
+                if (port.element) {
+                    port.element.style.left = pos.x + 'px';
+                    port.element.style.top = pos.y + 'px';
+                }
+            });
+
+            drawConnections(currentData);
+            savePositionsToStorage();
+            showToast('Layout reset to default', '⟳');
+        }
+
+        function autoLayout() {
+            const iterations = 40;
+            const nodes = Object.keys(nodePositions);
+            if (nodes.length < 3) { showToast('Not enough nodes for auto-layout', '⚠️'); return; }
+
+            for (let iter = 0; iter < iterations; iter++) {
+                const forces = {};
+                nodes.forEach(id => { forces[id] = { x: 0, y: 0 }; });
+
+                for (let i = 0; i < nodes.length; i++) {
+                    for (let j = i + 1; j < nodes.length; j++) {
+                        const a = nodes[i], b = nodes[j];
+                        const dx = nodePositions[b].x - nodePositions[a].x;
+                        const dy = nodePositions[b].y - nodePositions[a].y;
+                        const dist = Math.sqrt(dx * dx + dy * dy) + 1;
+                        const force = 800 / (dist * dist + 1);
+                        forces[a].x -= force * (dx / dist);
+                        forces[a].y -= force * (dy / dist);
+                        forces[b].x += force * (dx / dist);
+                        forces[b].y += force * (dy / dist);
+                    }
+                }
+
+                nodes.forEach(id => {
+                    nodePositions[id].x += forces[id].x * 0.08;
+                    nodePositions[id].y += forces[id].y * 0.08;
+                    nodePositions[id].x = Math.max(20, Math.min(1180, nodePositions[id].x));
+                    nodePositions[id].y = Math.max(20, Math.min(680, nodePositions[id].y));
+                    if (nodeElements[id]) {
+                        nodeElements[id].style.left = nodePositions[id].x + 'px';
+                        nodeElements[id].style.top = nodePositions[id].y + 'px';
+                    }
+                });
+            }
+
+            drawConnections(currentData);
+            savePositionsToStorage();
+            showToast('Auto-layout complete', '⊞');
+        }
+
+        // ============================================================
+        // 14. EXPORT / IMPORT
+        // ============================================================
+        function exportPositions() {
+            const data = { positions: nodePositions, timestamp: new Date().toISOString() };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'topology_layout.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Layout exported successfully', '⬇');
+        }
+
+        function importPositions(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.positions) {
+                        Object.keys(data.positions).forEach(id => {
+                            if (nodeElements[id]) {
+                                const pos = data.positions[id];
+                                nodeElements[id].style.left = pos.x + 'px';
+                                nodeElements[id].style.top = pos.y + 'px';
+                                nodePositions[id] = pos;
+                            }
+                        });
+                        drawConnections(currentData);
+                        savePositionsToStorage();
+                        showToast('Layout imported successfully', '⬆');
+                    }
+                } catch (err) {
+                    showToast('Invalid layout file', '✕');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // ============================================================
+        // 15. FULLSCREEN
+        // ============================================================
+        function toggleFullscreen() {
+            const container = document.getElementById('mapContainer');
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(() => {});
+                showToast('Fullscreen mode', '⛶');
+            } else {
+                document.exitFullscreen().catch(() => {});
+            }
+        }
+
+        // ============================================================
+        // 16. SAMPLE DATA
+        // ============================================================
+        const SAMPLE_TXT = `# Network Topology Report
+        SUBNET: 192.168.1.0/24
+
+        HOST: 192.168.1.1 | Gateway | alive
+        PORT: 53 | DNS | open
+
+        HOST: 192.168.1.10 | Web Server | alive
+        PORT: 80 | HTTP | open
+        PORT: 443 | HTTPS | open
+        PORT: 22 | SSH | open
+
+        HOST: 192.168.1.20 | Database Server | alive
+        PORT: 3306 | MySQL | open
+        PORT: 5432 | PostgreSQL | open
+        PORT: 22 | SSH | open
+
+        HOST: 192.168.1.30 | Workstation-01 | alive
+        PORT: 3389 | RDP | open
+        PORT: 445 | SMB | open
+
+        HOST: 192.168.1.40 | Workstation-02 | alive
+
+        HOST: 192.168.1.99 | DNS Server | alive
+        PORT: 53 | DNS | open
+
+        CONNECT: 192.168.1.10 -> 192.168.1.20
+        CONNECT: 192.168.1.10 -> 192.168.1.99
+        CONNECT: 192.168.1.30 -> 192.168.1.10`;
+
+        // ============================================================
+        // 17. EVENT BINDING
+        // ============================================================
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = this.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const text = event.target.result;
+                document.getElementById('fileStatusText').textContent = 'Loaded:';
+                document.getElementById('fileNameDisplay').textContent = file.name;
+                document.getElementById('statusDot').classList.add('active');
+                const data = parsePortScanTXT(text);
+                generateMindMap(data);
+                setTimeout(() => {
+                    const loaded = loadPositionsFromStorage();
+                    if (!loaded) resetLayout();
+                    drawConnections(data);
+                }, 100);
+                showToast(`Loaded ${file.name}`, '📄');
+            };
+            reader.readAsText(file);
+            this.value = '';
+        });
+
+        document.getElementById('loadSampleBtn').addEventListener('click', function() {
+            document.getElementById('fileStatusText').textContent = 'Loaded:';
+            document.getElementById('fileNameDisplay').textContent = 'top.txt';
+            document.getElementById('statusDot').classList.add('active');
+            const data = parsePortScanTXT(SAMPLE_TXT);
+            generateMindMap(data);
+            setTimeout(() => {
+                const loaded = loadPositionsFromStorage();
+                if (!loaded) resetLayout();
+                drawConnections(data);
+            }, 100);
+            showToast('Sample data loaded', '📊');
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', function() {
+            document.getElementById('fileStatusText').textContent = 'Ready — upload a .txt file or load sample';
+            document.getElementById('fileNameDisplay').textContent = '';
+            document.getElementById('statusDot').classList.remove('active');
+            document.getElementById('nodes-container').innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📡</div>
+                    <div class="empty-title">No network data loaded</div>
+                    <div class="empty-desc">Upload a TXT file or load the sample data to visualize your network topology.</div>
+                </div>
+            `;
+            document.getElementById('connections-svg').innerHTML = '';
+            nodePositions = {};
+            nodeElements = {};
+            currentData = null;
+            localStorage.removeItem('topology_positions');
+            updateStats(0, 0);
+            showToast('Cleared', '✕');
+        });
+
+        document.getElementById('resetLayoutBtn').addEventListener('click', resetLayout);
+        document.getElementById('autoLayoutBtn').addEventListener('click', autoLayout);
+        document.getElementById('exportLayoutBtn').addEventListener('click', exportPositions);
+        document.getElementById('importLayoutBtn').addEventListener('click', function() {
+            document.getElementById('importLayoutInput').click();
+        });
+        document.getElementById('importLayoutInput').addEventListener('change', function(e) {
+            const file = this.files[0];
+            if (file) importPositions(file);
+            this.value = '';
+        });
+        document.getElementById('fullscreenBtn').addEventListener('click', toggleFullscreen);
+
+        // Fullscreen change event
+        document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement) {
+                setTimeout(() => { if (currentData) drawConnections(currentData); }, 300);
+            }
+        });
+
+        // ============================================================
+        // 18. INIT
+        // ============================================================
+        window.addEventListener('load', () => {
+            document.getElementById('fileStatusText').textContent = 'Loaded:';
+            document.getElementById('fileNameDisplay').textContent = 'top.txt';
+            document.getElementById('statusDot').classList.add('active');
+            const data = parsePortScanTXT(SAMPLE_TXT);
+            generateMindMap(data);
+            setTimeout(() => {
+                const loaded = loadPositionsFromStorage();
+                if (!loaded) resetLayout();
+                drawConnections(data);
+            }, 150);
+        });
+
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (currentData) drawConnections(currentData);
+            }, 200);
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'r' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                resetLayout();
+            }
+            if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                toggleFullscreen();
+            }
+        });
+
+        console.log('✦ Topology Mapper v2.0 loaded');
+        console.log(`📊 ${Object.keys(nodeElements).length} nodes rendered`);
+    </script>
+
+</body>
+</html>
