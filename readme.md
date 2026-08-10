@@ -46,7 +46,7 @@ Dual-staged: nmap's probe-signature database (`ServiceProbe`/`AllProbes`, `Servi
 ## Concurrent Processing
 
 - `moodycamel::ConcurrentQueue` for packet task queuing
-- Per-thread async I/O rings (io_uring) for batch packet transmission
+-  Per-thread async I/O rings (io_uring) for batch packet transmission
 - `std::atomic` flags for thread coordination (`terminate_flag`)
 - `std::mutex` for output synchronization (`cout_mutex`)
 
@@ -79,6 +79,13 @@ Dual-staged: nmap's probe-signature database (`ServiceProbe`/`AllProbes`, `Servi
 - Custom DNS servers: support for multiple custom DNS servers (IPv4 or IPv6).
 - DNS-over-TLS: DoT lookups on port 853 with certificate verification.
 - Reverse DNS / PTR lookups using either system resolver or configured custom DoT servers.
+- DNS enumeration (`--enum dns`): combined active + passive subdomain/infra recon —
+  full record-type sweep, AXFR attempts, wildcard-aware brute force with wordlist
+  mutation, DNSSEC/NSEC-walk checks, SPF/DKIM/DMARC/BIMI/MTA-STS/TLS-RPT collection,
+  SRV/TLSA discovery, CNAME-chain subdomain-takeover fingerprinting, and reverse PTR
+  sweep, alongside passive lookups (CT logs, Wayback, RDAP, ASN/BGP, passive-DNS
+  aggregators, optional Google dorking) — all fired concurrently through a shared
+  async DNS query engine instead of serial round trips.
 
 ## Packet & Link-layer Control
 - MAC / ARP control: ability to spoof MAC addresses and perform ARP-based on-link resolution.
@@ -89,7 +96,11 @@ Dual-staged: nmap's probe-signature database (`ServiceProbe`/`AllProbes`, `Servi
 ## Robustness & Usability
 - SIGINT handling: emergency protocol activation and safe shutdown to prevent crashes on interrupt.
 - RAII: resource management via RAII for exception-safe cleanup.
-- Output: modern, structured scan output formatting.
+- Output: modern, structured scan output formatting, including a per-host packets-sent
+  count.
+- Drop detection: send-path packet-loss tracking at three checkpoints (buffer-pool
+  exhaustion, io_uring submission-queue backpressure, kernel `sendmsg()` rejection),
+  surfaced as an `Incident` report per host when loss occurs.
 
 ## Misc / Integrations
 - TCP flags: explicit handling for ECE and CWR flags.
