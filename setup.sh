@@ -212,7 +212,6 @@ setup_data_files() {
         services
         signatures.conf
         shiv_split.conf
-        nmap-service-probes.txt
     )
     local range_files=(
         akamai.txt
