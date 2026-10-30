@@ -156,6 +156,19 @@ struct TlsCertInfo {
             if (clean.size() > maxlen) clean = clean.substr(0, maxlen - 3) + "...";
             out << "  |  " << std::left << std::setw(13) << label << ": " << clean << "\n";
         };
+        tls_emit("TLS version", tls_version);
+        tls_emit("Cipher", cipher, 48);
+        tls_emit("Subject", subject, 64);
+        tls_emit("Issuer", issuer, 64);
+        tls_emit("Not before", not_before);
+        tls_emit("Not after", not_after);
+        tls_emit("Serial", serial, 48);
+        tls_emit("SHA-1", fingerprint_sha1, 64);
+        tls_emit("SHA-256", fingerprint_sha256, 100);
+        for (size_t i = 0; i < sans.size() && i < 8; ++i)
+            tls_emit(i == 0 ? "SANs" : "", sans[i], 64);
+        if (sans.size() > 8) tls_emit("", "(+" + std::to_string(sans.size() - 8) + " more)");
+        tls_emit("Verify", verify_ok ? std::string("ok") : (verify_error.empty() ? std::string("failed") : verify_error), 64);
     }
 };
 
@@ -342,6 +355,102 @@ static std::string extract_header(const std::vector<u8> &resp,
     }
     return "";
 }
+
+// Generic header collector: parses every "Name: value" line in the response
+// header block into a map keyed by lowercased header name. Unlike
+// extract_header() (which only knows about one hardcoded field name at a
+// time), this lets signatures.conf reference ANY response header directly
+// by name -- new header-based signatures need zero C++ changes.
+// First occurrence of a repeated header wins, matching extract_header()'s
+// behavior. Values are right/left trimmed of spaces/tabs the same way.
+//
+// dup_out (optional): if non-null, records "Name: first-value | second-value"
+// for every header name seen more than once WITH DIFFERING values. A
+// duplicated Server/X-Powered-By/Content-Length/etc. header with conflicting
+// values is a classic sign of response splitting, a chunked-proxy rewrite,
+// or a deliberately spoofed banner sitting in front of the real one -- and
+// under the old first-wins-silently behavior that second value was thrown
+// away with no trace at all, so this kind of tampering was invisible to the
+// scanner. Exact-duplicate repeats (same name, same value) are NOT flagged;
+// that's normal for some servers/proxies and not a useful signal.
+static std::map<std::string, std::string> collect_all_headers(
+    const std::vector<u8> &resp,
+    std::vector<std::string> *dup_out = nullptr)
+{
+    std::map<std::string, std::string> headers;
+
+    const size_t hard_cap = std::min(resp.size(), (size_t)8192);
+    size_t header_end = hard_cap;
+
+    for (size_t i = 0; i + 3 < hard_cap; ++i) {
+        if (resp[i]=='\r' && resp[i+1]=='\n' && resp[i+2]=='\r' && resp[i+3]=='\n') {
+            header_end = i + 4;
+            break;
+        }
+    }
+    if (header_end == hard_cap) {
+        for (size_t i = 0; i + 1 < hard_cap; ++i) {
+            if (resp[i]=='\n' && resp[i+1]=='\n') {
+                header_end = i + 2;
+                break;
+            }
+        }
+    }
+
+    size_t pos = 0;
+    // Skip the status line.
+    while (pos < header_end && resp[pos] != '\r' && resp[pos] != '\n') ++pos;
+    if (pos < header_end && resp[pos] == '\r') ++pos;
+    if (pos < header_end && resp[pos] == '\n') ++pos;
+
+    while (pos < header_end) {
+        size_t line_start = pos;
+        while (pos < header_end && resp[pos] != '\r' && resp[pos] != '\n') ++pos;
+        size_t line_end = pos;
+        if (pos < header_end && resp[pos] == '\r') ++pos;
+        if (pos < header_end && resp[pos] == '\n') ++pos;
+
+        if (line_end == line_start) break; // blank line -> end of headers
+
+        size_t colon = line_start;
+        while (colon < line_end && resp[colon] != ':') ++colon;
+        if (colon >= line_end) continue; // malformed line, no colon
+
+        std::string name(resp.begin() + (std::ptrdiff_t)line_start,
+                         resp.begin() + (std::ptrdiff_t)colon);
+        for (char &c : name) c = (char)tolower((unsigned char)c);
+
+        size_t val_start = colon + 1;
+        while (val_start < line_end &&
+               (resp[val_start] == ' ' || resp[val_start] == '\t')) ++val_start;
+        size_t val_end = line_end;
+        while (val_end > val_start &&
+               (resp[val_end - 1] == ' ' || resp[val_end - 1] == '\t')) --val_end;
+
+        std::string value(resp.begin() + (std::ptrdiff_t)val_start,
+                          resp.begin() + (std::ptrdiff_t)val_end);
+
+        static const std::set<std::string> kMultiValueHeaders = { "set-cookie" };
+
+        auto existing = headers.find(name);
+        if (existing != headers.end()) {
+            if (dup_out && existing->second != value &&
+                !kMultiValueHeaders.count(name)) {
+                std::string entry = name + ": \"" + existing->second + "\" | \"" + value + "\"";
+                bool already_recorded = false;
+                for (const auto &d : *dup_out) {
+                    if (d == entry) { already_recorded = true; break; }
+                }
+                if (!already_recorded) dup_out->push_back(entry);
+            }
+            continue;
+        }
+        headers.emplace(std::move(name), std::move(value));
+    }
+
+    return headers;
+}
+
 static std::string extract_status_line(const std::vector<u8> &resp)
 {
     const size_t limit = std::min(resp.size(), (size_t)256);
@@ -597,6 +706,21 @@ struct HttpFingerprint {
     bool        is_ssl       = false;
     std::string raw_snippet;    // first 200 bytes of response (printable)
     TlsCertInfo tls_cert;       // populated when is_ssl == true
+
+    // Every response header, lowercased-name -> value. Populated generically
+    // for ALL headers (not just the ones with a dedicated field below), so
+    // signatures.conf [platform.*] rules can reference any header by name
+    // via field_any_nonempty without requiring a matching C++ field.
+    std::map<std::string, std::string> raw_headers;
+
+    // ---- Tamper / anomaly signals -----------------------------------------
+    // Populated in fetch_and_fingerprint() from collect_all_headers()'s
+    // dup_out, and in extract_html_body_signals() when the page's own
+    // meta-generator claim contradicts what the structural (path/JS-global/
+    // comment/body) evidence actually points to. Both are heuristics, not
+    // proof -- surfaced to the operator as a flag, not auto-acted-on.
+    std::vector<std::string> duplicate_headers; // "Name: \"v1\" | \"v2\""
+    std::string               tamper_hint;       // e.g. "meta:generator claims WordPress but structural signals point to Joomla (score=5 vs 0)"
 
     // ---- CDN / Cache / Proxy infrastructure headers ----
     std::string x_amz_cf_pop;
@@ -1018,6 +1142,11 @@ struct HttpFingerprint {
         emit("meta:apple-capable",  meta_apple_capable);
         if (!body_platform_hint.empty())
             emit("Body Platform", "[" + body_platform_hint + "]");
+        if (!tamper_hint.empty())
+            emit("TAMPER?", "[" + tamper_hint + "]");
+        for (size_t di = 0; di < duplicate_headers.size() && di < 5; ++di) {
+            emit("Dup Header", duplicate_headers[di]);
+        }
         // ---- SPA / Client-Side Routing locations ----
         for (size_t si = 0; si < spa_locations.size() && si < 5; ++si) {
             emit("SPA-Location", spa_locations[si]);
@@ -1056,20 +1185,27 @@ struct HttpFingerprint {
     }
 };
 
+std::string g_signature_conf_path = "/usr/share/shiv/signatures.conf";
 
-/* =====================================================================
- * Platform / web-framework fingerprint signatures.
- *
- * All signature *data* (path substrings, JS globals, HTML attributes,
- * per-platform scoring rules, meta-tag hints, suppression rules) lives
- * in an external "signatures.conf" file next to the binary, in the
- * same spirit as nmap-service-probes.txt for -sV. control.cpp keeps
- * only the matching *logic* -- adding a new CMS/framework signature is
- * a config-file edit, not a recompile.
- * ===================================================================== */
 
 struct PathSigEntry { std::string needle; std::string label; };
 struct AttrSigEntry { std::string attr;   std::string label; };
+
+// An entry in signatures.conf's [identity_headers] section: a single HTTP
+// response header that should be surfaced on the -sV version line whenever
+// it's present. This is the ONLY thing you need to touch to make a new
+// header show up there -- no HttpFingerprint field, no extract_header()
+// call, no C++ recompile. Lookup happens directly against
+// HttpFingerprint::raw_headers, which already captures every response
+// header generically (see collect_all_headers()).
+//   header : the HTTP header name, case-insensitive (e.g. "X-Powered-By-Plesk")
+//   label  : what to print it as
+//   bare   : true  -> the header's value is already self-descriptive and is
+//                      printed as-is, e.g. Server: "cloudflare" -> "cloudflare"
+//            false -> the value is just a bare token/number, so it's printed
+//                      as "label: value", e.g. X-Jenkins: "2.440.3" ->
+//                      "Jenkins: 2.440.3"
+struct IdentityHeaderSpec { std::string header; std::string label; bool bare; };
 
 struct PlatformRule {
     enum class Kind {
@@ -1077,10 +1213,20 @@ struct PlatformRule {
         JsGlobalEq,            // arg = exact string to match in js_globals entries
         CommentContains,       // arg = substring to find in html_comments entries
         MetaGeneratorContains, // arg = substring to find in meta_generator
-        FieldAnyNonEmpty       // arg = comma-separated HttpFingerprint field names; bump if any non-empty
+        FieldAnyNonEmpty,      // arg = comma-separated HTTP header names; bump if any is present & non-empty
+        BodyContains,          // arg = substring to find anywhere in the lowercased response body
+                                //       (covers text outside href=/comments -- e.g. src="...", plain
+                                //       visible text, inline JSON blobs)
+        HeaderValueContains    // header = specific HTTP response header name (lowercased);
+                                // arg    = substring to find inside THAT header's value (lowercased).
+                                //          Unlike FieldAnyNonEmpty (presence-only), this lets a rule
+                                //          key off *what a header says*, e.g. Server containing
+                                //          "openresty" or "nginx", or X-Powered-By containing "PHP".
+                                //          signatures.conf syntax: header_contains|Header=needle|weight
     };
     Kind        kind;
     std::string arg;
+    std::string header;   // only used by HeaderValueContains
     int         weight = 1;
 };
 
@@ -1090,21 +1236,13 @@ struct SuppressRule {
     std::string suppressed_platform;
 };
 
-// Registry of HttpFingerprint string fields addressable by name from signatures.conf,
-// used only by the FieldAnyNonEmpty rule kind. Extend this list if a new signature
-// needs to reference a field that isn't here yet.
-static const std::unordered_map<std::string, std::string HttpFingerprint::*> &
-platform_field_registry()
-{
-    static const std::unordered_map<std::string, std::string HttpFingerprint::*> reg = {
-        { "x_drupal_cache",         &HttpFingerprint::x_drupal_cache },
-        { "x_drupal_dynamic_cache", &HttpFingerprint::x_drupal_dynamic_cache },
-        { "x_magento_cache_debug",  &HttpFingerprint::x_magento_cache_debug },
-        { "x_wordpress_cache",      &HttpFingerprint::x_wordpress_cache },
-        { "x_prestashop_cache",     &HttpFingerprint::x_prestashop_cache },
-    };
-    return reg;
-}
+// NOTE: field_any_nonempty used to require each header to be registered here
+// by hand as a named HttpFingerprint field. That's gone -- it now looks
+// straight into HttpFingerprint::raw_headers (see the FieldAnyNonEmpty case
+// in the scorer below), so any header can be referenced purely from
+// signatures.conf. Underscores in the signatures.conf arg are treated as
+// equivalent to hyphens (e.g. "x_iinfo" matches the "X-Iinfo" header), so
+// existing entries using the old underscore convention keep working as-is.
 
 class PlatformSignatureSet {
 public:
@@ -1114,6 +1252,7 @@ public:
     std::map<std::string, std::vector<PlatformRule>>  platform_rules; // platform name -> rules
     std::vector<std::string>                          meta_hint_platforms;
     std::vector<SuppressRule>                          suppress_rules;
+    std::vector<IdentityHeaderSpec>                    identity_headers; // [identity_headers]
 
     static PlatformSignatureSet loadFromFile(const std::string &path);
 };
@@ -1214,6 +1353,26 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
         else if (section == "meta_hint_platforms") {
             sigs.meta_hint_platforms.push_back(check);
         }
+        else if (section == "identity_headers") {
+            // header|label|bare
+            auto f = split_pipe(line);
+            if (f.size() != 3) {
+                throw std::runtime_error(path + ":" + std::to_string(lineno) +
+                                          ": [identity_headers] entry needs 'header|label|bare'");
+            }
+            IdentityHeaderSpec spec;
+            spec.header = trim(f[0]);
+            spec.label  = trim(f[1]);
+            std::string bare_str = trim(f[2]);
+            for (char &c : bare_str) c = (char)tolower((unsigned char)c);
+            if (bare_str == "true" || bare_str == "1")       spec.bare = true;
+            else if (bare_str == "false" || bare_str == "0") spec.bare = false;
+            else {
+                throw std::runtime_error(path + ":" + std::to_string(lineno) +
+                                          ": [identity_headers] bare flag must be true/false");
+            }
+            sigs.identity_headers.push_back(std::move(spec));
+        }
         else if (section == "suppress") {
             // trigger_platform>=min_score|suppressed_platform
             auto f = split_pipe(line);
@@ -1228,7 +1387,16 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
             }
             SuppressRule r;
             r.trigger_platform    = trim(f[0].substr(0, ge));
-            r.trigger_min_score   = std::atoi(trim(f[0].substr(ge + 2)).c_str());
+            {
+	        const std::string num = trim(f[0].substr(ge + 2));
+	        char *endp = nullptr;
+	        long v = std::strtol(num.c_str(), &endp, 10);
+	        if (endp == num.c_str() || *endp != '\0') {
+		    throw std::runtime_error(path + ":" + std::to_string(lineno) +
+		                              ": [suppress] score must be a valid integer");
+	        }
+	        r.trigger_min_score = static_cast<int>(v);
+	    }
             r.suppressed_platform = trim(f[1]);
             sigs.suppress_rules.push_back(std::move(r));
         }
@@ -1242,13 +1410,45 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
             std::string kind_str = trim(f[0]);
             PlatformRule rule;
             rule.arg    = f[1]; // preserve as-is; some args (attrs) are meaningfully space-sensitive
-            rule.weight = std::atoi(trim(f[2]).c_str());
+            {
+	        const std::string num = trim(f[2]);
+	        char *endp = nullptr;
+	        long v = std::strtol(num.c_str(), &endp, 10);
+	        if (endp == num.c_str() || *endp != '\0') {
+		    throw std::runtime_error(path + ":" + std::to_string(lineno) +
+		                              ": platform rule weight must be a valid integer");
+	        }
+	        rule.weight = static_cast<int>(v);
+	    }
 
             if      (kind_str == "path_contains")           rule.kind = PlatformRule::Kind::PathContains;
             else if (kind_str == "jsglobal_eq")              rule.kind = PlatformRule::Kind::JsGlobalEq;
             else if (kind_str == "comment_contains")         rule.kind = PlatformRule::Kind::CommentContains;
             else if (kind_str == "meta_generator_contains")  rule.kind = PlatformRule::Kind::MetaGeneratorContains;
             else if (kind_str == "field_any_nonempty")       rule.kind = PlatformRule::Kind::FieldAnyNonEmpty;
+            else if (kind_str == "body_contains") {
+                rule.kind = PlatformRule::Kind::BodyContains;
+                // Stored lowercased up front since it's always matched against lbody.
+                for (char &c : rule.arg) c = (char)tolower((unsigned char)c);
+            }
+            else if (kind_str == "header_contains") {
+                // arg is "Header=needle"; split on the FIRST '=' so a needle
+                // containing '=' (unlikely but not impossible) still works.
+                rule.kind = PlatformRule::Kind::HeaderValueContains;
+                size_t eq = rule.arg.find('=');
+                if (eq == std::string::npos) {
+                    throw std::runtime_error(path + ":" + std::to_string(lineno) +
+                                              ": header_contains arg must be 'Header=needle'");
+                }
+                rule.header = trim(rule.arg.substr(0, eq));
+                rule.arg    = trim(rule.arg.substr(eq + 1));
+                for (char &c : rule.header) { c = (char)tolower((unsigned char)c); if (c == '_') c = '-'; }
+                for (char &c : rule.arg)    c = (char)tolower((unsigned char)c);
+                if (rule.header.empty() || rule.arg.empty()) {
+                    throw std::runtime_error(path + ":" + std::to_string(lineno) +
+                                              ": header_contains needs both a header name and a needle");
+                }
+            }
             else {
                 throw std::runtime_error(path + ":" + std::to_string(lineno) +
                                           ": unknown rule kind '" + kind_str + "'");
@@ -1265,7 +1465,7 @@ static const PlatformSignatureSet &platform_signatures()
 {
     static const PlatformSignatureSet sigs = [] {
         try {
-            return PlatformSignatureSet::loadFromFile("/usr/share/shiv/signatures.conf");
+            return PlatformSignatureSet::loadFromFile(g_signature_conf_path);
         } catch (const std::exception &e) {
             std::cerr << "[web-fp] failed to load signatures.conf: " << e.what()
                       << " -- platform/CMS detection disabled for this run\n";
@@ -1666,7 +1866,6 @@ static void extract_html_body_signals(const std::vector<u8> &resp,
         // (e.g. Next.js implies React, so don't double-report React) come from
         // signatures.conf [platform.*] / [meta_hint_platforms] / [suppress].
         const auto &sigs = platform_signatures();
-        const auto &field_reg = platform_field_registry();
 
         std::map<std::string, int> scores;
         auto bump = [&](const std::string &platform, int weight) { scores[platform] += weight; };
@@ -1695,17 +1894,53 @@ static void extract_html_body_signals(const std::vector<u8> &resp,
                         break;
 
                     case PlatformRule::Kind::FieldAnyNonEmpty: {
+                        // arg = comma-separated list of HTTP header names (e.g. "X-Iinfo" or
+                        // "x_iinfo" -- underscores and hyphens are interchangeable). Looked up
+                        // directly against fp.raw_headers, so any response header can be used
+                        // as a signature straight from signatures.conf with no C++ change.
                         bool any = false;
-                        for (const auto &fname : platform_sig_detail::split_comma(rule.arg)) {
-                            auto it = field_reg.find(fname);
-                            if (it != field_reg.end() && !(fp.*(it->second)).empty()) { any = true; break; }
+                        for (auto fname : platform_sig_detail::split_comma(rule.arg)) {
+                            for (char &c : fname) {
+                                c = (char)tolower((unsigned char)c);
+                                if (c == '_') c = '-';
+                            }
+                            auto it = fp.raw_headers.find(fname);
+                            if (it != fp.raw_headers.end() && !it->second.empty()) { any = true; break; }
                         }
                         if (any) bump(platform, rule.weight);
+                        break;
+                    }
+
+                    case PlatformRule::Kind::BodyContains:
+                        // rule.arg was already lowercased at parse time.
+                        if (lbody.find(rule.arg) != std::string::npos)
+                            bump(platform, rule.weight);
+                        break;
+
+                    case PlatformRule::Kind::HeaderValueContains: {
+                        // rule.header and rule.arg were already lowercased at parse time.
+                        auto it = fp.raw_headers.find(rule.header);
+                        if (it != fp.raw_headers.end()) {
+                            std::string lv = it->second;
+                            for (char &c : lv) c = (char)tolower((unsigned char)c);
+                            if (lv.find(rule.arg) != std::string::npos)
+                                bump(platform, rule.weight);
+                        }
                         break;
                     }
                 }
             }
         }
+
+        // Snapshot the *structural-only* scores (paths, JS globals, HTML
+        // comments, response body, header presence) before meta-tag hints
+        // get mixed in below. This is what lets us catch a spoofed
+        // meta:generator: a page can trivially lie in a <meta name=generator>
+        // tag (WAFs/honeypots sometimes do this on purpose to mislead
+        // scanners), but faking convincing paths, JS globals, and body
+        // content for a *different* platform at the same time is much
+        // harder, so a strong disagreement between the two is a real signal.
+        std::map<std::string, int> structural_scores = scores;
 
         // --- Generic CMS/framework hints from meta tags (meta_generator, meta_cms, ...) ---
         auto gen_hint = [&](const std::string &val, const std::string &platform, int w) {
@@ -1730,19 +1965,25 @@ static void extract_html_body_signals(const std::vector<u8> &resp,
             auto it = scores.find(sr.trigger_platform);
             if (it != scores.end() && it->second >= sr.trigger_min_score)
                 scores[sr.suppressed_platform] = 0;
+            auto sit = structural_scores.find(sr.trigger_platform);
+            if (sit != structural_scores.end() && sit->second >= sr.trigger_min_score)
+                structural_scores[sr.suppressed_platform] = 0;
         }
 
-        // Pick winner (score >= 2 to avoid single-field false positives)
+                // Pick winner (score >= 2 to avoid single-field false positives)
         std::string best;
         int best_score = 1; // minimum threshold
+        bool any_qualified = false;
         for (const auto &[name, score] : scores) {
-            if (score > best_score) { best_score = score; best = name; }
+            if (score > best_score) { best_score = score; best = name; any_qualified = true; }
         }
 
         // If two platforms tie, report both
         std::vector<std::string> tied;
-        for (const auto &[name, score] : scores)
-            if (score == best_score && !name.empty()) tied.push_back(name);
+        if (any_qualified) {
+            for (const auto &[name, score] : scores)
+                if (score == best_score && !name.empty()) tied.push_back(name);
+        }
 
         if (tied.size() == 1)
             fp.body_platform_hint = tied[0] + " (score=" + std::to_string(best_score) + ")";
@@ -1754,8 +1995,108 @@ static void extract_html_body_signals(const std::vector<u8> &resp,
             }
             fp.body_platform_hint += " (tied, score=" + std::to_string(best_score) + ")";
         }
+
+        // --- Generator-tag spoof check ---------------------------------
+        // Find the platform name meta_generator itself literally claims
+        // (if any), independent of the scored winner above.
+        std::string claimed;
+        {
+            std::string lgen = fp.meta_generator;
+            for (char &c : lgen) c = (char)tolower((unsigned char)c);
+            for (const std::string &platform : sigs.meta_hint_platforms) {
+                std::string lp = platform;
+                for (char &c : lp) c = (char)tolower((unsigned char)c);
+                if (!lp.empty() && lgen.find(lp) != std::string::npos) { claimed = platform; break; }
+            }
+        }
+
+        // Strongest structural (non-meta-tag) platform, independent of what
+        // the generator tag says.
+        std::string structural_top;
+        int structural_top_score = 1; // same "> 1" confidence bar as the main winner
+        for (const auto &[name, score] : structural_scores) {
+            if (score > structural_top_score) { structural_top_score = score; structural_top = name; }
+        }
+
+        if (!claimed.empty() && !structural_top.empty()) {
+            std::string lc = claimed, ls = structural_top;
+            for (char &c : lc) c = (char)tolower((unsigned char)c);
+            for (char &c : ls) c = (char)tolower((unsigned char)c);
+            int claimed_structural_score = 0;
+            for (const auto &[name, score] : structural_scores) {
+                std::string ln = name;
+                for (char &c : ln) c = (char)tolower((unsigned char)c);
+                if (ln == lc) { claimed_structural_score = score; break; }
+            }
+            // Flag only a *confident, contradicted* claim: real independent
+            // structural evidence (score >= 3, i.e. more than one corroborating
+            // signal) for a platform other than the one the generator tag
+            // names, while that claimed platform has little/no structural
+            // backing of its own. This intentionally stays quiet on weak/
+            // single-signal cases to avoid crying wolf on ordinary noise
+            // (shared JS libraries, boilerplate comments, etc.).
+            if (lc != ls && structural_top_score >= 3 && claimed_structural_score <= 1) {
+                fp.tamper_hint = "meta:generator claims '" + claimed + "' but structural evidence "
+                                  "(paths/JS/comments/body/headers) points to '" + structural_top +
+                                  "' (structural score " + std::to_string(structural_top_score) +
+                                  " vs " + std::to_string(claimed_structural_score) + " for " + claimed + ")";
+            }
+        }
     }
     if (!fp.is_redirect) fp.spa_locations = extract_spa_locations(body);
+}
+
+static std::vector<u8> dechunk_body(const u8 *body_ptr, size_t body_len)
+{
+    std::vector<u8> out;
+    out.reserve(body_len); // final size <= encoded size
+
+    size_t pos = 0;
+    while (pos < body_len) {
+        // ---- find end of the chunk-size line (terminated by \r\n) -------
+        size_t line_end = pos;
+        while (line_end + 1 < body_len &&
+               !(body_ptr[line_end] == '\r' && body_ptr[line_end + 1] == '\n'))
+            ++line_end;
+        if (line_end + 1 >= body_len) break; // malformed / truncated
+
+        // Chunk-size may have extensions after ';' (e.g. "1a3;foo=bar") —
+        // only the hex digits before ';' matter.
+        size_t size_str_len = line_end - pos;
+        std::string size_field(reinterpret_cast<const char *>(body_ptr + pos), size_str_len);
+        size_t semi = size_field.find(';');
+        if (semi != std::string::npos) size_field.resize(semi);
+
+        // Trim any stray whitespace
+        while (!size_field.empty() && isspace((unsigned char)size_field.back()))
+            size_field.pop_back();
+
+        size_t chunk_size = 0;
+        char *endptr = nullptr;
+        chunk_size = std::strtoul(size_field.c_str(), &endptr, 16);
+        if (endptr == size_field.c_str()) break; // not valid hex — malformed
+
+        size_t data_start = line_end + 2; // skip the \r\n after the size line
+
+        if (chunk_size == 0) break; // terminating chunk — trailer/final CRLF follows, ignore
+
+        if (data_start + chunk_size > body_len) {
+            // Truncated/incomplete final chunk (e.g. connection cut mid-read):
+            // take what we have and stop rather than reading out of bounds.
+            size_t avail = body_len - data_start;
+            out.insert(out.end(), body_ptr + data_start, body_ptr + data_start + avail);
+            break;
+        }
+
+        out.insert(out.end(), body_ptr + data_start, body_ptr + data_start + chunk_size);
+
+        pos = data_start + chunk_size;
+        // Skip the trailing \r\n that follows each chunk's data
+        if (pos + 1 < body_len && body_ptr[pos] == '\r' && body_ptr[pos + 1] == '\n')
+            pos += 2;
+    }
+
+    return out;
 }
 
 static std::vector<u8> decompress_body(const std::vector<u8> &resp)
@@ -1778,13 +2119,39 @@ static std::vector<u8> decompress_body(const std::vector<u8> &resp)
 
     // ---- 2. Extract Content-Encoding value (lowercase) -------------------
     std::string ce = extract_header(resp, "Content-Encoding");
-    if (ce.empty()) return resp; // nothing to do
+
+    // ---- 2a. Extract Transfer-Encoding and dechunk first if needed -------
+    std::string te = extract_header(resp, "Transfer-Encoding");
+    for (char &c : te) c = (char)tolower((unsigned char)c);
+
+    const u8 *raw_body_ptr = resp.data() + hdr_end;
+    size_t    raw_body_len = resp.size() - hdr_end;
+
+    std::vector<u8> dechunked_storage; // keeps dechunked bytes alive if used
+    const u8 *body_ptr = raw_body_ptr;
+    size_t    body_len = raw_body_len;
+
+    if (te.find("chunked") != std::string::npos) {
+        dechunked_storage = dechunk_body(raw_body_ptr, raw_body_len);
+        body_ptr = dechunked_storage.data();
+        body_len = dechunked_storage.size();
+    }
+
+    if (ce.empty()) {
+        // No Content-Encoding: if we dechunked, we still need to hand back
+        // the dechunked plaintext body instead of the wire-framed original.
+        if (te.find("chunked") != std::string::npos) {
+            std::vector<u8> out;
+            out.reserve(hdr_end + body_len);
+            out.insert(out.end(), resp.begin(), resp.begin() + (std::ptrdiff_t)hdr_end);
+            out.insert(out.end(), body_ptr, body_ptr + body_len);
+            return out;
+        }
+        return resp; // nothing to do
+    }
 
     // Lowercase for comparison
     for (char &c : ce) c = (char)tolower((unsigned char)c);
-
-    const u8 *body_ptr = resp.data() + hdr_end;
-    size_t    body_len = resp.size() - hdr_end;
 
     std::vector<u8> decompressed;
     bool success = false;
@@ -1875,11 +2242,15 @@ static std::vector<u8> decompress_body(const std::vector<u8> &resp)
 #else
     else if (ce.find("br") != std::string::npos)
     {
-        // Brotli not compiled in — return raw response unchanged.
+        // Brotli not compiled in — return the (already dechunked) body unchanged.
         // Build with -DHAVE_BROTLI -lbrotlidec to enable.
         fprintf(stderr, "  [decompress] br encoding detected but Brotli not compiled in"
                         " — body will be undecompressed\n");
-        return resp;
+        std::vector<u8> out;
+        out.reserve(hdr_end + body_len);
+        out.insert(out.end(), resp.begin(), resp.begin() + (std::ptrdiff_t)hdr_end);
+        out.insert(out.end(), body_ptr, body_ptr + body_len);
+        return out;
     }
 #endif
 
@@ -1909,12 +2280,25 @@ static std::vector<u8> decompress_body(const std::vector<u8> &resp)
     {
         fprintf(stderr, "  [decompress] zstd encoding detected but libzstd not compiled in"
                         " — body will be undecompressed\n");
-        return resp;
+        std::vector<u8> out;
+        out.reserve(hdr_end + body_len);
+        out.insert(out.end(), resp.begin(), resp.begin() + (std::ptrdiff_t)hdr_end);
+        out.insert(out.end(), body_ptr, body_ptr + body_len);
+        return out;
     }
 #endif
 
     // ---- 4. Reassemble response: headers + decompressed body -------------
-    if (!success || decompressed.empty()) return resp; // keep original on failure
+    if (!success || decompressed.empty()) {
+        // Compression failed (or unrecognized ce) — still return the
+        // dechunked-but-not-decompressed body rather than the raw wire
+        // bytes, so downstream code never sees leftover chunk framing.
+        std::vector<u8> out;
+        out.reserve(hdr_end + body_len);
+        out.insert(out.end(), resp.begin(), resp.begin() + (std::ptrdiff_t)hdr_end);
+        out.insert(out.end(), body_ptr, body_ptr + body_len);
+        return out;
+    }
 
     std::vector<u8> out;
     out.reserve(hdr_end + decompressed.size());
@@ -1947,6 +2331,7 @@ static HttpFingerprint make_http_fingerprint(const std::vector<u8> &resp,
     fp.via         = extract_header(effective, "Via");
     fp.x_generator = extract_header(effective, "X-Generator");
     fp.location    = extract_header(effective, "Location");
+    fp.raw_headers = collect_all_headers(effective, &fp.duplicate_headers);
 
     // ---- CDN / Cache / Proxy infrastructure headers ----
     fp.x_amz_cf_pop              = extract_header(effective, "X-Amz-Cf-Pop");
@@ -2389,6 +2774,8 @@ static HttpFingerprint merge_http_fingerprints(
     merged.meta_apple_title          = merge_field(fps, &HttpFingerprint::meta_apple_title);
     merged.meta_apple_capable        = merge_field(fps, &HttpFingerprint::meta_apple_capable);
     merged.body_platform_hint        = merge_field(fps, &HttpFingerprint::body_platform_hint);
+    merged.duplicate_headers         = merge_vec(fps, &HttpFingerprint::duplicate_headers);
+    merged.tamper_hint               = merge_field(fps, &HttpFingerprint::tamper_hint);
 
     // Vector fields: union
     merged.html_comments       = merge_vec(fps, &HttpFingerprint::html_comments);
@@ -2422,32 +2809,38 @@ static HttpFingerprint merge_http_fingerprints(
 // joined by " | ". Slot 1 is always the primary identity (product+version
 // merged from the probe engine, or the HTTP Server: header — whichever is
 // more informative). Every other slot is filled from a single generic,
-// table-driven candidate list (kIdentityFields below) built from whatever
-// HttpFingerprint fields are non-empty.
+// table-driven candidate list built from signatures.conf [identity_headers]
+// plus a small fixed set of HTML-<meta>-tag-sourced fields.
 //
-// Adding support for a NEW header/meta field to appear in the version line
-// no longer requires touching the gather loop, the candidate list, AND the
-// print loop by hand — just add one row to kIdentityFields.
+// Adding support for a NEW *header* on the version line requires NO C++
+// change at all any more: add one line to signatures.conf's
+// [identity_headers] section (see PlatformSignatureSet::identity_headers,
+// resolved against HttpFingerprint::raw_headers, which already captures
+// every response header generically). The only fields still hardcoded below
+// are the handful sourced from parsed HTML <meta> tags rather than headers
+// (meta_generator, meta_cms, meta:author, ...) — those aren't in
+// raw_headers because they were never HTTP headers to begin with, so a
+// conf-file header table can't reach them. Anything HTTP-header-shaped
+// (Server, X-Powered-By, X-Jenkins, X-Powered-By-Plesk, X-Aspnet-Version,
+// whatever ships next) goes in signatures.conf, full stop.
 // ============================================================================
 static constexpr size_t kMaxSlots = 10;
 
 // Fields whose raw value is already self-descriptive (contains a product
-// name, e.g. Server: "Jetty(10.0.20)", meta:generator "WordPress 6.4.2") are
-// printed bare. Fields that only carry a bare token/version number (e.g.
-// X-Jenkins: "2.440.3") are printed as "Label: value" so the reader knows
-// what the number refers to.
-struct FieldSpec {
+// name, e.g. meta:generator "WordPress 6.4.2") are printed bare. Fields that
+// only carry a bare token/version number are printed as "Label: value" so
+// the reader knows what the value refers to. This mirrors the bare/labeled
+// distinction used by signatures.conf's [identity_headers] rows below —
+// same rules, just for the HTML-<meta>-tag-sourced subset that a header
+// table can't cover.
+struct MetaFieldSpec {
     std::string HttpFingerprint::*field;
     const char                    *label;
     bool                            bare;
 };
 
-static const FieldSpec kIdentityFields[] = {
+static const MetaFieldSpec kMetaIdentityFields[] = {
     // ---- self-descriptive (bare) ----
-    { &HttpFingerprint::server,               "Server",           true  },
-    { &HttpFingerprint::osd_name,              "OSD-Name",         true  },
-    { &HttpFingerprint::powered_by,            "X-Powered-By",     true  },
-    { &HttpFingerprint::x_generator,           "X-Generator",      true  },
     { &HttpFingerprint::meta_generator,        "meta:generator",   true  },
     { &HttpFingerprint::meta_cms,              "meta:cms",         true  },
     { &HttpFingerprint::meta_framework,        "meta:framework",   true  },
@@ -2457,32 +2850,15 @@ static const FieldSpec kIdentityFields[] = {
     { &HttpFingerprint::meta_created_by,       "meta:created-by",  true  },
     { &HttpFingerprint::meta_application_name, "app-name",         true  },
     // ---- bare-token fields: need the label to make sense of the value ----
-    { &HttpFingerprint::x_jenkins,             "Jenkins",          false },
-    { &HttpFingerprint::x_hudson,              "Hudson",           false },
-    { &HttpFingerprint::x_teamcity_node_id,    "TeamCity",         false },
-    { &HttpFingerprint::x_gitlab_meta,         "GitLab",           false },
-    { &HttpFingerprint::x_harness_account,     "Harness",          false },
-    { &HttpFingerprint::x_wordpress_theme,     "WordPress Theme",  false },
-    { &HttpFingerprint::x_wordpress_plugin,    "WordPress Plugin", false },
-    { &HttpFingerprint::x_drupal_route,        "Drupal Route",     false },
-    { &HttpFingerprint::x_magento_store,       "Magento Store",    false },
-    { &HttpFingerprint::x_magento_theme,       "Magento Theme",    false },
-    { &HttpFingerprint::x_prestashop_store,    "PrestaShop Store", false },
-    { &HttpFingerprint::x_cdn,                 "CDN",              false },
-    { &HttpFingerprint::x_mailer,              "Mailer",           false },
     { &HttpFingerprint::meta_author,           "Author",           false },
     { &HttpFingerprint::meta_developer,        "Developer",        false },
 };
-// NOTE: fields intentionally left out of this table are pure operational
-// telemetry — request IDs, cache TTL/age, rate-limit counters, timing
-// durations, storage-class/versioning/delete-marker flags, favicon/tile
-// colors — none of which identify *what software or version* is running,
-// so including them would just add noise to the version column. Any of
-// them can be added the same way (one row) if you want them surfaced.
+
 
 static void print_result(const ScanResult                  &result,
                          const std::string                 &method_label,
-                         const std::vector<HttpFingerprint> &http_fps)
+                         const std::vector<HttpFingerprint> &http_fps,
+                         bool                                confirmed_websocket)
 {
     (void)method_label; // no longer printed
 
@@ -2577,74 +2953,12 @@ static void print_result(const ScanResult                  &result,
         return (p == std::string::npos) ? "" : s.substr(p);
     };
 
-    auto clean_via = [&](const std::string &raw) -> std::string {
-        if (raw.empty()) return "";
-        // Must contain at least one digit (the protocol version like 1.1 or 2)
-        bool has_digit = false;
-        for (char c : raw) if (isdigit((unsigned char)c)) { has_digit = true; break; }
-        if (!has_digit) return "";
-        // Collapse whitespace, strip control chars
-        std::string out;
-        out.reserve(raw.size());
-        bool in_ws = false;
-        for (unsigned char c : raw) {
-            if (c == '\r' || c == '\n') continue;
-            if (c == ' ' || c == '\t') {
-                if (!in_ws && !out.empty()) { out += ' '; in_ws = true; }
-            } else {
-                out += (char)c;
-                in_ws = false;
-            }
-        }
-        while (!out.empty() && out.back() == ' ') out.pop_back();
-        // Truncate if absurdly long (malformed / injected header)
-        if (out.size() > 120) out = out.substr(0, 117) + "...";
-        // Strip the leading HTTP version token (e.g. "1.1 ", "2 ")
-        auto sp = out.find(' ');
-        if (sp != std::string::npos)
-            out = out.substr(sp + 1);
-        while (!out.empty() && out.front() == ' ')
-            out.erase(out.begin());
-        // Collapse CloudFront's "hash.cloudfront.net (CloudFront)" -> "CloudFront"
-        {
-            std::string lower = out;
-            for (char &c : lower) c = (char)tolower((unsigned char)c);
-            if (lower.find("cloudfront") != std::string::npos)
-                out = "CloudFront";
-        }
-        return out;
-    };
-
-    auto val_lc = [](const std::string &s) {
-        std::string r = s;
-        for (char &c : r) c = (char)tolower((unsigned char)c);
-        return r;
-    };
-    std::set<std::string> shown_values;
-
-    // Clean the product/version fields before adding to shown_values
+    // Clean the product/version fields
     std::string clean_product = clean_field(result.product);
     std::string clean_version = clean_field(display_version);
     std::string clean_extra   = clean_field(display_extra);
     std::string clean_service = clean_field(result.service);
-
-    if (!clean_version.empty()) shown_values.insert(val_lc(clean_version));
-    if (!clean_product.empty())  shown_values.insert(val_lc(clean_product));
-    if (!clean_service.empty())  shown_values.insert(val_lc(clean_service));
-
-    // Shared dedup set — probe fields are inserted here first, then passed
-    // into fp.print() so HTTP fingerprint phases never repeat them.
-    std::set<std::string> seen_keys;
-
-    auto probe_emit = [&](const std::string &label, const std::string &val) {
-        if (val.empty()) return;
-        seen_keys.insert(label);
-        // Clean the value before printing
-        std::string cleaned = clean_field(val);
-        if (cleaned.empty()) return;
-        std::cout << std::left << std::setw(13) << label << "\033[32m" << cleaned << "\033[0m" << "\n";
-    };
-
+    (void)clean_service;
 
     auto alnum_lc = [](const std::string &s) -> std::string {
         std::string r;
@@ -2720,13 +3034,40 @@ static void print_result(const ScanResult                  &result,
             fp_meta_created_by  = clean_field(fp.meta_created_by);
     }
 
-    // ---- generic table-driven pass: every field in kIdentityFields --------
+    // ---- generic table-driven pass ----------------------------------------
     // First-non-empty-fingerprint-wins, same rule as the hand-written
     // gathers above. Produces {raw, display, label} triples; "raw" is used
     // for subsumption checks, "display" is what actually gets printed.
+    //
+    // Two sources feed this, merged into one list so downstream dedup/print
+    // logic doesn't need to know or care which one a candidate came from:
+    //   1. signatures.conf [identity_headers] — any HTTP response header,
+    //      looked up straight out of HttpFingerprint::raw_headers. This is
+    //      the one to extend for a new header; no C++ change needed.
+    //   2. kMetaIdentityFields — the handful of fields parsed out of HTML
+    //      <meta> tags rather than headers, so they can't live in
+    //      raw_headers and still need a named struct field.
     struct GenericCandidate { std::string raw; std::string display; std::string label; };
     std::vector<GenericCandidate> generic_candidates;
-    for (const auto &spec : kIdentityFields) {
+
+    for (const auto &spec : platform_signatures().identity_headers) {
+        std::string header_lc = spec.header;
+        for (char &c : header_lc) c = (char)tolower((unsigned char)c);
+
+        std::string raw;
+        for (const auto &fp : effective_fps) {
+            auto it = fp.raw_headers.find(header_lc);
+            if (it != fp.raw_headers.end() && !it->second.empty()) {
+                raw = clean_field(it->second);
+                break;
+            }
+        }
+        if (raw.empty()) continue;
+        std::string display = spec.bare ? raw : (spec.label + ": " + raw);
+        generic_candidates.push_back({ raw, display, spec.label });
+    }
+
+    for (const auto &spec : kMetaIdentityFields) {
         std::string raw;
         for (const auto &fp : effective_fps) {
             const std::string &val = fp.*(spec.field);
@@ -2735,6 +3076,66 @@ static void print_result(const ScanResult                  &result,
         if (raw.empty()) continue;
         std::string display = spec.bare ? raw : (std::string(spec.label) + ": " + raw);
         generic_candidates.push_back({ raw, display, spec.label });
+    }
+
+    // ---- body_platform_hint: only add its own slot when it's NOT already
+    // implied by a meta field just printed above ------------------------
+    // body_platform_hint is the *scored* CMS/framework verdict from
+    // extract_html_body_signals(): structural evidence (paths, JS globals,
+    // HTML comments, body text) combined with meta-tag hints. When it agrees
+    // with a meta field already on the line (e.g. meta:generator already
+    // reads "Joomla 1.5"), printing "Joomla (score=2)" too is the same fact
+    // twice with nothing new -- that's the "why is Joomla printed twice"
+    // redundancy. It earns its own slot only when it names a platform not
+    // already visible in ANY meta field gen_hint() scores against -- exactly
+    // the useful case: no meta tag at all (or a misleading one), where
+    // structural signals are the *only* reason the platform is known.
+    {
+        std::string hint, meta_gen, meta_cms, meta_fw, meta_pb, meta_bw;
+        for (const auto &fp : effective_fps) {
+            if (hint.empty()     && !fp.body_platform_hint.empty()) hint     = clean_field(fp.body_platform_hint);
+            if (meta_gen.empty() && !fp.meta_generator.empty())     meta_gen = fp.meta_generator;
+            if (meta_cms.empty() && !fp.meta_cms.empty())           meta_cms = fp.meta_cms;
+            if (meta_fw.empty()  && !fp.meta_framework.empty())     meta_fw  = fp.meta_framework;
+            if (meta_pb.empty()  && !fp.meta_powered_by.empty())    meta_pb  = fp.meta_powered_by;
+            if (meta_bw.empty()  && !fp.meta_built_with.empty())    meta_bw  = fp.meta_built_with;
+        }
+        if (!hint.empty()) {
+            std::string already = meta_gen + " " + meta_cms + " " + meta_fw + " " + meta_pb + " " + meta_bw;
+            for (char &c : already) c = (char)tolower((unsigned char)c);
+
+            // Strip the trailing "(score=N)" / "(tied, score=N)" annotation
+            // to get just the platform name(s), possibly "A / B" if tied.
+            std::string names = hint;
+            size_t paren = names.find(" (");
+            if (paren != std::string::npos) names = names.substr(0, paren);
+
+            bool any_new = false;
+            size_t start = 0;
+            while (start <= names.size()) {
+                size_t sep = names.find(" / ", start);
+                std::string one = (sep == std::string::npos) ? names.substr(start)
+                                                               : names.substr(start, sep - start);
+                std::string lone = one;
+                for (char &c : lone) c = (char)tolower((unsigned char)c);
+                if (!lone.empty() && already.find(lone) == std::string::npos) any_new = true;
+                if (sep == std::string::npos) break;
+                start = sep + 3;
+            }
+
+            // The version line should show WHAT was detected, not the
+            // internal confidence score that drove the decision -- "score=3"
+            // is debugging detail, not identity info, and printing it here
+            // was the same class of noise as the earlier Joomla duplication,
+            // just triggered by a different case (a platform gen_hint()
+            // never saw, e.g. a real WordPress site alongside spoofed
+            // Drupal/HubSpot meta tags). 'names' (already stripped of the
+            // "(score=N)"/"(tied, score=N)" suffix above) is what gets
+            // shown; the full 'hint' -- WITH the score -- still exists on
+            // fp.body_platform_hint for the verbose dump and stays
+            // available to extract_html_body_signals()'s tamper check.
+            if (any_new) generic_candidates.push_back({ names, names, "Platform" });
+        }
     }
 
     auto extract_tech_version = [](const std::string &raw) -> std::string {
@@ -2795,23 +3196,37 @@ static void print_result(const ScanResult                  &result,
         };
 
         // Helper: does this token look like a tech name (not pure garbage)?
-        // A tech-name token contains at least one letter and is <= 30 chars.
-        auto is_tech_tok = [](const std::string &t) -> bool {
-            if (t.size() > 30) return false;
+        // A tech-name token contains at least one letter and is <= 30 chars,
+        // once trailing branding punctuation (the "!" in "Joomla!", trailing
+        // ":" / ";") is stripped. That trailing punctuation is legitimately
+        // part of some products' own branding and must not disqualify the
+        // token -- it previously made extract_tech_version() silently drop
+        // the product name (e.g. "Joomla! 1.5" -> just "1.5"), which both
+        // looks like a parse failure and throws away real identity info an
+        // operator needs. The stripped form is what's returned so the stray
+        // punctuation doesn't show up on the version line either.
+        auto is_tech_tok = [](const std::string &t) -> std::pair<bool, std::string> {
+            std::string s = t;
+            while (!s.empty() && (s.back() == '!' || s.back() == ':' || s.back() == ';'))
+                s.pop_back();
+            if (s.empty() || s.size() > 30) return { false, "" };
             bool has_letter = false;
-            for (char c : t) {
+            for (char c : s) {
                 if (isalpha((unsigned char)c)) { has_letter = true; }
-                else if (!isdigit((unsigned char)c) && c != '-' && c != '_' && c != '.') return false;
+                else if (!isdigit((unsigned char)c) && c != '-' && c != '_' && c != '.') return { false, "" };
             }
-            return has_letter;
+            return { has_letter, s };
         };
 
         // Step 2+3: find first version token; take the preceding tech word if valid.
         for (size_t i = 0; i < tokens.size(); ++i) {
             if (is_version_tok(tokens[i])) {
-                if (i > 0 && is_tech_tok(tokens[i-1])) {
-                    // tech + version
-                    return tokens[i-1] + " " + tokens[i];
+                if (i > 0) {
+                    auto [ok, tech] = is_tech_tok(tokens[i-1]);
+                    if (ok) {
+                        // tech + version
+                        return tech + " " + tokens[i];
+                    }
                 }
                 // Step 4: bare version
                 return tokens[i];
@@ -2882,8 +3297,12 @@ static void print_result(const ScanResult                  &result,
 
     struct LabeledCandidate { std::string value; std::string label; };
 
+    // Header/meta candidates are listed BEFORE the HTML <title> on purpose:
+    // a title is marketing copy ("Acme Inc — Home"), while these are actual
+    // tech identity signals. Ties are broken by document order below, so
+    // putting title last means it only wins slot2 when nothing more
+    // informative is available.
     std::vector<LabeledCandidate> app_candidates_labeled;
-    app_candidates_labeled.push_back({ fp_title,          "title"          });
     app_candidates_labeled.push_back({ fp_meta_app_name,  "app-name"       });
     app_candidates_labeled.push_back({ fp_powered_by,     "X-Powered-By"   });
     app_candidates_labeled.push_back({ fp_x_generator,    "X-Generator"    });
@@ -2894,6 +3313,7 @@ static void print_result(const ScanResult                  &result,
     app_candidates_labeled.push_back({ fp_meta_powered_by,"meta:powered-by"});
     app_candidates_labeled.push_back({ fp_meta_built_with,"meta:built-with"});
     app_candidates_labeled.push_back({ fp_meta_created_by,"meta:created-by"});
+    app_candidates_labeled.push_back({ fp_title,          "title"          });
 
     // Dedup: among subsumption-related candidates keep the better one.
     std::vector<LabeledCandidate> app_winners;
@@ -2911,6 +3331,28 @@ static void print_result(const ScanResult                  &result,
             }
         }
         if (!merged) app_winners.push_back(cand);
+    }
+
+    // The HTML title is the weakest identity signal we have (it's copy
+    // written for humans, not tech fingerprinting) so it gets dropped
+    // entirely once real header/meta identity info is available: either a
+    // header carries an actual version token (e.g. "4.0.30319"), or there
+    // are simply enough other identity candidates that the title would just
+    // be crowding out more useful information.
+    {
+        size_t non_title_count = 0;
+        bool   have_versioned  = false;
+        for (const auto &w : app_winners) {
+            if (w.label == "title") continue;
+            ++non_title_count;
+            if (has_version_token(w.value)) have_versioned = true;
+        }
+        if (have_versioned || non_title_count >= 3) {
+            app_winners.erase(
+                std::remove_if(app_winners.begin(), app_winners.end(),
+                                [](const LabeledCandidate &w) { return w.label == "title"; }),
+                app_winners.end());
+        }
     }
 
     std::string slot2, slot2_label;
@@ -2934,14 +3376,6 @@ static void print_result(const ScanResult                  &result,
     struct LabeledExtra { std::string value; std::string label; };
     std::vector<LabeledExtra> extra_candidates;
 
-    // Suppress product values that are just a raw Via: echo
-    // (e.g. "Via: 1.1 google") — the fp_via candidate handles those properly.
-    auto product_is_via_echo = [&]() -> bool {
-        std::string lp = clean_product;
-        for (char &c : lp) c = (char)tolower((unsigned char)c);
-        return lp.rfind("via:", 0) == 0 || lp.rfind("via ", 0) == 0;
-    };
-    (void)product_is_via_echo;
 
     if (!fp_server.empty() && !is_subsumed(fp_server, slot1))
         extra_candidates.push_back({ fp_server, "server" });
@@ -2953,16 +3387,19 @@ static void print_result(const ScanResult                  &result,
     if (!fp_asset_title.empty() && !is_subsumed(fp_asset_title, slot2)
         && !is_subsumed(fp_asset_title, slot1))
         extra_candidates.push_back({ fp_asset_title, "title (asset)" });
+    // Note: value is what's actually printed for slots 3+ (see filled_slots
+    // below), so a bare token like "cf-nel" needs its label folded in here —
+    // otherwise it prints unlabeled and the reader has no idea what it is.
     if (!fp_via.empty())
-        extra_candidates.push_back({ fp_via, "Proxy" });
+        extra_candidates.push_back({ "Proxy: " + fp_via, "Proxy" });
     if (!fp_report_to.empty() && !is_subsumed(fp_report_to, fp_via))
-        extra_candidates.push_back({ fp_report_to, "Proxy" });
+        extra_candidates.push_back({ "Proxy: " + fp_report_to, "Proxy" });
     for (size_t i = 0; i < app_winners.size(); ++i) {
         if (i == slot2_idx) continue;
         extra_candidates.push_back({ app_winners[i].value, app_winners[i].label });
     }
-    // Universal pass: anything kIdentityFields picked up that isn't already
-    // covered by slot1/slot2/an existing extra candidate.
+    // Universal pass: anything generic_candidates picked up that isn't
+    // already covered by slot1/slot2/an existing extra candidate.
     for (const auto &gc : generic_candidates) {
         bool dup = is_subsumed(gc.raw, slot1) || (!slot2.empty() && is_subsumed(gc.raw, slot2));
         if (!dup) {
@@ -3028,7 +3465,40 @@ static void print_result(const ScanResult                  &result,
     for (const auto &v : filled_slots) out_parts.push_back(v);
     if (out_parts.size() > kMaxSlots) out_parts.resize(kMaxSlots);
 
-    if (!out_parts.empty()) {
+    // ---- tamper / anomaly marker -------------------------------------------
+    // Appended AFTER the kMaxSlots cap (and not counted against it) so a
+    // possible-spoofing signal can never get silently truncated off the end
+    // of a long version line -- that's exactly the kind of response an
+    // operator most needs to see. Two independent heuristics feed this:
+    //   1. tamper_hint: meta:generator's claimed platform disagrees with
+    //      what the structural (path/JS-global/comment/body) scorer found
+    //      (see extract_html_body_signals) -- a common WAF/honeypot trick is
+    //      serving a fake generator tag while running something else.
+    //   2. duplicate_headers: the same header name appeared twice in one
+    //      response with two different values -- a sign of response
+    //      splitting, a rewriting proxy, or a spoofed banner layered in
+    //      front of the real one.
+    {
+        std::string tamper_note;
+        for (const auto &fp : effective_fps) {
+            if (!fp.tamper_hint.empty()) { tamper_note = fp.tamper_hint; break; }
+        }
+        size_t dup_count = 0;
+        for (const auto &fp : effective_fps) dup_count += fp.duplicate_headers.size();
+
+        std::string marker;
+        if (!tamper_note.empty()) marker = "TAMPER? " + tamper_note;
+        if (dup_count > 0) {
+            if (!marker.empty()) marker += "; ";
+            marker += std::to_string(dup_count) + " duplicate header"
+                      + (dup_count == 1 ? "" : "s") + " w/ conflicting values";
+        }
+        if (!marker.empty()) out_parts.push_back("[" + marker + "]");
+    }
+
+    if (confirmed_websocket) {
+        std::cout << "\033[32mwebsocket\033[0m\n";
+    } else if (!out_parts.empty()) {
         for (size_t i = 0; i < out_parts.size(); ++i) {
             if (i) std::cout << " | ";
             std::cout << "\033[32m" << out_parts[i] << "\033[0m";
@@ -3041,11 +3511,6 @@ static void print_result(const ScanResult                  &result,
     } else {
         std::cout << "?\n";
     }
-    // Suppress unused-variable warnings for probe_emit (kept for potential future use)
-    (void)probe_emit;
-    (void)seen_keys;
-    (void)val_lc;
-    (void)shown_values;
 
     {
         bool has_version = !clean_version.empty();
@@ -3054,7 +3519,6 @@ static void print_result(const ScanResult                  &result,
         bool has_tls_fp  = false;
         TlsCertInfo best_cert;
         int  best_status = 0;
-        std::string content_length_hdr;
 
         for (const auto &fp : effective_fps) {
             if (!fp.server.empty())    has_server  = true;
@@ -3068,23 +3532,11 @@ static void print_result(const ScanResult                  &result,
             }
         }
 
-        // Check 404 + Content-Length match for best SSL fingerprint response
-        bool is_404_cl_match = false;
-        if (best_status == 404 && !effective_fps.empty()) {
-            // Find the matching fingerprint to read Content-Length
-            for (const auto &fp : effective_fps) {
-                if (fp.is_ssl && fp.status_code == 404) {
-                    is_404_cl_match = true;
-                    break;
-                }
-            }
-        }
-
         bool no_info = !has_version && !has_server && !has_title;
 
         if (no_info && has_tls_fp && best_cert.populated &&
             !best_cert.subject.empty() &&
-            (best_status == 404 || is_404_cl_match || best_status == 0 || best_status == 200))
+            (best_status == 404 || best_status == 0 || best_status == 200))
         {
 
             std::string cn;
@@ -3160,8 +3612,6 @@ static std::string resolve_host(const std::string &host)
         g_dns_cache[host] = result;
         return result;
     }
-
-    fprintf(stderr, "[!] DNS resolution failed for '%s' -- using host as-is\n", host.c_str());
     return host;
 }
 
@@ -3339,6 +3789,18 @@ static bool buffer_tail_has_html_close(const std::vector<u8> &data)
     return false;
 }
 
+// Reactor tuning for the current scan (see VersionDetectOptions)
+struct ReactorTuning {
+    size_t      max_response_bytes = 0;
+    std::string ciphers_tls12;
+    std::string ciphersuites_tls13;
+    int         min_connect_ms = 0;
+};
+static thread_local ReactorTuning g_tuning;
+// Facts about the most recent plain-TCP capture on this thread (feeds tcpwrapped detection)
+struct LastTcpCapture { bool eof_no_data = false; long elapsed_ms = -1; };
+static thread_local LastTcpCapture g_last_tcp;
+
 static std::vector<u8> capture_tcp(const std::string &ip, int port,
                                    int timeout_sec,
                                    const std::vector<u8> *payload,
@@ -3359,9 +3821,16 @@ static std::vector<u8> capture_tcp(const std::string &ip, int port,
     op->timeouts.first_byte_sec = timeout_sec;
     // idle_sec left at 0 => reactor default (max(2, timeout_sec/2)), same
     // math as the old recv_all_tcp()'s idle_timeout_sec.
+    op->max_response_bytes = g_tuning.max_response_bytes ? g_tuning.max_response_bytes : (size_t)MAX_RESPONSE;
+    op->timeouts.min_connect_ms = g_tuning.min_connect_ms;
     op->src_port = src_port; // default EPHEMERAL — every normal call site is unaffected
 
+    const auto cap_t0 = std::chrono::steady_clock::now();
     auto data = async_io::run_blocking(async_io::shared_reactor(), op);
+    g_last_tcp.elapsed_ms = (long)std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - cap_t0).count();
+    // SUCCESS with no bytes == the peer closed the connection (a timeout reports TIMEOUT)
+    g_last_tcp.eof_no_data = data.empty() && op->result.load() == async_io::OpResult::SUCCESS;
 
     if (verbose) {
         auto r = op->result.load();
@@ -3398,18 +3867,16 @@ struct TlsConfig {
     bool has_client_cert() const { return !client_cert.empty() && !client_key.empty(); }
 };
 
-static bool g_verbose = false;   
-static TlsConfig g_tls_config;
-static std::string g_hostname;
-static std::string g_target_path = "/";
-static std::mutex g_probe_setup_mu;
-static TlsConfig snapshot_tls_config() {
-    std::lock_guard<std::mutex> lk(g_probe_setup_mu);
-    return g_tls_config;
-}
+// Per-scan context. run_version_probe() may be called concurrently for many
+// targets; every capture for one scan runs on the calling thread, so this state
+// is thread_local instead of process-global (no cross-target Host/SNI/path mixups).
+static thread_local bool        g_verbose = false;
+static thread_local TlsConfig   g_tls_config;
+static thread_local std::string g_hostname;
+static thread_local std::string g_target_path = "/";
+static TlsConfig snapshot_tls_config() { return g_tls_config; }
 static std::mutex g_stdout_mu;        
 static std::mutex g_srcport443_mu;
-static std::mutex g_probes_exclude_mu;
 static std::vector<u8> capture_ssl(const std::string &ip, int port,
                                    int timeout_sec,
                                    const std::vector<u8> *payload,
@@ -3439,6 +3906,10 @@ static std::vector<u8> capture_ssl(const std::string &ip, int port,
     op->timeouts.connect_sec    = connect_timeout_sec;
     op->timeouts.first_byte_sec = timeout_sec;
     const TlsConfig tls_cfg = snapshot_tls_config();
+    op->max_response_bytes = g_tuning.max_response_bytes ? g_tuning.max_response_bytes : (size_t)MAX_RESPONSE;
+    op->timeouts.min_connect_ms = g_tuning.min_connect_ms;
+    op->tls.cipher_list_tls12  = g_tuning.ciphers_tls12;
+    op->tls.ciphersuites_tls13 = g_tuning.ciphersuites_tls13;
     op->tls.verify_peer  = tls_cfg.verify_peer;
     op->tls.ca_file       = tls_cfg.ca_file;
     op->tls.ca_path       = tls_cfg.ca_path;
@@ -3446,18 +3917,31 @@ static std::vector<u8> capture_ssl(const std::string &ip, int port,
     op->tls.client_key    = tls_cfg.client_key;
     op->tls.sni = !sni_override.empty()    ? sni_override
                 : !tls_cfg.sni_name.empty() ? tls_cfg.sni_name
-                                            : ip;
+                                            : std::string();   // empty => reactor derives; IPs never sent as SNI
 
-    TlsCertInfo cert_info;
-    bool got_cert = false;
-    op->on_complete = [&cert_info, &got_cert](async_io::Operation &o) {
+    struct CertState {
+        std::mutex  mu;
+        TlsCertInfo info;
+        bool        got = false;
+    };
+    auto cert_state = std::make_shared<CertState>();
+    op->on_complete = [cert_state](async_io::Operation &o) {
         if (o.ssl_handle && o.result.load() == async_io::OpResult::SUCCESS) {
-            cert_info = extract_tls_cert_info(o.ssl_handle);
-            got_cert  = true;
+            TlsCertInfo tmp = extract_tls_cert_info(o.ssl_handle);
+            std::lock_guard<std::mutex> lk(cert_state->mu);
+            cert_state->info = std::move(tmp);
+            cert_state->got  = true;
         }
     };
 
     auto data = async_io::run_blocking(async_io::shared_reactor(), op);
+
+    TlsCertInfo cert_info;
+    bool        got_cert = false;
+    {
+        std::lock_guard<std::mutex> lk(cert_state->mu);
+        if (cert_state->got) { cert_info = cert_state->info; got_cert = true; }
+    }
 
     if (got_cert) {
         if (verbose) cert_info.print(std::cerr);
@@ -3498,16 +3982,21 @@ static std::vector<u8> capture_ssl(const std::string &ip, int port,
 }
 
 static bool ssl_port_check(const std::string &ip, int port,
-                            int connect_timeout_sec, bool verbose)
+                            int connect_timeout_sec, bool verbose,
+                            TlsCertInfo *cert_out = nullptr)
 {
-
     TlsCertInfo cert;
-    int check_timeout = std::min(connect_timeout_sec > 0 ? connect_timeout_sec : 3, 5);
-    auto r = capture_ssl(ip, port, check_timeout,nullptr,
+    int check_timeout = std::clamp(connect_timeout_sec > 0 ? connect_timeout_sec : 3, 1, 5);
+
+    auto r = capture_ssl(ip, port, check_timeout, nullptr,
                          verbose, &cert, check_timeout);
+
     bool tls_ok = cert.populated;
+    if (cert_out) *cert_out = cert;
+
     if (tls_ok) vlog::ok(verbose, "port " + std::to_string(port) + ": TLS confirmed", 2);
     else        vlog::fail(verbose, "port " + std::to_string(port) + ": TLS not supported (plain TCP)", 2);
+
     return tls_ok;
 }
 
@@ -3571,7 +4060,8 @@ static std::vector<u8> capture_ssl_permissive(const std::string &ip, int port,
     const std::string sni = !sni_override.empty()    ? sni_override
                            : !tls_cfg.sni_name.empty() ? tls_cfg.sni_name
                                                         : ip;
-    SSL_set_tlsext_host_name(ssl, sni.c_str());
+    if (!sni.empty() && !is_ip_literal(sni))   // never send an IP literal as SNI (RFC 6066)
+        SSL_set_tlsext_host_name(ssl, sni.c_str());
 
     // Attempt the TLS handshake with permissive settings ----------------------
     if (SSL_connect(ssl) <= 0) {
@@ -3608,20 +4098,34 @@ static std::vector<u8> capture_ssl_permissive(const std::string &ip, int port,
     }
     if (cert_out) *cert_out = cert_info;
 
-    if (payload && !payload->empty())
-        SSL_write(ssl, payload->data(), (int)payload->size());
+    bool send_ok = true;
+    if (payload && !payload->empty()) {
+        size_t off = 0;
+        while (off < payload->size()) {
+            int w = SSL_write(ssl, payload->data() + off, (int)(payload->size() - off));
+            if (w <= 0) { send_ok = false; break; }
+            off += (size_t)w;
+        }
+        if (!send_ok) vlog::fail(verbose, "ssl-permissive: send failed", 2);
+    }
 
-    const int idle_timeout_sec = std::max(2, timeout_sec / 2);
+    // Read until EOF / timeout / cap. After the first bytes arrive, use a
+    // shorter idle timeout so we don't wait the full first-byte budget.
+    const int idle_timeout_sec = std::max(1, std::max(2, timeout_sec / 2));
     bool got_first = false;
 
-    std::vector<u8> data; char buf[CHUNK];
-    while ((int)data.size() < MAX_RESPONSE) {
-        int n = SSL_read(ssl, buf, sizeof(buf));
+    std::vector<u8> data;
+    char buf[CHUNK];
+    while (send_ok && (int)data.size() < MAX_RESPONSE) {
+        int want = std::min<int>((int)sizeof(buf), MAX_RESPONSE - (int)data.size());
+        int n = SSL_read(ssl, buf, want);
         if (n <= 0) break;
         data.insert(data.end(), buf, buf + n);
-        break;
+        if (!got_first) { got_first = true; set_io_timeouts(fd, idle_timeout_sec); }
     }
-    SSL_shutdown(ssl); SSL_free(ssl); SSL_CTX_free(ctx); close(fd);
+    ERR_clear_error();
+    if (SSL_in_init(ssl) == 0) SSL_shutdown(ssl);
+    SSL_free(ssl); SSL_CTX_free(ctx); close(fd);
     return data;
 }
 
@@ -3753,7 +4257,6 @@ struct ProbeFileInfo {
     std::set<int>                  ssl_ports;
     std::map<int, std::vector<u8>> tcp_ports;
     std::map<int, std::vector<u8>> udp_ports;
-    std::set<int>                  excluded;
     bool has_tcp(int p) const { return tcp_ports.count(p) > 0; }
     bool has_udp(int p) const { return udp_ports.count(p) > 0; }
 };
@@ -3843,58 +4346,33 @@ static std::vector<int> expand_port_list(const std::string &token)
     return ports;
 }
 
-static ProbeFileInfo parse_probe_file_info(const std::string &path)
+// Build the port->payload tables from the probes already loaded into AllProbes
+// (single source of truth; the probe file is no longer parsed a second time).
+// First probe listing a port wins, matching nmap's probe-file order.
+// Exclude directives are enforced by ProbeEngine::matchResponse.
+static ProbeFileInfo build_probe_file_info(const AllProbes &probes)
 {
     ProbeFileInfo info;
-    std::ifstream f(path);
-    if (!f) { fprintf(stderr, "[!] Cannot open probe file: %s\n", path.c_str()); return info; }
-
-    std::string current_proto;
-    std::string current_name;
-    std::vector<u8> current_payload;
-
-    std::string line;
-    while (std::getline(f, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-
-        if (line.rfind("Exclude ", 0) == 0) {
-            std::string spec = line.substr(8);
-            std::istringstream ss2(spec); std::string seg;
-            while (std::getline(ss2, seg, ',')) {
-                while (!seg.empty() && isspace((unsigned char)seg.front())) seg.erase(seg.begin());
-                auto col = seg.find(':');
-                if (col != std::string::npos) seg = seg.substr(col + 1);
-                for (int p : expand_port_list(seg)) info.excluded.insert(p);
+    auto add = [&](ServiceProbe *sp) {
+        if (!sp) return;
+        int len = 0;
+        const u8 *ps = sp->getProbeString(&len);
+        std::vector<u8> payload;
+        if (ps && len > 0 && len <= MAX_RESPONSE) payload.assign(ps, ps + len);
+        const int proto = sp->getProtocol();
+        auto &table = (proto == IPPROTO_UDP) ? info.udp_ports : info.tcp_ports;
+        if (proto != IPPROTO_TCP && proto != IPPROTO_UDP) return;
+        for (auto it = sp->probablePortsBegin(); it != sp->probablePortsEnd(); ++it)
+            if (!table.count((int)*it)) table[(int)*it] = payload;
+        if (proto == IPPROTO_TCP) {
+            for (auto it = sp->probableSslPortsBegin(); it != sp->probableSslPortsEnd(); ++it) {
+                info.ssl_ports.insert((int)*it);
+                if (!info.tcp_ports.count((int)*it)) info.tcp_ports[(int)*it] = payload;
             }
-        } else if (line.rfind("Probe ", 0) == 0) {
-            std::istringstream tok(line.substr(6));
-            std::string proto, name, qstr;
-            tok >> proto >> name >> qstr;
-            current_proto   = proto;
-            current_name    = name;
-            current_payload.clear();
-            if (name != "NULL") {
-                size_t a = qstr.find('|'), b = qstr.rfind('|');
-                if (a != std::string::npos && b != a) {
-                    std::string raw = qstr.substr(a + 1, b - a - 1);
-                    current_payload = unescape_probe_string(raw);
-                }
-            }
-        } else if (line.rfind("ports ", 0) == 0 && current_proto == "TCP") {
-            for (int p : expand_port_list(line.substr(6)))
-                if (!info.has_tcp(p)) info.tcp_ports[p] = current_payload;
-
-        } else if (line.rfind("sslports ", 0) == 0 && current_proto == "TCP") {
-            for (int p : expand_port_list(line.substr(9))) {
-                info.ssl_ports.insert(p);
-                if (!info.has_tcp(p)) info.tcp_ports[p] = current_payload;
-            }
-
-        } else if (line.rfind("ports ", 0) == 0 && current_proto == "UDP") {
-            for (int p : expand_port_list(line.substr(6)))
-                if (!info.has_udp(p)) info.udp_ports[p] = current_payload;
         }
-    }
+    };
+    add(probes.nullProbe);
+    for (ServiceProbe *sp : probes.probes) add(sp);
     return info;
 }
 
@@ -3956,16 +4434,44 @@ static const char *kDefaultUserAgent =
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36";
 
+static const char *accept_encoding_value()
+{
+    // Advertise only what decompress_body() can actually decode in this build.
+    return "gzip, deflate"
+#ifdef HAVE_BROTLI
+           ", br"
+#endif
+#ifdef HAVE_ZSTD
+           ", zstd"
+#endif
+        ;
+}
+
+// The request target ends up in a raw HTTP request line: percent-encode anything
+// that could break the line (CR/LF, spaces, control and non-ASCII bytes).
+static std::string sanitize_request_target(const std::string &path)
+{
+    std::string out;
+    out.reserve(path.size() + 1);
+    if (path.empty() || path[0] != '/') out += '/';
+    static const char hex[] = "0123456789ABCDEF";
+    for (unsigned char c : path) {
+        if (c <= 0x20 || c >= 0x7f) { out += '%'; out += hex[c >> 4]; out += hex[c & 15]; }
+        else out += (char)c;
+    }
+    return out;
+}
+
 static std::string make_get_request(const std::string &path, const std::string &ip,
                                     int port, bool is_ssl,
                                     const std::string &host_override = "")
 {
-    return "GET " + path + " HTTP/1.1\r\n"
+    return "GET " + sanitize_request_target(path) + " HTTP/1.1\r\n"
            "Host: " + make_host_header(ip, port, is_ssl, host_override) + "\r\n"
            "User-Agent: " + kDefaultUserAgent + "\r\n"
            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
            "Accept-Language: en-US,en;q=0.5\r\n"
-           "Accept-Encoding: gzip, deflate, br\r\n"
+           "Accept-Encoding: " + accept_encoding_value() + "\r\n"
            "Connection: close\r\n\r\n";
 }
 
@@ -3986,6 +4492,58 @@ static HttpFingerprint follow_http_asset(const std::string &ip, int port,
     return make_http_fingerprint(resp, "asset-follow:" + path, is_ssl);
 }
 
+static bool confirm_websocket_upgrade(const std::string &ip, int port,
+                                      bool is_ssl, int timeout_sec, bool verbose)
+{
+    vlog::line(verbose, "websocket-confirm: status suggested possible upgrade -- "
+               "sending Upgrade probe to " + ip + ":" + std::to_string(port) +
+               (is_ssl ? "  (ssl)" : "  (plain)"), 1);
+
+    std::string req = "GET / HTTP/1.1\r\n"
+                       "Host: " + make_host_header(ip, port, is_ssl) + "\r\n"
+                       "Connection: Upgrade\r\n"
+                       "Upgrade: websocket\r\n"
+                       "Sec-WebSocket-Version: 13\r\n"
+                       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+    std::vector<u8> payload(req.begin(), req.end());
+
+    std::vector<u8> resp;
+    if (is_ssl) {
+        TlsCertInfo unused_cert;
+        resp = capture_ssl(ip, port, timeout_sec, &payload, verbose, &unused_cert);
+    } else {
+        resp = capture_tcp(ip, port, timeout_sec, &payload, verbose);
+    }
+
+    if (resp.empty()) {
+        vlog::fail(verbose, "websocket-confirm: no response to Upgrade probe", 2);
+        return false;
+    }
+
+    int code = extract_status_code(resp);
+    vlog::line(verbose, "websocket-confirm: got status " + std::to_string(code), 2);
+    if (code != 101) {
+        vlog::fail(verbose, "websocket-confirm: status != 101 -- not a websocket upgrade", 2);
+        return false;
+    }
+
+    std::string conn = extract_header(resp, "Connection");
+    std::string upg  = extract_header(resp, "Upgrade");
+    vlog::kv(verbose, "Connection", conn.empty() ? "(missing)" : conn, 2);
+    vlog::kv(verbose, "Upgrade",    upg.empty()  ? "(missing)" : upg,  2);
+
+    std::string conn_lc = conn, upg_lc = upg;
+    for (auto &c : conn_lc) c = (char)tolower((unsigned char)c);
+    for (auto &c : upg_lc)  c = (char)tolower((unsigned char)c);
+
+    bool ok = conn_lc.find("upgrade")   != std::string::npos
+           && upg_lc.find("websocket") != std::string::npos;
+
+    if (ok) vlog::ok(verbose,   "websocket-confirm: Connection/Upgrade headers match -- confirmed", 2);
+    else    vlog::fail(verbose, "websocket-confirm: 101 but headers don't confirm websocket -- rejecting", 2);
+
+    return ok;
+}
 
 static std::vector<u8> capture_http_get(const std::string &ip, int port,
                                         int timeout_sec, bool verbose)
@@ -4186,59 +4744,6 @@ spa_done:
     return results;
 }
 
-static bool has_spa_redirect(const std::vector<u8> &resp)
-{
-    int code = extract_status_code(resp);
-    if (code >= 300 && code < 400) return false; // already a real redirect — not SPA
-
-    // Extract body text (after \r\n\r\n boundary)
-    size_t body_start = 0;
-    const size_t lim = std::min(resp.size(), (size_t)65536);
-    for (size_t i = 0; i + 3 < lim; ++i) {
-        if (resp[i]=='\r' && resp[i+1]=='\n' && resp[i+2]=='\r' && resp[i+3]=='\n') {
-            body_start = i + 4; break;
-        }
-    }
-    if (body_start == 0) {
-        for (size_t i = 0; i + 1 < lim; ++i) {
-            if (resp[i]=='\n' && resp[i+1]=='\n') { body_start = i + 2; break; }
-        }
-    }
-    if (body_start >= resp.size()) return false;
-
-    std::string body(resp.begin() + (std::ptrdiff_t)body_start,
-                     resp.begin() + (std::ptrdiff_t)lim);
-    auto locs = extract_spa_locations(body);
-    return !locs.empty();
-}
-
-// Return the first SPA-detected URL from a 200 response body.
-// Empty string if none found or if response is already a 3xx redirect.
-static std::string get_spa_redirect_url(const std::vector<u8> &resp)
-{
-    int code = extract_status_code(resp);
-    if (code >= 300 && code < 400) return "";
-
-    size_t body_start = 0;
-    const size_t lim = std::min(resp.size(), (size_t)65536);
-    for (size_t i = 0; i + 3 < lim; ++i) {
-        if (resp[i]=='\r' && resp[i+1]=='\n' && resp[i+2]=='\r' && resp[i+3]=='\n') {
-            body_start = i + 4; break;
-        }
-    }
-    if (body_start == 0) {
-        for (size_t i = 0; i + 1 < lim; ++i) {
-            if (resp[i]=='\n' && resp[i+1]=='\n') { body_start = i + 2; break; }
-        }
-    }
-    if (body_start >= resp.size()) return "";
-
-    std::string body(resp.begin() + (std::ptrdiff_t)body_start,
-                     resp.begin() + (std::ptrdiff_t)lim);
-    auto locs = extract_spa_locations(body);
-    return locs.empty() ? "" : locs[0];
-}
-
 struct ParsedUrl {
     std::string scheme;  
     std::string host;     
@@ -4246,7 +4751,7 @@ struct ParsedUrl {
     std::string path;      
     std::string host_hdr;  
     std::string raw_host;
-    std::string &sni = raw_host;  
+    std::string sni;       // value, not a reference: safe to copy/move/assign
 };
 
 static ParsedUrl parse_redirect_url(const std::string &loc,
@@ -4264,6 +4769,7 @@ static ParsedUrl parse_redirect_url(const std::string &loc,
         out.path     = loc;
         out.host_hdr = cur_ip + ":" + std::to_string(cur_port);
         out.raw_host = cur_ip;   // will be overridden by caller's cur_sni
+        out.sni      = cur_ip;
         return out;
     }
     static const std::regex url_re(
@@ -4278,6 +4784,7 @@ static ParsedUrl parse_redirect_url(const std::string &loc,
         out.path     = "/";
         out.host_hdr = cur_ip + ":" + std::to_string(cur_port);
         out.raw_host = cur_ip;   // will be overridden by caller's cur_sni
+        out.sni      = cur_ip;
         return out;
     }
 
@@ -4291,7 +4798,15 @@ static ParsedUrl parse_redirect_url(const std::string &loc,
 
     // Port: explicit > scheme default
     if (m[3].matched && !m[3].str().empty()) {
-        out.port = std::stoi(m[3].str());
+        const std::string ps = m[3].str();
+        long pv = ps.size() <= 5 ? std::strtol(ps.c_str(), nullptr, 10) : 0;
+        if (pv < 1 || pv > 65535) {          // bad port: signal failure, caller stops
+            out.host.clear();
+            out.port = 0;
+            out.path = "/";
+            return out;
+        }
+        out.port = (int)pv;
     } else {
         out.port = (out.scheme == "https") ? 443 : 80;
     }
@@ -4301,6 +4816,7 @@ static ParsedUrl parse_redirect_url(const std::string &loc,
                            (out.scheme == "http"  && out.port == 80);
     out.host_hdr = is_default_port ? raw_host : (raw_host + ":" + std::to_string(out.port));
     out.raw_host = raw_host;
+    out.sni      = raw_host;
 
     return out;
 }
@@ -4347,6 +4863,17 @@ static std::vector<u8> follow_redirects_fp(
         if (!dst.sni.empty() && dst.sni == cur_ip)
             dst.sni = cur_sni;
 
+        if (dst.host.empty() || dst.port <= 0) {
+            vlog::fail(verbose, "redirect hop " + std::to_string(hop + 1) + ": unusable target, stopping", 2);
+            break;
+        }
+        // SSRF guard: a remote target must not be able to steer the scanner at
+        // loopback / private / link-local addresses via Location.
+        if (dst.host != cur_ip && is_lan_ip(dst.host) && !is_lan_ip(origin_ip)) {
+            vlog::fail(verbose, "redirect hop " + std::to_string(hop + 1) + ": refusing redirect to internal address " +
+                       dst.host, 2);
+            break;
+        }
         vlog::line(verbose, "redirect hop " + std::to_string(hop + 1) + ": " + loc + " -> " +
                    dst.scheme + "://" + dst.host + ":" + std::to_string(dst.port) + dst.path +
                    "  (SNI: " + dst.sni + ")", 2);
@@ -4357,7 +4884,7 @@ static std::vector<u8> follow_redirects_fp(
                        std::to_string(dst.port) + "]", 3);
 
         // -- Build the next request -----------------------------------------
-        std::string req = "GET " + dst.path + " HTTP/1.1\r\n"
+        std::string req = "GET " + sanitize_request_target(dst.path) + " HTTP/1.1\r\n"
                           "Host: " + dst.host_hdr + "\r\n"
                           "User-Agent: Mozilla/5.0\r\n"
                           "Accept: */*\r\n"
@@ -4567,8 +5094,49 @@ static std::vector<u8> capture_fallback(const std::string            &ip,
     return {};
 }
 
+// Follow the first SPA-style client-side redirect (JS location / meta-refresh) found
+// in the fingerprints. Same safety rules as real redirects: scheme must be http(s),
+// no hops onto internal addresses from a public target, one hop only.
+static bool follow_spa_location(const std::string &ip, int port, bool is_ssl,
+                                int timeout_sec, bool verbose,
+                                std::vector<HttpFingerprint> &fps)
+{
+    std::string loc;
+    for (const auto &fp : fps) {
+        if (!fp.is_redirect && !fp.spa_locations.empty()) { loc = fp.spa_locations[0]; break; }
+    }
+    if (loc.empty() || loc.size() > 2048) return false;
+    if (loc[0] != '/' && loc.rfind("http://", 0) != 0 && loc.rfind("https://", 0) != 0 &&
+        loc.rfind("HTTP://", 0) != 0 && loc.rfind("HTTPS://", 0) != 0)
+        return false;   // javascript:, data:, bare words, ...
+
+    ParsedUrl dst = parse_redirect_url(loc, ip, port, is_ssl ? "https" : "http");
+    if (dst.host.empty() || dst.port <= 0) return false;
+    if (dst.host != ip && is_lan_ip(dst.host) && !is_lan_ip(ip)) {
+        vlog::fail(verbose, "spa-follow: refusing internal address " + dst.host, 2);
+        return false;
+    }
+    const bool dst_ssl = (dst.scheme == "https");
+    if (dst.host == ip && dst.port == port && dst_ssl == is_ssl && dst.path == "/") return false; // same page
+
+    vlog::line(verbose, "spa-follow: " + loc + " -> " + dst.scheme + "://" + dst.host + ":" +
+               std::to_string(dst.port) + dst.path, 1);
+    std::string req = "GET " + sanitize_request_target(dst.path) + " HTTP/1.1\r\n"
+                      "Host: " + dst.host_hdr + "\r\n"
+                      "User-Agent: " + std::string(kDefaultUserAgent) + "\r\n"
+                      "Accept: */*\r\n"
+                      "Connection: close\r\n\r\n";
+    std::vector<u8> payload(req.begin(), req.end());
+    std::vector<u8> resp;
+    TlsCertInfo cert;
+    if (dst_ssl) resp = capture_ssl(dst.host, dst.port, timeout_sec, &payload, verbose, &cert, 0, dst.sni);
+    else         resp = capture_tcp(dst.host, dst.port, timeout_sec, &payload, verbose);
+    if (resp.empty()) return false;
+    fps.push_back(make_http_fingerprint(resp, std::string(dst_ssl ? "ssl-" : "") + "spa-follow", dst_ssl, cert));
+    return true;
+}
+
 struct Args {
-    std::string probes_file = "nmap-service-probes.txt";
     // Raw target string (argv[1]) — kept for display only
     std::string target_raw;
     // Resolved fields (filled by parse_target + main)
@@ -4609,7 +5177,6 @@ static int probe_read_timeout(const AllProbes &probes, int port,
             if (ms > best_ms) best_ms = ms;
         }
     }
-    // Also check null probe (always exists, covers all ports)
     if (probes.nullProbe) {
         int ms = probes.nullProbe->getTotalWaitMs();
         if (ms > best_ms) best_ms = ms;
@@ -4617,18 +5184,21 @@ static int probe_read_timeout(const AllProbes &probes, int port,
 
     int probe_sec = (best_ms > 0) ? std::max(1, (best_ms + 999) / 1000) : 0;
 
-    // Use whichever is larger: probe-derived value or user's --timeout
     return std::max(default_sec, probe_sec);
 }
 
 int run_version_probe(AllProbes &probes, const std::string &target_ip,
                        uint16_t target_port, const VersionDetectOptions &opts)
 {
+    if (opts.reactor_threads) {
+        static std::once_flag reactor_cfg_once;
+        std::call_once(reactor_cfg_once, [&] { async_io::configure_shared_reactor(opts.reactor_threads); });
+    }
     Args args;
     args.hostname       = target_ip;
     args.port           = target_port;
-    args.ip             = target_ip; 
-    const std::string &ip = args.ip; 
+    args.ip             = target_ip;
+    const std::string &ip = args.ip;
     args.verbose        = opts.verbose;
     args.timeout        = opts.timeout_sec;
     args.connect_timeout = opts.connect_timeout_sec;
@@ -4645,13 +5215,21 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
     args.tls_key        = opts.tls_key;
     args.tls_sni        = opts.tls_sni;
     args.host_override  = opts.host_override;
+    args.path           = opts.request_path.empty() ? "/" : opts.request_path;
+    if (args.path.front() != '/') args.path.insert(args.path.begin(), '/');
+    // Reject CR/LF/whitespace: the path is written into a raw HTTP request line.
+    for (char &c : args.path) if (c == '\r' || c == '\n' || c == ' ' || (unsigned char)c < 0x20) c = '_';
+    args.target_raw     = target_ip + ":" + std::to_string(target_port);
+    args.scheme         = opts.force_https ? "https" : opts.force_http ? "http" : "";
     std::string effective_host;
     {
-        std::lock_guard<std::mutex> lk(g_probe_setup_mu);
+        g_tuning.max_response_bytes  = opts.max_response_bytes;
+        g_tuning.ciphers_tls12       = opts.tls_ciphers_tls12;
+        g_tuning.ciphersuites_tls13  = opts.tls_ciphersuites_tls13;
+        g_tuning.min_connect_ms      = opts.min_connect_ms;
+        g_tls_config = TlsConfig{};
+        g_verbose = args.verbose;
 
-        g_verbose = args.verbose;   // gate all diagnostic stderr output
-
-        // -- Populate global TLS config from the resolved options ---------------
         g_tls_config.ca_file     = args.tls_ca_file;
         g_tls_config.ca_path     = args.tls_ca_path;
         g_tls_config.client_cert = args.tls_cert;
@@ -4659,7 +5237,6 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         g_tls_config.verify_peer = args.tls_verify;
         vlog::phase(g_verbose, "Resolving host");
         if (!args.host_override.empty()) {
-            // --host wins unconditionally
             effective_host = args.host_override;
             vlog::line(g_verbose, "--host override: using '" + effective_host + "' in Host: header");
         } else if (is_ip_literal(args.hostname)) {
@@ -4667,7 +5244,6 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                 effective_host = args.hostname;
                 vlog::line(g_verbose, "LAN IP " + args.hostname + ": skipping reverse-DNS, using IP directly");
             } else {
-                // Public IP — attempt reverse-DNS for correct virtual-host routing.
                 std::string rdns = resolve_ip_to_domain(args.hostname);
                 if (!rdns.empty()) {
                     effective_host = rdns;
@@ -4678,18 +5254,14 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                 }
             }
         } else {
-            // User gave a domain or URL-with-domain: use it directly
             effective_host = args.hostname;
         }
 
-        // SNI: explicit --tls-sni wins; otherwise use effective_host (domain, not IP)
-        // so TLS SNI is correct for virtual hosting
         g_tls_config.sni_name = args.tls_sni.empty() ? effective_host : args.tls_sni;
 
-        // Populate globals used by request builders
         g_hostname    = effective_host;
         g_target_path = args.path.empty() ? "/" : args.path;
-    } // lock released — network probing below runs unlocked/concurrently
+    }
 
     vlog::phase(g_verbose, "Target");
     vlog::kv(g_verbose, "Target",   args.target_raw);
@@ -4711,18 +5283,15 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
     vlog::kv(g_verbose, "Timeouts", "connect=" + std::to_string(args.connect_timeout) + "s  read=" +
               std::to_string(args.timeout) + "s  idle=" + std::to_string(std::max(2, args.timeout / 2)) + "s");
 
-    // -- 2. Parse probe file for network decisions -------------------------
-    ProbeFileInfo pfi = parse_probe_file_info(args.probes_file);
+    const ProbeFileInfo pfi = build_probe_file_info(probes);
 
-    // -- 3. Capture response -----------------------------------------------
     std::vector<u8>              response;
+    std::string                  response_probe;      // probe whose payload produced `response` (match hint)
+    long                         null_close_ms = -1;  // NULL probe: peer closed with no data after this many ms
     std::string                  method_label;
     int                          proto_int = IPPROTO_TCP;
-    std::vector<HttpFingerprint> http_fps;   // accumulates all HTTP fingerprints
+    std::vector<HttpFingerprint> http_fps;
 
-    // Smart read timeout: derived from probe's totalwaitms for this port.
-    // Falls back to --timeout if no probe claims this port.
-    // compute proto_int for UDP early so probe_read_timeout uses correct proto
     if (args.udp) proto_int = IPPROTO_UDP;
     const int read_to = probe_read_timeout(probes, args.port, proto_int, args.timeout);
     vlog::kv(g_verbose, "Effective", "connect=" + std::to_string(args.connect_timeout) + "s  read=" +
@@ -4740,7 +5309,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         if (pl && !pl->empty()) {
             udp_payload = *pl;
             const std::string &probe_host = g_hostname.empty() ? ip : g_hostname;
-	    substitute_probe_vars(udp_payload, probe_host, args.port);
+            substitute_probe_vars(udp_payload, probe_host, args.port);
             pl = &udp_payload;
         }
         response = capture_udp(ip, args.port, read_to, pl, args.verbose);
@@ -4757,7 +5326,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
     } else if (args.force_http) {
         vlog::line(g_verbose, "capturing HTTP response from " + ip + ":" + std::to_string(args.port) +
                    "  path: " + g_target_path, 1);
-        std::string hs = make_get_request(g_target_path, ip, args.port, /*is_ssl=*/false);
+        std::string hs = make_get_request(g_target_path, ip, args.port, false);
         std::vector<u8> payload(hs.begin(), hs.end());
         response = capture_tcp(ip, args.port, read_to, &payload, args.verbose,
                                args.connect_timeout);
@@ -4766,7 +5335,6 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         if (!response.empty()) {
             int code = extract_status_code(response);
 
-            // -- Auto-detect: 4xx -> twin fingerprint (400-then-SSL) --------
             if (code >= 400 && code < 500) {
                 vlog::line(g_verbose, "force-http: got " + std::to_string(code) +
                            " -> attempting 400-SSL twin fingerprint", 1);
@@ -4776,17 +5344,13 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                     response     = std::move(twin.best_response);
                     method_label = "ssl-after-4xx";
                 }
-                // If SSL failed, response stays as the original 4xx bytes
-                // (fingerprint was already pushed into http_fps by twin helper)
             }
-            // -- Auto-detect: 3xx -> redirect dual fingerprint --------------
             else if (is_redirect(response)) {
                 response = follow_redirects_tcp_fp(ip, args.port, read_to,
                                                    args.verbose, std::move(response),
                                                    http_fps);
                 method_label = "http-redirect";
             } else {
-                // Plain non-redirect, non-error response — fingerprint it
                 http_fps.push_back(make_http_fingerprint(response, "http-initial", false));
             }
         }
@@ -4794,7 +5358,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
     } else if (args.force_https) {
         vlog::line(g_verbose, "capturing HTTPS response from " + ip + ":" + std::to_string(args.port) +
                    "  path: " + g_target_path, 1);
-        std::string hs = make_get_request(g_target_path, ip, args.port, /*is_ssl=*/true);
+        std::string hs = make_get_request(g_target_path, ip, args.port, true);
         std::vector<u8> payload(hs.begin(), hs.end());
         TlsCertInfo https_cert;
         response = capture_ssl(ip, args.port, read_to, &payload, args.verbose,
@@ -4802,7 +5366,6 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         method_label = "https";
 
         if (!response.empty()) {
-            // -- Auto-detect: 3xx -> redirect dual fingerprint (scheme-aware) -
             if (is_redirect(response)) {
                 response = follow_redirects_ssl_fp(ip, args.port, read_to,
                                                    args.verbose, std::move(response),
@@ -4840,46 +5403,39 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                 vlog::fail(g_verbose, "udp: no response from " + ip + ":" + std::to_string(args.port), 1);
             goto capture_done;
         }
-
         bool is_ssl = false;
         if (dec.method == ScanMethod::SSL) {
-            vlog::line(g_verbose, "port " + std::to_string(args.port) +
-                       " is declared as sslports -- verifying TLS support (strict then permissive)", 1);
-
-            TlsCertInfo ssl_check_cert;
-            auto ssl_test = capture_ssl(ip, args.port, 3 /*sec*/, nullptr,
-                                        args.verbose, &ssl_check_cert,
-                                        args.connect_timeout);
-
-            if (!ssl_test.empty() || !ssl_check_cert.tls_version.empty()) {
-                vlog::ok(g_verbose, "strict TLS confirmed on port " + std::to_string(args.port), 2);
-            } else {
-                // Strict handshake failed -- try permissive SSL
-                vlog::fail(g_verbose, "strict TLS handshake failed on port " + std::to_string(args.port) +
-                           "; retrying with permissive SSL (all versions/ciphers, no cert validation)", 2);
-                TlsCertInfo perm_cert;
-                auto perm_test = capture_ssl_permissive(
-                    ip, args.port, 3 /*sec*/, nullptr,
-                    args.verbose, &perm_cert, args.connect_timeout);
-
-                if (!perm_test.empty() || !perm_cert.tls_version.empty()) {
-                    vlog::ok(g_verbose, "permissive SSL handshake succeeded on port " +
-                             std::to_string(args.port) + " (version: " + perm_cert.tls_version + ")", 2);
-                } else {
-                    vlog::fail(g_verbose, "permissive SSL also failed on port " + std::to_string(args.port) +
-                               "; port is declared sslports -- keeping SSL mode (not falling back to plain TCP)", 2);
+            is_ssl = true;
+            if (args.verbose) {
+                vlog::line(g_verbose, "port " + std::to_string(args.port) +
+                           " is declared as sslports -- verifying TLS support (diagnostic only)", 1);
+                TlsCertInfo ssl_check_cert;
+                bool strict_ok = ssl_port_check(ip, args.port, 3, args.verbose, &ssl_check_cert);
+                if (!strict_ok) {
+                    vlog::fail(g_verbose, "strict TLS handshake failed on port " + std::to_string(args.port) +
+                               "; retrying with permissive SSL for diagnostics", 2);
+                    TlsCertInfo perm_cert;
+                    auto perm_test = capture_ssl_permissive(
+                        ip, args.port, 3, nullptr, args.verbose, &perm_cert, args.connect_timeout);
+                    if (!perm_test.empty() || !perm_cert.tls_version.empty())
+                        vlog::ok(g_verbose, "permissive SSL handshake succeeded on port " +
+                                 std::to_string(args.port) + " (version: " + perm_cert.tls_version + ")", 2);
+                    else
+                        vlog::fail(g_verbose, "permissive SSL also failed on port " + std::to_string(args.port) +
+                                   "; port is declared sslports -- keeping SSL mode (not falling back to plain TCP)", 2);
                 }
             }
-            is_ssl = true;
         } else {
-            int precheck_to = std::min(2, args.connect_timeout > 0 ? args.connect_timeout : 2);
-            vlog::line(g_verbose, "port " + std::to_string(args.port) + " not declared as sslports -- "
-                       "running quick TLS pre-check (timeout=" + std::to_string(precheck_to) +
-                       "s) before plaintext probes", 1);
-            if (ssl_port_check(ip, args.port, precheck_to, args.verbose)) {
-                vlog::ok(g_verbose, "TLS confirmed on port " + std::to_string(args.port) +
-                         " despite not being in sslports; switching to SSL mode", 2);
-                is_ssl = true;
+            {   // Always run: the result changes behaviour (is_ssl), so it must not depend on --verbose
+                int precheck_to = std::min(2, args.connect_timeout > 0 ? args.connect_timeout : 2);
+                vlog::line(g_verbose, "port " + std::to_string(args.port) + " not declared as sslports -- "
+                           "running diagnostic TLS pre-check (timeout=" + std::to_string(precheck_to) +
+                           "s); real probing will still self-detect TLS if this is skipped", 1);
+                if (ssl_port_check(ip, args.port, precheck_to, args.verbose)) {
+                    vlog::ok(g_verbose, "TLS confirmed on port " + std::to_string(args.port) +
+                             " despite not being in sslports; switching to SSL mode", 2);
+                    is_ssl = true;
+                }
             }
         }
 
@@ -4888,7 +5444,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         std::set<std::string>     seen;
 
         auto add_attempt = [&](const std::string &name, const u8 *ps, int pslen) {
-            if (seen.count(name)) return; seen.insert(name);
+            if (!seen.insert(name).second) return;
             ProbeAttempt pa; pa.name = name;
             if (ps && pslen > 0) pa.payload.assign(ps, ps + pslen);
             attempts.push_back(std::move(pa));
@@ -4896,14 +5452,12 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
 
         vlog::phase(g_verbose, "Probe planning");
 
-        /* Phase 1: NULL probe */
         if (probes.nullProbe) {
             int plen = 0; const u8 *ps = probes.nullProbe->getProbeString(&plen);
             vlog::line(g_verbose, std::string("phase 1: adding NULL probe '") + probes.nullProbe->getName() + "'", 1);
             add_attempt(probes.nullProbe->getName(), ps, plen);
         }
 
-        /* Phase 2: probes listing this port explicitly */
         int phase2_count = 0;
         for (ServiceProbe *sp : probes.probes) {
             if (sp->getProtocol() != IPPROTO_TCP) continue;
@@ -4918,7 +5472,6 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         if (phase2_count == 0)
             vlog::line(g_verbose, "phase 2: no probes explicitly list port " + std::to_string(args.port), 1);
 
-        /* Phase 3: remaining probes up to intensity limit */
         int phase3_count = 0;
         for (ServiceProbe *sp : probes.probes) {
             if (sp->getProtocol() != IPPROTO_TCP) continue;
@@ -4973,37 +5526,37 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
 
                 {
                     std::string s(substituted_payload.begin(), substituted_payload.end());
-
-                    // Is it an HTTP/1.1 request?
-                    bool is_http11_req = (s.size() >= 4 &&
+                    // NOTE: previously only matched "HTTP/1.1", which silently skipped this
+                    // whole fixup for HTTP/1.0 probes -- including the stock GetRequest probe
+                    // ("GET / HTTP/1.0\r\n\r\n"), the single most common probe run against any
+                    // web port. HTTP/1.0 is legal without Host:, but plenty of real-world
+                    // virtual-hosted/CDN-fronted targets need it anyway, so treat both versions
+                    // the same way here.
+                    bool is_http_req = (s.size() >= 4 &&
                         (s.rfind("GET ",  0) == 0 ||
                          s.rfind("HEAD ", 0) == 0 ||
                          s.rfind("POST ", 0) == 0) &&
-                        s.find("HTTP/1.1") != std::string::npos);
+                        (s.find("HTTP/1.1") != std::string::npos ||
+                         s.find("HTTP/1.0") != std::string::npos));
 
-                    if (is_http11_req) {
-                        // Case-insensitive check: does it already have Host: ?
+                    if (is_http_req) {
                         std::string sl = s;
                         for (char &c : sl) c = (char)tolower((unsigned char)c);
                         bool has_host = sl.find("\r\nhost:") != std::string::npos ||
                                         sl.rfind("host:", 0) == 0;
 
                         if (!has_host) {
-                            // Build the Host value the same way make_host_header does
                             std::string host_val = make_host_header(ip, args.port, is_ssl);
-
-                            // Find the terminal \r\n\r\n and insert Host: before it
                             size_t term = s.find("\r\n\r\n");
                             if (term != std::string::npos) {
                                 s = s.substr(0, term) +
                                     "\r\nHost: " + host_val +
                                     s.substr(term);
                                 vlog::line(g_verbose, "probe-fixup: injected Host: " + host_val +
-                                           " into HTTP/1.1 probe (was missing)", 2);
+                                           " into HTTP probe (was missing)", 2);
                             }
                         }
 
-                        // Inject User-Agent if missing
                         {
                             std::string sl2 = s;
                             for (char &c : sl2) c = (char)tolower((unsigned char)c);
@@ -5016,7 +5569,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                                         "\r\nUser-Agent: " + std::string(kDefaultUserAgent) +
                                         s.substr(term2);
                                     vlog::line(g_verbose, "probe-fixup: injected User-Agent "
-                                               "into HTTP/1.1 probe (was missing)", 2);
+                                               "into HTTP probe (was missing)", 2);
                                 }
                             }
                         }
@@ -5048,7 +5601,10 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                 r = capture_tcp(ip, args.port, probe_first_byte_to, pl, args.verbose,
                                 args.connect_timeout);
             }
+            if (!is_ssl && pa.payload.empty() && r.empty() && g_last_tcp.eof_no_data)
+                null_close_ms = g_last_tcp.elapsed_ms;
 
+            bool switched_to_ssl_midstream = false;
             if (!r.empty()) {
                 if (!is_ssl && looks_like_tls_record(r)) {
                     char tls_hdr[16];
@@ -5059,6 +5615,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                                "switching to SSL and retrying this probe instead of accepting it", 2);
 
                     is_ssl = true;
+                    switched_to_ssl_midstream = true;
 
                     TlsCertInfo retry_cert;
                     std::vector<u8> r_ssl = capture_ssl(ip, args.port, probe_first_byte_to, pl,
@@ -5075,7 +5632,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                         vlog::fail(g_verbose, "probe #" + std::to_string(attempt_idx) +
                                    ": SSL retry also produced nothing usable; discarding the "
                                    "TLS-alert bytes and trying next probe over SSL", 2);
-                        continue; // do NOT accept the raw alert bytes as a match
+                        continue;
                     }
                     r = std::move(r_ssl);
                 }
@@ -5089,7 +5646,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                         vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": NULL probe got HTTP " +
                                    std::to_string(null_code) + " (not 200) on port " + std::to_string(args.port) +
                                    " -- web port, NULL probe incompatible; skipping to next probe", 2);
-                        continue;  // don't accept this response; try the next probe
+                        continue;
                     }
                 }
 
@@ -5114,7 +5671,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                                         ps_start.rfind("HEAD ", 0) == 0 ||
                                         ps_start.rfind("POST ", 0) == 0);
                 }
-                if (!probe_is_http_req && !is_ssl) {
+                if (!probe_is_http_req && (!is_ssl || switched_to_ssl_midstream)) {
                     int non_http_code = extract_status_code(r);
                     bool looks_http_resp = (r.size() >= 5 &&
                                             r[0]=='H' && r[1]=='T' && r[2]=='T' &&
@@ -5124,17 +5681,23 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                                    pa.name + "' got HTTP 400 Bad Request -> server is likely HTTP; "
                                    "falling back to GET / HTTP/1.1", 2);
 
-                        // Build a proper GET request with Host header
                         const std::string &probe_host = g_hostname.empty() ? ip : g_hostname;
-                        std::string get_req = "GET / HTTP/1.1\r\n"
+                        std::string get_req = "GET " + sanitize_request_target(g_target_path) + " HTTP/1.1\r\n"
                                              "Host: " + probe_host + "\r\n"
                                              "User-Agent: " + std::string(kDefaultUserAgent) + "\r\n"
                                              "Accept: */*\r\n"
                                              "Connection: close\r\n\r\n";
                         std::vector<u8> get_payload(get_req.begin(), get_req.end());
 
-                        auto hr = capture_tcp(ip, args.port, read_to, &get_payload, args.verbose,
-                                              args.connect_timeout);
+                        std::vector<u8> hr;
+                        TlsCertInfo fallback_cert;
+                        if (is_ssl) {
+                            hr = capture_ssl(ip, args.port, read_to, &get_payload, args.verbose,
+                                             &fallback_cert, args.connect_timeout);
+                        } else {
+                            hr = capture_tcp(ip, args.port, read_to, &get_payload, args.verbose,
+                                             args.connect_timeout);
+                        }
                         if (!hr.empty()) {
                             int hr_code = extract_status_code(hr);
                             vlog::ok(g_verbose, "probe #" + std::to_string(attempt_idx) + ": HTTP GET fallback got " +
@@ -5147,7 +5710,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                                 method_label = "http-get-fallback-redirect/" + pa.name;
                             } else {
                                 http_fps.push_back(
-                                    make_http_fingerprint(hr, "http-get-fallback", false));
+                                    make_http_fingerprint(hr, "http-get-fallback", is_ssl));
                                 method_label = "http-get-fallback/" + pa.name;
                             }
                             response = std::move(hr);
@@ -5155,13 +5718,20 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                         }
                         vlog::fail(g_verbose, "probe #" + std::to_string(attempt_idx) +
                                    ": HTTP GET fallback also got no response; keeping original 400", 2);
-                        // Fall through: accept the 400 as the final response
                     }
                 }
 
-                if (!is_ssl && probe_is_http_req) {
+                // NOTE: previously gated on `!is_ssl`, so an HTTP probe (GET/HEAD/POST)
+                // that got a 4xx over SSL/TLS -- e.g. the stock GetRequest probe hitting
+                // a virtual-hosted HTTPS target without a Host: header -- had no retry
+                // path at all and the raw 400 was accepted as final. Now both transports
+                // are handled: plaintext keeps the original SSL-twin-fingerprint check
+                // (in case the port actually needs SSL), SSL retries directly with a
+                // proper Host-bearing GET over the same TLS connection.
+                if (probe_is_http_req) {
                     int code = extract_status_code(r);
                     if (code >= 400 && code < 500) {
+                        if (!is_ssl) {
                         vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": HTTP probe '" +
                                    pa.name + "' got " + std::to_string(code) + " -> trying 400-SSL twin FP", 2);
                         auto twin = do_400_ssl_twin_fingerprint(ip, args.port, read_to,
@@ -5179,7 +5749,6 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                             vlog::ok(g_verbose, "probe #" + std::to_string(attempt_idx) + ": Host-header retry got " +
                                      std::to_string(hr_code) + " (" + std::to_string(hr.size()) +
                                      " bytes) -- using this response", 2);
-                            // Fingerprint the new response and follow any redirect
                             if (is_redirect(hr)) {
                                 hr = follow_redirects_tcp_fp(ip, args.port, read_to,
                                                              args.verbose, std::move(hr),
@@ -5195,33 +5764,74 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                         }
                         vlog::fail(g_verbose, "probe #" + std::to_string(attempt_idx) +
                                    ": Host-header retry also got no response; keeping original 400", 2);
-                        // Fall through: accept the 400 as the final response
+                        } else {
+                            // Already on SSL -- do_400_ssl_twin_fingerprint (plaintext-to-SSL
+                            // switch) and capture_http_get (plaintext-only) don't apply here.
+                            // Retry directly over SSL with a well-formed, Host-bearing GET.
+                            vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": HTTP probe '" +
+                                       pa.name + "' got " + std::to_string(code) + " over SSL; probe may "
+                                       "have sent Host-less request -> retrying with proper Host: header GET "
+                                       "over SSL", 2);
+                            std::string get_req_ssl = make_get_request(g_target_path, ip, args.port, is_ssl);
+                            std::vector<u8> get_payload_ssl(get_req_ssl.begin(), get_req_ssl.end());
+
+                            TlsCertInfo ssl_retry_cert;
+                            std::vector<u8> hr = capture_ssl(ip, args.port, read_to, &get_payload_ssl,
+                                                             args.verbose, &ssl_retry_cert,
+                                                             args.connect_timeout);
+                            if (hr.empty() && !terminate_flag) {
+                                TlsCertInfo ssl_retry_perm_cert;
+                                hr = capture_ssl_permissive(ip, args.port, read_to, &get_payload_ssl,
+                                                            args.verbose, &ssl_retry_perm_cert,
+                                                            args.connect_timeout);
+                            }
+                            if (!hr.empty()) {
+                                int hr_code = extract_status_code(hr);
+                                vlog::ok(g_verbose, "probe #" + std::to_string(attempt_idx) +
+                                         ": SSL Host-header retry got " + std::to_string(hr_code) +
+                                         " (" + std::to_string(hr.size()) + " bytes) -- using this response", 2);
+                                if (is_redirect(hr)) {
+                                    hr = follow_redirects_tcp_fp(ip, args.port, read_to,
+                                                                 args.verbose, std::move(hr),
+                                                                 http_fps);
+                                    method_label = "http-host-retry-ssl-redirect/" + pa.name;
+                                } else {
+                                    http_fps.push_back(
+                                        make_http_fingerprint(hr, "http-host-retry-ssl", true));
+                                    method_label = "http-host-retry-ssl/" + pa.name;
+                                }
+                                response = std::move(hr);
+                                goto capture_done;
+                            }
+                            vlog::fail(g_verbose, "probe #" + std::to_string(attempt_idx) +
+                                       ": SSL Host-header retry also got no response; keeping original " +
+                                       std::to_string(code), 2);
+                        }
                     }
 
-                    // -- Auto-detect: probe response is 3xx -> redirect FP --
                     if (is_redirect(r)) {
-                        vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": HTTP probe '" +
-                                   pa.name + "' got redirect -> dual FP follow", 2);
-                        r = follow_redirects_tcp_fp(ip, args.port, read_to,
-                                                    args.verbose, std::move(r), http_fps);
-                        response     = std::move(r);
-                        method_label = "http-redirect/" + pa.name;
+                        if (is_ssl) {
+                            vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": SSL HTTP probe '" +
+                                       pa.name + "' got redirect -> SSL dual FP follow", 2);
+                            r = follow_redirects_ssl_fp(ip, args.port, args.timeout,
+                                                        args.verbose, std::move(r), http_fps);
+                            method_label = "ssl-redirect/" + pa.name;
+                        } else {
+                            vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": HTTP probe '" +
+                                       pa.name + "' got redirect -> dual FP follow", 2);
+                            r = follow_redirects_tcp_fp(ip, args.port, read_to,
+                                                        args.verbose, std::move(r), http_fps);
+                            method_label = "http-redirect/" + pa.name;
+                        }
+                        response = std::move(r);
                         goto capture_done;
                     }
-                } else if (is_ssl && probe_is_http_req && is_redirect(r)) {
-                    // SSL probe got redirect -> dual FP follow over SSL
-                    vlog::line(g_verbose, "probe #" + std::to_string(attempt_idx) + ": SSL HTTP probe '" +
-                               pa.name + "' got redirect -> SSL dual FP follow", 2);
-                    r = follow_redirects_ssl_fp(ip, args.port, args.timeout,
-                                                args.verbose, std::move(r), http_fps);
-                    response     = std::move(r);
-                    method_label = "ssl-redirect/" + pa.name;
-                    goto capture_done;
                 }
 
                 vlog::ok(g_verbose, "probe #" + std::to_string(attempt_idx) + " '" + pa.name + "' got " +
                          std::to_string(r.size()) + " bytes -- using this response", 1);
                 response     = std::move(r);
+                response_probe = pa.name;
                 method_label = is_ssl ? "ssl/" + pa.name : pa.name;
                 goto capture_done;
             }
@@ -5229,17 +5839,28 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
         }
 
         if (response.empty() && !terminate_flag) {
-	    vlog::line(g_verbose, "all probes exhausted, trying fallback chain", 1);
-	    response = capture_fallback(ip, args.port, args.timeout, args.verbose,
-		                        method_label, http_fps);
-	}
+            vlog::line(g_verbose, "all probes exhausted, trying fallback chain", 1);
+            response = capture_fallback(ip, args.port, args.timeout, args.verbose,
+                                        method_label, http_fps);
+        }
     }
 
-capture_done:
+    capture_done:
     if (response.empty()) {
-        vlog::section(true, "No response");
-        fprintf(stderr, "%s✗%s no response from %s:%d\n\n",
-                vlog::RED(), vlog::RESET(), ip.c_str(), args.port);
+        if (!args.udp && null_close_ms >= 0) {
+            MatchContext mctx;
+            mctx.closed_without_data = true;
+            mctx.elapsed_ms = null_close_ms;
+            ProbeEngine wrap_engine(&probes, args.intensity);
+            ScanResult wr = wrap_engine.matchResponse((u16)args.port, IPPROTO_TCP, ServiceTunnel::NONE,
+                                                      nullptr, 0, mctx);
+            if (wr.state == ProbeState::FINISHED_TCPWRAPPED) {
+                std::lock_guard<std::mutex> lk(g_stdout_mu);
+                std::cout << std::left << std::setw(7) << target_port << ": tcpwrapped\n";
+                return 0;
+            }
+        }
+        fprintf(stdout, "%-7d: No response\n", args.port);
         return 1;
     }
 
@@ -5259,7 +5880,6 @@ capture_done:
         vlog::kv(g_verbose, "Transport", final_ssl ? "TLS/SSL" : "plain TCP");
         vlog::kv(g_verbose, "HTTP FPs",  std::to_string(http_fps.size()));
 
-        /* Hex preview */
         fprintf(stderr, "\n%s%sResponse hex (%zu bytes)%s\n", vlog::GRAY(), vlog::BOLD(),
                 response.size(), vlog::RESET());
         for (size_t i = 0; i < response.size(); i++) {
@@ -5294,26 +5914,22 @@ capture_done:
         vlog::line(g_verbose, "first 200 bytes (ascii): " + ascii_preview, 1);
     }
 
-    // -- 4. Match response against probe database ---------------------------
     ServiceTunnel tunnel = final_ssl ? ServiceTunnel::SSL : ServiceTunnel::NONE;
 
     ProbeEngine engine(&probes, args.intensity);
 
-    if (args.port >= 9100 && args.port <= 9107) {
-        std::lock_guard<std::mutex> lk(g_probes_exclude_mu);
-        if (probes.isExcluded((u16)args.port, proto_int)) {
-            auto &ev = probes.excludedPorts.tcp_ports;
-            ev.erase(std::remove_if(ev.begin(), ev.end(),
-                [&](u16 p){ return p >= 9100 && p <= 9107; }), ev.end());
-            vlog::line(g_verbose, "temporarily overriding Exclude for port " + std::to_string(args.port), 1);
-        }
+    if (args.port >= 9100 && args.port <= 9107 &&
+        probes.isExcluded((u16)args.port, proto_int)) {
+        engine.setIgnoreExclude(true);
+        vlog::line(g_verbose, "overriding Exclude for port " + std::to_string(args.port), 1);
     }
 
+    MatchContext match_ctx;
+    if (!response_probe.empty()) match_ctx.probe_name = response_probe.c_str();
     ScanResult result = engine.matchResponse(
         (u16)args.port, proto_int, tunnel,
-        response.data(), (int)response.size());
+        response.data(), (int)response.size(), match_ctx);
 
-    // Ensure we have at least one fingerprint for direct (non-HTTP) responses
     if (http_fps.empty() && !response.empty()) {
         HttpFingerprint fp = make_http_fingerprint(response, "final-response", final_ssl);
         if (!fp.title.empty())
@@ -5336,11 +5952,22 @@ capture_done:
         }
     }
 
-    // -- 5. Print result ----------------------------------------------------
+    if (!args.udp && !response.empty() && !terminate_flag)
+        follow_spa_location(ip, args.port, final_ssl, read_to, args.verbose, http_fps);
+
+    bool confirmed_websocket = false;
+    for (const auto &fp : http_fps) {
+        if (fp.status_code == 101 || fp.status_code == 501) {
+            confirmed_websocket =
+                confirm_websocket_upgrade(ip, args.port, final_ssl, read_to, args.verbose);
+            break;
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lk(g_stdout_mu);
         std::cout << std::left << std::setw(7) << target_port << ": ";
-        print_result(result, method_label, http_fps);
+        print_result(result, method_label, http_fps, confirmed_websocket);
     }
     return 0;
 }

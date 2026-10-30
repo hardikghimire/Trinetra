@@ -67,10 +67,6 @@ extern std::vector<int>          global_raw_sockets;
 extern std::vector<io_uring*>    global_uring_rings;
 extern std::vector<std::thread*> global_worker_threads;
 extern std::mutex                global_resources_mutex;
-extern std::atomic<double> g_congestion_ratio;   
-extern std::atomic<size_t> g_ports_in_retry_global;
-extern std::atomic<size_t> g_active_ports_global;
-extern std::atomic<int>    g_dynamic_max_retries; 
 
 struct CongestionTuneConfig {
     uint64_t retry_delay_min_us = 3000;      // --retry-delay-min
@@ -85,13 +81,37 @@ struct CongestionTuneConfig {
     double   buf_peak_factor    = 1.3;       // --buf-peak
     unsigned batch_settle_us    = 500;       // --batch-settle
     size_t   sqpoll_threshold   = 300000;    // --sqpoll-threshold
-    int      min_retries        = 2;         // NEW — floor, no CLI yet
-    int      max_retries        = 5;         // NEW — ceiling, no CLI yet
-    int      dispatch_jitter_floor_ms = 60;  // NEW — RTO floor so internal batch/coalesce
+    int      min_retries        = 2;         // — floor, no CLI yet
+    int      max_retries        = 5;         // — ceiling, no CLI yet
+    int      dispatch_jitter_floor_ms = 60;  // — RTO floor so internal batch/coalesce
                                               // scheduling delay isn't mistaken for a dropped packet
 };
 
 extern CongestionTuneConfig g_cong_tune;
+
+struct RetryBudgetState {
+    std::atomic<double> congestion_ratio{0.0};
+    std::atomic<int>    dynamic_max_retries{2};
+    std::atomic<size_t> ports_in_retry{0};
+    std::atomic<size_t> active_ports{0};
+
+    RetryBudgetState() { dynamic_max_retries.store(g_cong_tune.min_retries); }
+    double update_congestion(double sample) {
+        if (!std::isfinite(sample)) sample = 0.0;
+        sample = std::clamp(sample, 0.0, 1.0);
+        double prev  = congestion_ratio.load(std::memory_order_relaxed);
+        double alpha = (sample > prev) ? g_cong_tune.alpha_up : g_cong_tune.alpha_down;
+        double next  = std::clamp(alpha * sample + (1.0 - alpha) * prev, 0.0, 1.0);
+        if (next < 0.01) next = 0.0;              
+        congestion_ratio.store(next, std::memory_order_relaxed);
+        int span = g_cong_tune.max_retries - g_cong_tune.min_retries;
+        int dyn  = g_cong_tune.min_retries +
+                   static_cast<int>(std::lround(std::pow(next, g_cong_tune.curve_exp) * span));
+        dyn = std::clamp(dyn, g_cong_tune.min_retries, g_cong_tune.max_retries);
+        dynamic_max_retries.store(dyn, std::memory_order_relaxed);
+        return next;
+    }
+};
 void track_raw_socket(int fd);
 void untrack_raw_socket(int fd);
 void track_uring_ring(io_uring* ring);
@@ -285,21 +305,17 @@ struct Ipv6ExtHeaderOptions {
     uint32_t  stop_dest_n = 1;   // --stop dest:2 -> Nth Destination Options occurrence (1-indexed)
 };
 
-// Parses --dest's <option>[:<value>]. Same contract as parse_hop_option().
-
-// Parses --ah's <mode>: yes|badspi|noicv|badlen|seq0
-
-// Parses --esp's <mode>: yes|badpad|badspi|noiv|bad
-
-// Parses --flow's <value>: a 0-1048575 number, "0", "rand", or "inc".
-
-// Maps a --chain custom:... token to its IPPROTO_* value.
-
-// Parses --chain's <option>[:<value>]. Returns false (message on stderr,
-// `out` left untouched) on anything malformed or out of range.
-
-// Parses --stop's <position>[:<value>]. Returns false (message on stderr,
-// `out` left untouched) on anything malformed or out of range.
+inline uint32_t generate_tcp_tsval() {
+    static const uint32_t base_offset = [] {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        return std::uniform_int_distribution<uint32_t>()(gen);
+    }();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now().time_since_epoch())
+                  .count();
+    return base_offset + static_cast<uint32_t>(ms);
+}
 
 struct TcpBuildOptions {
     bool        use_ip_tos              = false;
@@ -310,7 +326,7 @@ struct TcpBuildOptions {
 
     uint8_t     window_scale            = 7;
     uint16_t    mss_value               = 1460;
-    uint32_t    timestamp_val           = 1234567;
+    uint32_t    timestamp_val           = generate_tcp_tsval();
     uint32_t    timestamp_ecr_custom    = 0;
     uint16_t    nops_count              = 0;
     bool        sack_permitted          = true;
@@ -518,7 +534,6 @@ public:
         for (auto it = actions_to_run.rbegin(); it != actions_to_run.rend(); ++it) {
             try {
                 (*it)();
-            // NEW:
 	    } catch (const std::exception& e) {
 	        std::cerr << "RAIIManager cleanup threw: " << e.what() << std::endl;
 	    } catch (...) {
@@ -854,13 +869,30 @@ struct RecPross {
     int closed_ports = 0;
     std::vector<uint16_t> open_ports;
     std::vector<uint16_t> filtered_ports;
-    // Port → ICMP admin-prohibited reason. Only set when reason is known.
-    std::unordered_map<uint16_t, IcmpFilterReason> icmp_filter_reasons;
-    std::vector<std::pair<IcmpFilterReason, std::string>> icmp_warnings;
+    struct IcmpFilterInfo {
+        IcmpFilterReason reason;
+        struct in_addr   replier{};
+    };
+    std::unordered_map<uint16_t, IcmpFilterInfo> icmp_filter_reasons;
+    std::vector<std::tuple<IcmpFilterReason, std::string, struct in_addr>> icmp_warnings;
     std::string mac_address;
     int learned_rtt_ms = 0;
     std::unordered_map<uint16_t, PacketDetails> packet_details;
+    std::unordered_map<uint16_t, PacketDetails> osdetect_details;
     int packets_sent = 0;
+    // ── TX-side drops, one bucket per CAUSE (see TxLossCounters) ─────────
+    uint64_t loss_buffer_pool   = 0;   // pool.acquire() returned null
+    uint64_t loss_build_fail    = 0;   // build_packet() rejected the task
+    uint64_t loss_kernel_reject = 0;   // sendmsg CQE res < 0
+    uint64_t loss_drain_timeout = 0;   // CQE never reaped, buffer stranded
+    uint64_t loss_no_socket     = 0;   // IPv6 task with no v6 socket
+    uint64_t loss_aborted       = 0;   // batch abandoned: abort / submit error
+    // ── RX-side drops, deltas over this scan.  Socket-wide: concurrent
+    //    targets sharing the reader thread will see overlapping numbers.
+    uint64_t rx_kernel_ovfl  = 0;      // SO_RXQ_OVFL — kernel recv buffer full
+    uint64_t rx_cq_overflow  = 0;      // io_uring CQ overflow on the recv ring
+    uint64_t rx_truncated    = 0; 
+    uint64_t rx_slot_starved = 0;      // no free slot, re-arm deferred
     uint8_t received_ttl = 0;
     std::vector<std::pair<int, double>> rtt_debug_entries;
     std::vector<DemuxDebugEntry> demux_debug_entries;
@@ -890,7 +922,7 @@ struct PacketTemplate {
 
 struct PortState {
     uint16_t src_port;uint32_t seq;uint32_t ack_seq;bool connection_established;bool fin_sent;bool fin_ack_received; std::chrono::steady_clock::time_point start_time;int retry_count;int timeout_ms;int retries_cap = 2;
-    bool rtt_measured;std::chrono::steady_clock::time_point syn_sent_time;uint32_t sent_tsval;double ewma_rtt; bool final_state_determined;enum class PortReportedState { None, Open, Closed, Filtered };
+    bool rtt_measured;std::chrono::steady_clock::time_point syn_sent_time;uint32_t sent_tsval;uint32_t tsval_offset;double ewma_rtt; bool final_state_determined;enum class PortReportedState { None, Open, Closed, Filtered };
     PortReportedState reported_state;
     std::array<uint16_t, 6> used_src_ports{};
     std::array<uint8_t, 6>  used_src_port_attempt{}; 
@@ -921,6 +953,17 @@ struct PortState {
         return false;
     }
 };
+
+inline uint16_t pick_unique_ephemeral_port(std::mt19937& rng, uint16_t lo, uint16_t hi,
+                                            const PortState& state, int max_tries = 16) {
+    for (int i = 0; i < max_tries; ++i) {
+        uint16_t candidate = fast_uniform_port(rng, lo, hi);
+        if (!state.accepts_src_port(candidate)) return candidate;
+    }
+    for (uint32_t p = lo; p <= hi; ++p)
+        if (!state.accepts_src_port(static_cast<uint16_t>(p))) return static_cast<uint16_t>(p);
+    return fast_uniform_port(rng, lo, hi);   // range exhausted — statistically unreachable at 5 draws
+}
 
 struct PacketTask {
     sockaddr_in dest; sockaddr_in6 dest6{}; bool is_ipv6 = false; uint16_t src_port;uint32_t seq;uint32_t ack;uint8_t flags;std::string data;std::chrono::steady_clock::time_point syn_sent_time;uint32_t sent_tsval;ScanType scan_type;uint16_t dest_port;
@@ -965,12 +1008,12 @@ struct PacketTask {
         }
     };
     PacketTask()noexcept:dest{},dest6{},is_ipv6(false),src_port(0),seq(0),ack(0),flags(0),data{},syn_sent_time{},sent_tsval(0),scan_type(ScanType::SYN),dest_port(0),timestamp_val(0),timestamp_ecr(0),include_timestamp(false),window_scale(7),mss_value(1460),
-                     custom_timestamp(1234567),timestamp_ecr_custom(0),nops_count(0),sack_permitted(true),custom_data(""),data_length(0),use_custom_data(false),generate_random_data(false),use_badsum(false),custom_badsum_value(0),
+                     custom_timestamp(generate_tcp_tsval()),timestamp_ecr_custom(0),nops_count(0),sack_permitted(true),custom_data(""),data_length(0),use_custom_data(false),generate_random_data(false),use_badsum(false),custom_badsum_value(0),
                      use_partial_badsum(false),partial_badsum_type(""),use_tfo_cookie(false),tfo_cookie_as_hex(false),tfo_cookie_random(false),tfo_cookie_str(""),tfo_cookie_num(0),tfo_cookie_length(0){}
     
     PacketTask(const sockaddr_in& d, uint16_t sp, uint32_t s, uint32_t a, uint8_t f,
                std::string&& dat, std::chrono::steady_clock::time_point sst,uint32_t stv, ScanType type, uint32_t tsval = 0, uint32_t tsecr = 0,
-               bool inc_ts = false, uint8_t ws = 7, uint16_t mss = 1460,uint32_t custom_ts = 1234567, uint32_t tsecr_custom = 0,
+               bool inc_ts = false, uint8_t ws = 7, uint16_t mss = 1460,uint32_t custom_ts = generate_tcp_tsval(), uint32_t tsecr_custom = 0,
                uint16_t nops = 0, bool sack = true, const std::string& cdata = "",uint16_t dlen = 0, bool use_cdata = false, bool gen_random = false,
                bool use_bad = false, uint16_t custom_badsum_val = 0,bool use_partial_bad = false, const std::string& partial_bad_type = "",
                bool use_tfo = false, bool tfo_as_hex = false, bool tfo_random = false,const std::string& tfo_str = "", uint64_t tfo_num = 0, size_t tfo_len = 0) noexcept
@@ -981,7 +1024,7 @@ struct PacketTask {
           use_tfo_cookie(use_tfo),tfo_cookie_as_hex(tfo_as_hex),tfo_cookie_random(tfo_random),tfo_cookie_str(tfo_str),tfo_cookie_num(tfo_num),tfo_cookie_length(tfo_len) {}
     PacketTask(const sockaddr_in6& d6, uint16_t sp, uint32_t s, uint32_t a, uint8_t f,
                std::string&& dat, std::chrono::steady_clock::time_point sst,uint32_t stv, ScanType type, uint32_t tsval = 0, uint32_t tsecr = 0,
-               bool inc_ts = false, uint8_t ws = 7, uint16_t mss = 1460,uint32_t custom_ts = 1234567, uint32_t tsecr_custom = 0,
+               bool inc_ts = false, uint8_t ws = 7, uint16_t mss = 1460,uint32_t custom_ts = generate_tcp_tsval(), uint32_t tsecr_custom = 0,
                uint16_t nops = 0, bool sack = true, const std::string& cdata = "",uint16_t dlen = 0, bool use_cdata = false, bool gen_random = false,
                bool use_bad = false, uint16_t custom_badsum_val = 0,bool use_partial_bad = false, const std::string& partial_bad_type = "",
                bool use_tfo = false, bool tfo_as_hex = false, bool tfo_random = false,const std::string& tfo_str = "", uint64_t tfo_num = 0, size_t tfo_len = 0) noexcept
@@ -1104,6 +1147,24 @@ uint32_t get_local_ip(const char *remote_ip);
 bool set_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4], const uint8_t mac[6]);
 void delete_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4]);
 
+// ── TX-side loss accounting ───────────────────────────────────────────────
+// Every path in send_tcp_packets() that destroys a packet increments exactly
+// one of these.  Buckets are named for the CAUSE, not the symptom, so the
+// incident report points at the thing you actually need to fix.
+//
+// NOTE ON UNITS: in the fragmented path (--frag*) `kernel_reject`, `aborted`
+// and `drain_timeout` count FRAGMENTS, because that is the granularity of a
+// sendmsg there.  `buffer_pool`, `build_fail` and `no_socket` always count
+// whole packets.  Don't mix them without saying which you mean.
+struct TxLossCounters {
+    std::atomic<uint64_t> buffer_pool   {0}; // pool.acquire() returned null
+    std::atomic<uint64_t> build_fail    {0}; // build_packet() rejected the task
+    std::atomic<uint64_t> kernel_reject {0}; // sendmsg CQE res < 0
+    std::atomic<uint64_t> drain_timeout {0}; // CQE never reaped, buffer stranded
+    std::atomic<uint64_t> no_socket     {0}; // IPv6 task with sock6 < 0
+    std::atomic<uint64_t> aborted       {0}; // terminate / submit error / no ring
+};
+
 int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_ip, 
                      std::mt19937 &rng, PacketBufferPool &pool, uint16_t win_size,
                      struct io_uring *send_ring, size_t batch_size, uint8_t custom_ttl,
@@ -1112,9 +1173,12 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                      const TcpBuildOptions& opts,
                      bool frag_out_of_order = false, bool frag_overlap = false,
                      uint16_t frag_overlap_bytes = 0, bool frag_zof = false,
-                     std::function<void(const std::vector<uint16_t>&,const std::vector<uint16_t>&)> on_pre_submit = nullptr,
+                     std::function<void(const std::vector<uint16_t>&,
+                                        const std::vector<uint16_t>&,
+                                        bool, bool)> on_pre_submit = nullptr,
                      uint64_t* out_bytes_sent = nullptr, bool debug_send = false,
-                     int sock6 = -1, const uint8_t* src_ip6 = nullptr);
+                     int sock6 = -1, const uint8_t* src_ip6 = nullptr,
+                     TxLossCounters* txloss = nullptr);
                      
 
 struct SlotMeta {
@@ -1152,7 +1216,7 @@ inline IPv6Key make_ipv6_key(const struct in6_addr& a) {
 }
 
 struct RawPacket {
-    static constexpr size_t MAX_LEN = 2048;
+    static constexpr size_t MAX_LEN = 16384;
     enum class PktType : uint8_t { TCP = 0, ICMP = 1, TCP6 = 2, ICMPV6 = 3 } pkt_type = PktType::TCP;
 
     uint8_t  data[MAX_LEN];
@@ -1162,7 +1226,7 @@ struct RawPacket {
 
 struct GlobalRecvCtx {
     int                      tcp_sock    = -1;
-    int                      icmp_sock   = -1;   // NEW: ICMP recv merged into ring
+    int                      icmp_sock   = -1;   // ICMP recv merged into ring
     int                      tcp6_sock   = -1;   // IPv6 TCP raw recv, -1 if v6 unused
     int                      icmpv6_sock = -1;   // IPv6 ICMP raw recv, -1 if v6 unused
     struct io_uring          ring{};
@@ -1195,6 +1259,14 @@ struct GlobalRecvCtx {
     std::array<struct msghdr,      N_ICMPV6_SLOTS>         icmpv6_msgs{};
     std::array<struct sockaddr_in6,N_ICMPV6_SLOTS>         icmpv6_src_addrs{};
     std::array<socklen_t,          N_ICMPV6_SLOTS>         icmpv6_src_lens{};
+    // Ancillary-data buffers for SO_RXQ_OVFL on the ICMP sockets.  64 bytes
+    // is comfortably more than CMSG_SPACE(sizeof(uint32_t)) needs.
+    std::array<std::array<uint8_t, 64>, N_ICMP_SLOTS>   icmp_cmsg_bufs{};
+    std::array<std::array<uint8_t, 64>, N_ICMPV6_SLOTS> icmpv6_cmsg_bufs{};
+    std::vector<uint8_t>     slot_armed;
+    std::vector<uint8_t>     slot6_armed;
+    std::array<uint8_t, N_ICMP_SLOTS>   icmp_armed{};
+    std::array<uint8_t, N_ICMPV6_SLOTS> icmpv6_armed{};
 
     // ip (network byte order) → index into results vector
     std::unordered_map<uint32_t, size_t> ip_to_idx;
@@ -1211,6 +1283,13 @@ struct GlobalRecvCtx {
     std::thread       reader_thread;
     std::atomic<bool> reader_started{false};
     std::atomic<bool> reader_stop{false};
+    std::atomic<uint64_t> rx_kernel_ovfl_v4   {0};  // SO_RXQ_OVFL, tcp_sock
+    std::atomic<uint64_t> rx_kernel_ovfl_v6   {0};  // SO_RXQ_OVFL, tcp6_sock
+    std::atomic<uint64_t> rx_kernel_ovfl_icmp {0};  // SO_RXQ_OVFL, icmp_sock
+    std::atomic<uint64_t> rx_kernel_ovfl_icmp6{0};  // SO_RXQ_OVFL, icmpv6_sock
+    std::atomic<uint64_t> rx_cq_overflow {0};  // io_uring CQ overflow
+    std::atomic<uint64_t> rx_truncated   {0};
+    std::atomic<uint64_t> rx_slot_starved{0};  // no free slot on re-arm
 
     moodycamel::ConcurrentQueue<RawPacket>* queue_for(uint32_t src_addr) {
         auto it = target_queues.find(src_addr);
@@ -1331,7 +1410,7 @@ struct RTTTracker {
         int base_rtt = current_rtt_ms.load();
         int rttvar   = rtt_var_ms.load();
         int rto      = base_rtt + g_cong_tune.rto_mult * rttvar;      // Jacobson/Karels RTO
-        rto = std::max(rto, g_cong_tune.dispatch_jitter_floor_ms);    // NEW — never let the RTO
+        rto = std::max(rto, g_cong_tune.dispatch_jitter_floor_ms);    // never let the RTO
                                                                        // collapse below our own
                                                                        // batch/coalesce latency
         if (retry_count <= 0) return rto;
@@ -1352,7 +1431,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                       ScanType scan_type, uint8_t custom_ttl, uint8_t custom_dscp, 
                       uint16_t custom_ip_flags, IpIdMode ip_id_mode, uint16_t fixed_ip_id,
                       const TcpBuildOptions& opts,
-                      RTTTracker& shared_rtt_tracker,
+                      RTTTracker& shared_rtt_tracker,RetryBudgetState& retry_budget,
                       bool debug_rtt = false, bool debug_ttl = false, bool debug_demux = false, bool debug_strack = false,
                       bool frag_out_of_order = false, bool frag_overlap = false,
                       uint16_t frag_overlap_bytes = 0, bool frag_zof = false,

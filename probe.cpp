@@ -8,9 +8,11 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <new>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <strings.h>
 #include <unordered_set>
 #include <vector>
 #include <fcntl.h>
@@ -61,7 +63,8 @@ static bool cstring_unescape(char *str, unsigned int *len) {
             case 'x': {
                 src++;
                 if (!isxdigit((unsigned char)*src)) return false;
-                char hi = *src++; if (!isxdigit((unsigned char)*src)) return false;
+                char hi = *src++;
+                if (!isxdigit((unsigned char)*src)) return false;
                 char lo = *src;
                 auto hex = [](char c) -> int {
                     if (c >= '0' && c <= '9') return c - '0';
@@ -81,6 +84,8 @@ static bool cstring_unescape(char *str, unsigned int *len) {
 }
 
 
+/* ═══════════════════════════ ExcludedPorts ═══════════════════════════ */
+
 bool ExcludedPorts::contains(u16 port, int proto) const {
     const std::vector<u16> *v = nullptr;
     if      (proto == IPPROTO_TCP)  v = &tcp_ports;
@@ -91,65 +96,58 @@ bool ExcludedPorts::contains(u16 port, int proto) const {
 }
 
 void ExcludedPorts::parse(const std::string &spec) {
+    /* Grammar: item (',' item)*, item := [T:|U:|S:] port | port '-' port.
+     * A protocol prefix stays in force for the following items until replaced.
+     * (The previous parser dropped every item after the first one that followed
+     * a comma, e.g. "T:80,443,U:53" kept only 80.) */
+    int forced_proto = -1;                       /* -1 = all protocols */
     const char *p = spec.c_str();
+
+    auto add = [&](std::vector<u16> &v, long port) {
+        u16 pp = (u16)port;
+        if (std::find(v.begin(), v.end(), pp) == v.end()) v.push_back(pp);
+    };
+
     while (*p) {
-        /* Skip leading whitespace between segments */
-        while (*p && isspace((unsigned char)*p)) p++;
+        while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
         if (!*p) break;
 
-        /* Detect optional protocol prefix */
-        int forced_proto = -1;
-        if ((p[0]=='T'||p[0]=='t') && p[1]==':') { forced_proto = IPPROTO_TCP;  p += 2; }
-        else if ((p[0]=='U'||p[0]=='u') && p[1]==':') { forced_proto = IPPROTO_UDP;  p += 2; }
-        else if ((p[0]=='S'||p[0]=='s') && p[1]==':') { forced_proto = IPPROTO_SCTP; p += 2; }
-
-        /* Parse the port list that follows this prefix */
-        bool parsed_any = false;
-        while (*p) {
-            while (*p && isspace((unsigned char)*p)) p++;
-            if (!isdigit((unsigned char)*p)) break;
-
-            char *ep;
-            long lo = strtol(p, &ep, 10); p = ep;
-            long hi = lo;
-            if (*p == '-') { p++; hi = strtol(p, &ep, 10); p = ep; }
-
-            for (long port = lo; port <= hi && port <= 65535; port++) {
-                auto add = [&](std::vector<u16> &v) {
-                    u16 pp = (u16)port;
-                    if (std::find(v.begin(), v.end(), pp) == v.end()) v.push_back(pp);
-                };
-                if (forced_proto == IPPROTO_TCP  || forced_proto == -1) add(tcp_ports);
-                if (forced_proto == IPPROTO_UDP  || forced_proto == -1) add(udp_ports);
-                if (forced_proto == IPPROTO_SCTP || forced_proto == -1) add(sctp_ports);
-            }
-            parsed_any = true;
-
-            while (*p && isspace((unsigned char)*p)) p++;
-
-            if (*p == ',') {
-                p++;
-                break;
-            }
-            break;
+        if (p[1] == ':' && (p[0]=='T'||p[0]=='t'||p[0]=='U'||p[0]=='u'||p[0]=='S'||p[0]=='s')) {
+            char c = (char)toupper((unsigned char)p[0]);
+            forced_proto = (c == 'T') ? IPPROTO_TCP : (c == 'U') ? IPPROTO_UDP : IPPROTO_SCTP;
+            p += 2;
+            continue;
         }
-        (void)parsed_any;
-        if (*p && *p != ',') break;
-        if (*p == ',') p++; 
+
+        if (!isdigit((unsigned char)*p)) { p++; continue; }   /* skip junk, always make progress */
+
+        char *ep = nullptr;
+        long lo = strtol(p, &ep, 10);
+        p = ep;
+        long hi = lo;
+        if (*p == '-') {
+            p++;
+            if (isdigit((unsigned char)*p)) { hi = strtol(p, &ep, 10); p = ep; }
+        }
+        if (lo < 0 || lo > 65535 || hi < lo) continue;
+        if (hi > 65535) hi = 65535;
+
+        for (long port = lo; port <= hi; port++) {
+            if (forced_proto == IPPROTO_TCP  || forced_proto == -1) add(tcp_ports,  port);
+            if (forced_proto == IPPROTO_UDP  || forced_proto == -1) add(udp_ports,  port);
+            if (forced_proto == IPPROTO_SCTP || forced_proto == -1) add(sctp_ports, port);
+        }
     }
 }
 
 
-ServiceProbeMatch::ServiceProbeMatch() {
-    /* CONCURRENCY FIX: the i_* and md_return_ result buffers used to live
-     * here and were zeroed in this constructor. They now live inside
-     * MatchScratch (see probe.h), are zero-initialized there via in-class
-     * initializers, and are allocated lazily per-thread in getScratch(), so
-     * there is nothing left for this constructor to zero. */
-}
+/* ═══════════════════════════ ServiceProbeMatch ═══════════════════════ */
+
+ServiceProbeMatch::ServiceProbeMatch() = default;
 
 ServiceProbeMatch::~ServiceProbeMatch() {
     if (!initialized_) return;
+    free(servicename_);
     free(matchstr_);
     free(tmpl_product_);
     free(tmpl_version_);
@@ -159,7 +157,7 @@ ServiceProbeMatch::~ServiceProbeMatch() {
     free(tmpl_devicetype_);
     for (char *c : tmpl_cpe_) free(c);
     if (regex_) { pcre2_code_free(regex_); regex_ = nullptr; }
-
+    if (pcre2_code *jc = jit_regex_.load()) { pcre2_code_free(jc); }
 }
 
 bool ServiceProbeMatch::nextTemplate(const char **matchtext,
@@ -174,18 +172,16 @@ bool ServiceProbeMatch::nextTemplate(const char **matchtext,
     for (; i < 3 && isalpha((unsigned char)p[i]); i++)
         modestr[i] = p[i];
 
-    const char *q = p + i;   
+    const char *q = p + i;
 
     if (strcmp(modestr, "cpe") == 0 && *q == ':') {
         q++;
         if (*q != '/')
             fatal("parse error (cpe expects '/' after ':') on line %d", lineno);
-     
         p = q + 1;
     } else {
         if (*q == '\0' || isspace((unsigned char)*q))
             fatal("parse error (bare word '%s') on line %d", modestr, lineno);
-        /* For non-cpe modes q is the delimiter, p is the content start. */
         p = q + 1;
     }
 
@@ -193,7 +189,7 @@ bool ServiceProbeMatch::nextTemplate(const char **matchtext,
     const char *scan = p;
     while (*scan) {
         if (*scan == '\\' && *(scan + 1) != '\0') {
-            scan += 2;  
+            scan += 2;
             continue;
         }
         if (*scan == delimchar) break;
@@ -204,7 +200,6 @@ bool ServiceProbeMatch::nextTemplate(const char **matchtext,
 
     *tmplt = cp_strndup(p, scan - p);
 
-    /* Flags after closing delimiter */
     p = scan + 1;
     memset(flags, 0, 4);
     for (i = 0; i < 3 && isalpha((unsigned char)p[i]); i++)
@@ -219,9 +214,32 @@ bool ServiceProbeMatch::nextTemplate(const char **matchtext,
     return true;
 }
 
+/* True if the pattern has an alternation ('|') outside any group or class. A
+ * literal prefix must not be extracted from such a pattern: "^abc|def" can match
+ * "def" anywhere. */
+static bool has_toplevel_alternation(const char *p) {
+    int depth = 0;
+    bool in_class = false;
+    for (; *p; ++p) {
+        if (*p == '\\') { if (p[1]) ++p; continue; }
+        if (in_class) { if (*p == ']') in_class = false; continue; }
+        if (*p == '[') {
+            in_class = true;
+            if (p[1] == '^') ++p;
+            if (p[1] == ']') ++p;
+            continue;
+        }
+        if (*p == '(') ++depth;
+        else if (*p == ')') { if (depth > 0) --depth; }
+        else if (*p == '|' && depth == 0) return true;
+    }
+    return false;
+}
+
 static bool extract_anchor_literal_prefix(const char *pattern, bool caseless,
                                           std::string &out) {
     if (!pattern || pattern[0] != '^') return false;
+    if (has_toplevel_alternation(pattern)) return false;
     const char *p = pattern + 1;
     std::string lit;
     while (*p) {
@@ -247,17 +265,21 @@ static bool extract_anchor_literal_prefix(const char *pattern, bool caseless,
                     return false;   // \d \s \w \b etc. — genuinely not literal
             }
         }
-        if (strchr(".^$*+?()[]{}|", c)) break;   // metachar — stop, keep what we have
+        if (strchr(".^$*+?()[]{}|", c)) {
+            /* A quantifier that allows zero repetitions applies to the character
+             * just before it, so that character is not guaranteed to be present. */
+            if ((c == '*' || c == '?' || c == '{') && !lit.empty()) lit.pop_back();
+            break;
+        }
         lit += c;
         p++;
     }
-    if (lit.size() < 3) return false;            // too short to be worth filtering on
+    if (lit.size() < 3) return false;
     if (caseless) for (char &ch : lit) ch = (char)tolower((unsigned char)ch);
     out = std::move(lit);
     return true;
 }
 
-/* ── Main initialiser ────────────────────────────────────────────── */
 void ServiceProbeMatch::init(const char *matchtext, int lineno) {
     if (initialized_)
         fatal("%s: already initialised", __func__);
@@ -303,44 +325,32 @@ void ServiceProbeMatch::init(const char *matchtext, int lineno) {
     while (nextTemplate(&matchtext, modestr, &tmp, flags, lineno)) {
         char **dest = nullptr;
 
-        uint32_t key = (uint32_t)(unsigned char)modestr[0]
-                     | ((uint32_t)(unsigned char)modestr[1] << 8)
-                     | ((uint32_t)(unsigned char)modestr[2] << 16)
-                     | ((uint32_t)(unsigned char)modestr[3] << 24);
-
-        /* Single-letter keys */
-        switch ((char)modestr[0]) {
-            case 'p': if (modestr[1]=='\0') { dest = &tmpl_product_;    goto assign; } break;
-            case 'v': if (modestr[1]=='\0') { dest = &tmpl_version_;    goto assign; } break;
-            case 'i': if (modestr[1]=='\0') { dest = &tmpl_info_;       goto assign; } break;
-            case 'h': if (modestr[1]=='\0') { dest = &tmpl_hostname_;   goto assign; } break;
-            case 'o': if (modestr[1]=='\0') { dest = &tmpl_ostype_;     goto assign; } break;
-            case 'd': if (modestr[1]=='\0') { dest = &tmpl_devicetype_; goto assign; } break;
-            default: break;
-        }
-
-        /* Three-letter key "cpe" */
-        if (modestr[0]=='c' && modestr[1]=='p' && modestr[2]=='e' && modestr[3]=='\0') {
+        if (modestr[1] == '\0') {
+            switch (modestr[0]) {
+                case 'p': dest = &tmpl_product_;    break;
+                case 'v': dest = &tmpl_version_;    break;
+                case 'i': dest = &tmpl_info_;       break;
+                case 'h': dest = &tmpl_hostname_;   break;
+                case 'o': dest = &tmpl_ostype_;     break;
+                case 'd': dest = &tmpl_devicetype_; break;
+                default: break;
+            }
+        } else if (strcmp(modestr, "cpe") == 0) {
             tmpl_cpe_.push_back(tmp);
             tmp = nullptr;
             continue;
         }
 
-        /* Unknown */
-        free(tmp); tmp = nullptr;
-        fatal("%s: unknown template specifier '%s' (line %d)", __func__, modestr, lineno);
-
-    assign:
-        if (dest) {
-            if (*dest) free(*dest);
-            *dest = tmp;
-            tmp   = nullptr;
+        if (!dest) {
+            free(tmp); tmp = nullptr;
+            fatal("%s: unknown template specifier '%s' (line %d)", __func__, modestr, lineno);
         }
-        (void)key;
+        if (*dest) free(*dest);
+        *dest = tmp;
+        tmp   = nullptr;
     }
 }
 
-/* ── CPE URL character transformer ──────────────────────────────── */
 char *ServiceProbeMatch::transformCPE(const char *s) {
     std::string out;
     out.reserve(strlen(s) * 2);
@@ -369,8 +379,8 @@ struct SubstArgs {
     int  int_args[5]      = {};
 };
 
-static int parseSubstArgs(SubstArgs *args, char *p, char **end) {
-    memset(args, 0, sizeof(*args));
+static int parseSubstArgs(SubstArgs *args, const char *p, const char **end) {
+    *args = SubstArgs{};
     while (*p && *p != ')') {
         while (isspace((unsigned char)*p)) p++;
         if (*p == ')') break;
@@ -381,11 +391,11 @@ static int parseSubstArgs(SubstArgs *args, char *p, char **end) {
             int len = 0;
             p++;
             while (*p) {
-                if (*p == '"' && *(p - 1) != '\\') break;   /* safe: p > start */
+                if (*p == '"' && *(p - 1) != '\\') break;
                 if (len >= 127) return -1;
                 args->str_args[idx][len++] = *p++;
             }
-            if (*p == '"') p++;   /* consume closing '"' */
+            if (*p == '"') p++;
             args->str_args[idx][len] = '\0';
             unsigned int ulen = (unsigned int)len;
             cstring_unescape(args->str_args[idx], &ulen);
@@ -414,8 +424,15 @@ static int parseSubstArgs(SubstArgs *args, char *p, char **end) {
     return args->num_args;
 }
 
+static char *empty_cstr() {
+    char *e = (char *)malloc(1);
+    if (!e) throw std::bad_alloc();
+    e[0] = '\0';
+    return e;
+}
+
 char *ServiceProbeMatch::substVar(const char *tmplvar, const char **tmplvarend,
-                                   const u8 *subject, size_t subjectlen,
+                                   const u8 *subject, size_t /*subjectlen*/,
                                    pcre2_match_data *md) {
     if (*tmplvar != '$') return nullptr;
     tmplvar++;
@@ -425,15 +442,14 @@ char *ServiceProbeMatch::substVar(const char *tmplvar, const char **tmplvarend,
     SubstArgs args;
 
     if (!isdigit((unsigned char)*tmplvar)) {
-        char *lp = strchr(const_cast<char *>(tmplvar), '(');
+        const char *lp = strchr(tmplvar, '(');
         if (!lp) return nullptr;
         int cmdlen = (int)(lp - tmplvar);
         if (cmdlen <= 0 || cmdlen >= (int)sizeof(substcmd)) return nullptr;
         memcpy(substcmd, tmplvar, cmdlen);
         substcmd[cmdlen] = '\0';
-        char *after_args = lp + 1;
-        char *ep;
-        if (parseSubstArgs(&args, after_args, &ep) < 0) return nullptr;
+        const char *ep = nullptr;
+        if (parseSubstArgs(&args, lp + 1, &ep) < 0) return nullptr;
         tmplvar = ep;
     } else {
         subnum  = (u8)(*tmplvar - '0');
@@ -441,10 +457,9 @@ char *ServiceProbeMatch::substVar(const char *tmplvar, const char **tmplvarend,
     }
     if (tmplvarend) *tmplvarend = tmplvar;
 
-    u32        ncap = pcre2_get_ovector_count(md);
-    PCRE2_SIZE *ov  = pcre2_get_ovector_pointer(md);
+    u32         ncap = pcre2_get_ovector_count(md);
+    PCRE2_SIZE *ov   = pcre2_get_ovector_pointer(md);
 
-    /* Returns false and sets os=oe=PCRE2_UNSET when group didn't match */
     auto getCapture = [&](int n, PCRE2_SIZE &os, PCRE2_SIZE &oe) -> bool {
         if (n <= 0 || n > 9 || (u32)n >= ncap) return false;
         os = ov[n * 2];
@@ -455,40 +470,24 @@ char *ServiceProbeMatch::substVar(const char *tmplvar, const char **tmplvarend,
     std::string result;
 
     if (substcmd[0] == '\0') {
-        /* $N */
         PCRE2_SIZE os, oe;
-        if (!getCapture((int)subnum, os, oe)) {
-            /* FIX #6: unset optional group → return empty string, not nullptr */
-            char *empty = (char *)malloc(1);
-            if (empty) empty[0] = '\0';
-            return empty;
-        }
+        if (!getCapture((int)subnum, os, oe)) return empty_cstr();
         result.assign((const char *)subject + os, oe - os);
 
     } else if (strcmp(substcmd, "P") == 0) {
-        /* $P(N) — printable chars only */
         if (args.num_args != 1 || args.types[0] != SubstArgs::Type::Int) return nullptr;
         PCRE2_SIZE os, oe;
-        if (!getCapture(args.int_args[0], os, oe)) {
-            char *empty = (char *)malloc(1);
-            if (empty) empty[0] = '\0';
-            return empty;
-        }
+        if (!getCapture(args.int_args[0], os, oe)) return empty_cstr();
         for (PCRE2_SIZE i = os; i < oe; i++)
             if (isprint((int)subject[i])) result += (char)subject[i];
 
     } else if (strcmp(substcmd, "SUBST") == 0) {
-        /* $SUBST(N,"find","replace") */
         if (args.num_args != 3
             || args.types[0] != SubstArgs::Type::Int
             || args.types[1] != SubstArgs::Type::String
             || args.types[2] != SubstArgs::Type::String) return nullptr;
         PCRE2_SIZE os, oe;
-        if (!getCapture(args.int_args[0], os, oe)) {
-            char *empty = (char *)malloc(1);
-            if (empty) empty[0] = '\0';
-            return empty;
-        }
+        if (!getCapture(args.int_args[0], os, oe)) return empty_cstr();
         const char *find = args.str_args[1]; int flen = args.str_lens[1];
         const char *repl = args.str_args[2]; int rlen = args.str_lens[2];
         for (PCRE2_SIZE i = os; i < oe; ) {
@@ -501,17 +500,12 @@ char *ServiceProbeMatch::substVar(const char *tmplvar, const char **tmplvarend,
         }
 
     } else if (strcmp(substcmd, "I") == 0) {
-        /* $I(N,">"/"<") — parse unsigned int big/little-endian */
         if (args.num_args != 2
             || args.types[0] != SubstArgs::Type::Int
             || args.types[1] != SubstArgs::Type::String
             || args.str_lens[1] != 1) return nullptr;
         PCRE2_SIZE os, oe;
-        if (!getCapture(args.int_args[0], os, oe)) {
-            char *empty = (char *)malloc(1);
-            if (empty) empty[0] = '\0';
-            return empty;
-        }
+        if (!getCapture(args.int_args[0], os, oe)) return empty_cstr();
         if (oe - os > 8) return nullptr;
         bool big = (args.str_args[1][0] == '>');
         uint64_t val = 0;
@@ -533,7 +527,6 @@ char *ServiceProbeMatch::substVar(const char *tmplvar, const char **tmplvarend,
     return out;
 }
 
-/* ── doTmplSubst — walk a template string and substitute $N / $CMD ─ */
 int ServiceProbeMatch::doTmplSubst(const u8 *subject, size_t subjectlen,
                                     pcre2_match_data *md,
                                     const char *tmpl, char *out, int outlen,
@@ -571,19 +564,15 @@ int ServiceProbeMatch::doTmplSubst(const u8 *subject, size_t subjectlen,
     }
     *dst = '\0';
 
-    /* Strip trailing whitespace and commas */
-    while (--dst >= out && (isspace((unsigned char)*dst) || *dst == ','))
-        *dst = '\0';
+    /* Strip trailing whitespace and commas (index-based: never forms a pointer
+     * before the start of the buffer). */
+    size_t n = (size_t)(dst - out);
+    while (n > 0 && (isspace((unsigned char)out[n - 1]) || out[n - 1] == ',')) out[--n] = '\0';
     return 0;
 }
 
 int ServiceProbeMatch::fillVersionStr(const u8 *subject, size_t subjectlen,
                                        MatchScratch &scratch) {
-    /* CONCURRENCY FIX: write into the caller's thread-local scratch buffers
-     * (scratch.i_*), never into shared per-instance state. getScratch() hands
-     * each thread its own MatchScratch for a given ServiceProbeMatch*, so two
-     * threads matching the same template concurrently no longer alias the
-     * same i_product/i_version/... memory. */
     pcre2_match_data *mdata = scratch.mdata;
     scratch.i_product[0] = scratch.i_version[0] = scratch.i_info[0] = '\0';
     scratch.i_hostname[0] = scratch.i_ostype[0] = scratch.i_devicetype[0] = '\0';
@@ -624,14 +613,12 @@ int ServiceProbeMatch::fillVersionStr(const u8 *subject, size_t subjectlen,
             continue;
         }
 
-        /* Prepend "cpe:/" to produce the full CPE URI. */
-        int prefix_len = 5; /* strlen("cpe:/") */
-        int body_len   = (int)strlen(body);
+        const int prefix_len = 5; /* strlen("cpe:/") */
+        int body_len = (int)strlen(body);
         if (prefix_len + body_len < dlen) {
             memcpy(dest, "cpe:/", prefix_len);
             memcpy(dest + prefix_len, body, body_len + 1);
         } else {
-            /* Truncate gracefully */
             memcpy(dest, "cpe:/", prefix_len);
             memcpy(dest + prefix_len, body, dlen - prefix_len - 1);
             dest[dlen - 1] = '\0';
@@ -642,29 +629,28 @@ int ServiceProbeMatch::fillVersionStr(const u8 *subject, size_t subjectlen,
 
 static constexpr int kJitAfterHits = 2;
 
-static char        g_pcre2_arena[64 * 1024 * 1024];  
+/* ── PCRE2 arena allocator ──────────────────────────────────────────
+ * Compiled patterns live for the whole process and are never individually
+ * released, so a bump allocator keeps them contiguous and cheap. Anything that
+ * does not fit (or any pointer outside the arena) falls back to malloc/free. */
+static char         g_pcre2_arena[64 * 1024 * 1024];
 static size_t       g_pcre2_arena_used = 0;
 static std::mutex   g_pcre2_arena_mu;
-static std::atomic<size_t> g_pcre2_arena_overflow_bytes{0};
-static std::atomic<size_t> g_pcre2_arena_overflow_calls{0};
 
-
-static void *pcre2_arena_malloc(size_t size, void*) {
+static void *pcre2_arena_malloc(size_t size, void *) {
     std::lock_guard<std::mutex> lock(g_pcre2_arena_mu);
-    size_t aligned = (size + 15) & ~size_t(15);   // 16-byte align
-    if (g_pcre2_arena_used + aligned <= sizeof(g_pcre2_arena)) {
+    size_t aligned = (size + 15) & ~size_t(15);
+    if (aligned >= size && g_pcre2_arena_used + aligned <= sizeof(g_pcre2_arena)) {
         void *p = g_pcre2_arena + g_pcre2_arena_used;
         g_pcre2_arena_used += aligned;
         return p;
     }
-    g_pcre2_arena_overflow_bytes += aligned;
-    g_pcre2_arena_overflow_calls += 1;
-    return malloc(size);  
+    return malloc(size);
 }
 
-static void pcre2_arena_free(void *ptr, void*) {
-    if (ptr < (void*)g_pcre2_arena ||
-        ptr >= (void*)(g_pcre2_arena + sizeof(g_pcre2_arena))) {
+static void pcre2_arena_free(void *ptr, void *) {
+    if (ptr < (void *)g_pcre2_arena ||
+        ptr >= (void *)(g_pcre2_arena + sizeof(g_pcre2_arena))) {
         free(ptr);
     }
 }
@@ -674,38 +660,57 @@ static pcre2_general_context *g_pcre2_gctx =
 static pcre2_compile_context *g_pcre2_cctx =
     pcre2_compile_context_create(g_pcre2_gctx);
 
+static pcre2_code *compile_pattern(const char *pattern, bool caseless, bool dotall,
+                                   int *errcode, PCRE2_SIZE *erroffset) {
+    uint32_t opts = 0;
+    if (caseless) opts |= PCRE2_CASELESS;
+    if (dotall)   opts |= PCRE2_DOTALL;
+    return pcre2_compile((PCRE2_SPTR8)pattern, PCRE2_ZERO_TERMINATED, opts,
+                         errcode, erroffset, g_pcre2_cctx);
+}
 
-void ServiceProbeMatch::ensureCompiled() {
-    if (compiled_.load(std::memory_order_acquire)) return;
+bool ServiceProbeMatch::ensureCompiled() {
+    if (compiled_.load(std::memory_order_acquire)) return true;
+    if (compile_failed_.load(std::memory_order_acquire)) return false;
 
     std::lock_guard<std::mutex> lock(compile_mu_);
-    if (compiled_.load(std::memory_order_relaxed)) return;   // double-check under lock
-
-    uint32_t opts = 0;
-    if (flag_i_) opts |= PCRE2_CASELESS;
-    if (flag_s_) opts |= PCRE2_DOTALL;
+    if (compiled_.load(std::memory_order_relaxed)) return true;
+    if (compile_failed_.load(std::memory_order_relaxed)) return false;
 
     int        errcode   = 0;
     PCRE2_SIZE erroffset = 0;
-    regex_ = pcre2_compile((PCRE2_SPTR8)matchstr_, PCRE2_ZERO_TERMINATED,
-                           opts, &errcode, &erroffset, g_pcre2_cctx);
-    if (!regex_)
-        fatal("%s: illegal regex on line %d (offset %zu, code %d): %s",
-              __func__, deflineno_, (size_t)erroffset, errcode, matchstr_);
-
+    regex_ = compile_pattern(matchstr_, flag_i_, flag_s_, &errcode, &erroffset);
+    if (!regex_) {
+        /* A bad pattern in the probe file must not take the scanner down from a
+         * worker thread: report it once and treat the template as never matching. */
+        PCRE2_UCHAR msg[256] = {};
+        pcre2_get_error_message(errcode, msg, sizeof(msg));
+        logError("illegal regex on line %d (offset %zu): %s -- template disabled: '%s'",
+                 deflineno_, (size_t)erroffset, (const char *)msg, matchstr_);
+        compile_failed_.store(true, std::memory_order_release);
+        return false;
+    }
     compiled_.store(true, std::memory_order_release);
+    return true;
 }
 
-void ServiceProbeMatch::ensureJitCompiled() {
+void ServiceProbeMatch::maybeJitCompile() {
     if (jit_attempted_.load(std::memory_order_acquire)) return;
 
     int hits = hit_count_.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (hits <= kJitAfterHits) return;   // still cheap to interpret -- not worth JIT yet
+    if (hits <= kJitAfterHits) return;   // cheap to interpret -- not worth JIT yet
 
     std::lock_guard<std::mutex> lock(jit_compile_mu_);
-    if (jit_attempted_.load(std::memory_order_relaxed)) return;   // double-check under lock
-    if (pcre2_jit_compile(regex_, PCRE2_JIT_COMPLETE) == 0) {
-        jit_ready_ = true;
+    if (jit_attempted_.load(std::memory_order_relaxed)) return;
+
+    int        errcode   = 0;
+    PCRE2_SIZE erroffset = 0;
+    pcre2_code *jc = compile_pattern(matchstr_, flag_i_, flag_s_, &errcode, &erroffset);
+    if (jc) {
+        if (pcre2_jit_compile(jc, PCRE2_JIT_COMPLETE) == 0)
+            jit_regex_.store(jc, std::memory_order_release);   // publish only a finished object
+        else
+            pcre2_code_free(jc);
     }
     jit_attempted_.store(true, std::memory_order_release);
 }
@@ -717,71 +722,58 @@ ServiceProbeMatch::MatchScratch::~MatchScratch() {
 }
 
 ServiceProbeMatch::MatchScratch &ServiceProbeMatch::getScratch() {
-    thread_local std::unordered_map<const ServiceProbeMatch *, MatchScratch> scratch_map;
-
-    MatchScratch &s = scratch_map[this];
+    thread_local MatchScratch s;
     if (!s.mdata) {
         s.mdata = pcre2_match_data_create(10, g_pcre2_gctx);
-        if (!s.mdata) fatal("%s: pcre2_match_data_create failed", __func__);
+        if (!s.mdata) throw std::bad_alloc();
     }
     if (!s.mctx) {
         s.mctx = pcre2_match_context_create(g_pcre2_gctx);
-        if (!s.mctx) fatal("%s: pcre2_match_context_create failed", __func__);
+        if (!s.mctx) throw std::bad_alloc();
         pcre2_set_match_limit(s.mctx, 1000000);
 #ifdef pcre2_set_depth_limit
         pcre2_set_depth_limit(s.mctx, 50000);
 #else
         pcre2_set_recursion_limit(s.mctx, 50000);
 #endif
-    }
-    if (jit_ready_ && !s.jit_attached) {
         s.jit_stack = pcre2_jit_stack_create(32 * 1024, 1024 * 1024, nullptr);
         if (s.jit_stack) pcre2_jit_stack_assign(s.mctx, nullptr, s.jit_stack);
-        s.jit_attached = true;
     }
     return s;
 }
 
 const MatchDetails *ServiceProbeMatch::testMatch(const u8 *buf, int buflen) {
     assert(initialized_);
-
-    /* CONCURRENCY FIX: getScratch() is now fetched up front (it's a cheap
-     * thread_local lookup) and every result field — md_return_ and all i_*
-     * buffers — lives inside that per-thread MatchScratch. ServiceProbeMatch
-     * instances are shared across worker threads (ServiceProbe::matches_ is
-     * populated once and iterated by every run_version_probe() call), so
-     * nothing that testMatch() writes may live directly on `this` — it must
-     * live in thread-local storage, or concurrent probes racing on the same
-     * match template will corrupt each other's results. */
     MatchScratch &scratch = getScratch();
+
+    scratch.md_return_ = MatchDetails{};
+    scratch.md_return_.isSoft = isSoft_;
+
+    if (!buf || buflen < 0) return &scratch.md_return_;
 
     if (has_prefix_filter_) {
         size_t plen = prefix_literal_.size();
-        if ((size_t)buflen < plen) {
-            memset(&scratch.md_return_, 0, sizeof(scratch.md_return_));
-            scratch.md_return_.isSoft = isSoft_;
-            return &scratch.md_return_;
-        }
+        if ((size_t)buflen < plen) return &scratch.md_return_;
         bool prefix_ok = flag_i_
-            ? strncasecmp((const char*)buf, prefix_literal_.data(), plen) == 0
+            ? strncasecmp((const char *)buf, prefix_literal_.data(), plen) == 0
             : memcmp(buf, prefix_literal_.data(), plen) == 0;
-        if (!prefix_ok) {
-            memset(&scratch.md_return_, 0, sizeof(scratch.md_return_));
-            scratch.md_return_.isSoft = isSoft_;
-            return &scratch.md_return_;
-        }
+        if (!prefix_ok) return &scratch.md_return_;
     }
 
-    ensureCompiled();      
-    ensureJitCompiled();   
-    memset(&scratch.md_return_, 0, sizeof(scratch.md_return_));
-    scratch.md_return_.isSoft = isSoft_;
+    if (!ensureCompiled()) return &scratch.md_return_;
+    maybeJitCompile();
 
-    int rc = jit_ready_
-             ? pcre2_jit_match(regex_, (PCRE2_SPTR8)buf, (PCRE2_SIZE)buflen,
-                               0, 0, scratch.mdata, scratch.mctx)
-             : pcre2_match(regex_, (PCRE2_SPTR8)buf, (PCRE2_SIZE)buflen,
-                           0, 0, scratch.mdata, scratch.mctx);
+    int rc;
+    if (pcre2_code *jc = jit_regex_.load(std::memory_order_acquire)) {
+        rc = pcre2_jit_match(jc, (PCRE2_SPTR8)buf, (PCRE2_SIZE)buflen,
+                             0, 0, scratch.mdata, scratch.mctx);
+        if (rc == PCRE2_ERROR_JIT_STACKLIMIT)       // fall back to the interpreter
+            rc = pcre2_match(regex_, (PCRE2_SPTR8)buf, (PCRE2_SIZE)buflen,
+                             0, 0, scratch.mdata, scratch.mctx);
+    } else {
+        rc = pcre2_match(regex_, (PCRE2_SPTR8)buf, (PCRE2_SIZE)buflen,
+                         0, 0, scratch.mdata, scratch.mctx);
+    }
     if (rc < 0) {
         if (rc == PCRE2_ERROR_MATCHLIMIT || rc == PCRE2_ERROR_DEPTHLIMIT) {
             logError("PCRE2 match limit hit (error %d) for service %s — "
@@ -795,8 +787,6 @@ const MatchDetails *ServiceProbeMatch::testMatch(const u8 *buf, int buflen) {
     }
 
     fillVersionStr(buf, (size_t)buflen, scratch);
-    /* CONCURRENCY FIX: point into this thread's scratch buffers, never into
-     * shared instance buffers. */
     if (scratch.i_product[0])    scratch.md_return_.product    = scratch.i_product;
     if (scratch.i_version[0])    scratch.md_return_.version    = scratch.i_version;
     if (scratch.i_info[0])       scratch.md_return_.info       = scratch.i_info;
@@ -807,23 +797,26 @@ const MatchDetails *ServiceProbeMatch::testMatch(const u8 *buf, int buflen) {
     if (scratch.i_cpe_h[0])      scratch.md_return_.cpe_h      = scratch.i_cpe_h;
     if (scratch.i_cpe_o[0])      scratch.md_return_.cpe_o      = scratch.i_cpe_o;
     scratch.md_return_.serviceName = servicename_;
-    scratch.md_return_.lineno      = deflineno_;
     return &scratch.md_return_;
 }
 
+
+/* ═══════════════════════════ ServiceProbe ════════════════════════════ */
 
 ServiceProbe::ServiceProbe() { memset(fallbacks, 0, sizeof(fallbacks)); }
 
 ServiceProbe::~ServiceProbe() {
     for (auto *m : matches_) delete m;
-    if (fallbackStr) free(fallbackStr);
-    free((void *)probename_);
-    free((void *)probestring_);
+    free(fallbackStr);
+    free(probename_);
+    free(probestring_);
 }
 
 void ServiceProbe::setProbeString(const u8 *ps, int len) {
-    probestringlen_ = len;
-    probestring_    = (len > 0) ? (const u8 *)cp_strndup((const char *)ps, len) : nullptr;
+    free(probestring_);
+    probestring_    = nullptr;
+    probestringlen_ = len > 0 ? len : 0;
+    if (len > 0) probestring_ = (u8 *)cp_strndup((const char *)ps, (size_t)len);
 }
 
 void ServiceProbe::setProbeDetails(char *pd, int lineno) {
@@ -839,26 +832,26 @@ void ServiceProbe::setProbeDetails(char *pd, int lineno) {
         fatal("Parse error on line %d: bad probe name", lineno);
     char *sp = strchr(pd, ' ');
     if (!sp) fatal("Parse error on line %d: nothing after probe name", lineno);
+    free(probename_);
     probename_ = cp_strndup(pd, sp - pd);
     pd = sp + 1;
 
     if (*pd != 'q')
         fatal("Parse error on line %d: probe string must begin with 'q'", lineno);
-    char delim = *++pd;
-    char *ep   = strchr(++pd, delim);
+    ++pd;
+    char delim = *pd;
+    if (delim == '\0')   /* previously read one byte past the terminator */
+        fatal("Parse error on line %d: missing probe string delimiter", lineno);
+    ++pd;
+    char *ep = strchr(pd, delim);
     if (!ep) fatal("Parse error on line %d: no ending delimiter for probe string", lineno);
     *ep = '\0';
     unsigned int slen = 0;
     if (!cstring_unescape(pd, &slen))
         fatal("Parse error on line %d: bad probe string escaping", lineno);
     setProbeString((const u8 *)pd, (int)slen);
-
-    pd = ep + 1;
-    while (*pd && *pd != '\n') {
-        while (*pd && isspace((unsigned char)*pd)) pd++;
-        if (strncmp(pd, "no-payload", 10) == 0) { notForPayload_ = true; break; }
-        while (*pd && !isspace((unsigned char)*pd)) pd++;
-    }
+    /* Trailing options such as "no-payload" are accepted and ignored: nothing in
+     * this scanner sends probes as UDP payloads. */
 }
 
 void ServiceProbe::setPortVector(std::vector<u16> *portv,
@@ -894,17 +887,21 @@ void ServiceProbe::setProbablePorts(ServiceTunnel tunnel,
 }
 
 void ServiceProbe::setRarity(const char *val, int lineno) {
-    int r = atoi(val);
+    char *endp = nullptr;
+    long r = strtol(val, &endp, 10);
+    if (endp == val || *endp != '\0') fatal("Rarity on line %d must be a valid integer", lineno);
     if (r < 1 || r > 9) fatal("Rarity on line %d must be 1–9", lineno);
-    rarity_ = r;
+    rarity_ = (int)r;
 }
 
 void ServiceProbe::addMatch(const char *matchline, int lineno) {
-    auto *m = new ServiceProbeMatch();
+    auto m = std::make_unique<ServiceProbeMatch>();
     m->init(matchline, lineno);
     const char *sn = m->getName();
+    ServiceProbeMatch *raw = m.get();
+    matches_.push_back(raw);       // may throw; m still owns raw until release()
+    m.release();
     if (!serviceIsPossible(sn)) detectedServices_.push_back(sn);
-    matches_.push_back(m);
 }
 
 bool ServiceProbe::portIsProbable(ServiceTunnel tunnel, u16 portno) const {
@@ -913,7 +910,6 @@ bool ServiceProbe::portIsProbable(ServiceTunnel tunnel, u16 portno) const {
     return std::find(v.begin(), v.end(), portno) != v.end();
 }
 
-/* FIX #2b: expose the sslports list for UDP DTLS detection. */
 bool ServiceProbe::portIsSSL(u16 portno) const {
     return std::find(probablesslports_.begin(), probablesslports_.end(), portno)
            != probablesslports_.end();
@@ -924,17 +920,16 @@ bool ServiceProbe::serviceIsPossible(const char *sname) const {
     return false;
 }
 
-const MatchDetails *ServiceProbe::testMatch(const u8 *buf, int buflen, int n) {
+const MatchDetails *ServiceProbe::testMatch(const u8 *buf, int buflen) {
     for (auto *m : matches_) {
         const MatchDetails *md = m->testMatch(buf, buflen);
-        if (md->serviceName) {
-            if (n == 0) return md;
-            n--;
-        }
+        if (md->serviceName) return md;
     }
     return nullptr;
 }
 
+
+/* ═══════════════════════════ AllProbes ═══════════════════════════════ */
 
 AllProbes::AllProbes()  = default;
 AllProbes::~AllProbes() { for (auto *p : probes) delete p; delete nullProbe; }
@@ -957,29 +952,42 @@ bool AllProbes::isExcluded(u16 port, int proto) const {
     return excludedPorts.contains(port, proto);
 }
 
+const std::vector<ServiceProbe *> &AllProbes::probesForPort(int proto, ServiceTunnel tunnel,
+                                                            u16 port) const {
+    static const std::vector<ServiceProbe *> kNone;
+    auto it = portIndex_.find(portIndexKey(proto, tunnel, port));
+    return it == portIndex_.end() ? kNone : it->second;
+}
+
 void AllProbes::compileFallbacks() {
     if (nullProbe) nullProbe->fallbacks[0] = nullProbe;
 
     for (auto *probe : probes) {
+        memset(probe->fallbacks, 0, sizeof(probe->fallbacks));
         probe->fallbacks[0] = probe;
         int i = 1;
 
         if (probe->fallbackStr) {
             char *fbcopy = strdup(probe->fallbackStr);
             if (!fbcopy) throw std::bad_alloc();
-            char *tok = strtok(fbcopy, ",\r\n\t ");
+            char *save = nullptr;
+            char *tok = strtok_r(fbcopy, ",\r\n\t ", &save);
             while (tok && i < MAXFALLBACKS - 1) {
                 ServiceProbe *fb = getProbeByName(tok, probe->getProtocol());
-                if (!fb)
+                if (!fb) {
+                    std::string t = tok;
+                    free(fbcopy);
                     fatal("compileFallbacks: unknown fallback '%s' in probe '%s'",
-                          tok, probe->getName());
+                          t.c_str(), probe->getName());
+                }
                 probe->fallbacks[i++] = fb;
-                tok = strtok(nullptr, ",\r\n\t ");
+                tok = strtok_r(nullptr, ",\r\n\t ", &save);
             }
-            if (tok && i >= MAXFALLBACKS - 1)
+            bool overflow = tok && i >= MAXFALLBACKS - 1;
+            free(fbcopy);
+            if (overflow)
                 fatal("compileFallbacks: MAXFALLBACKS exceeded for probe '%s'",
                       probe->getName());
-            free(fbcopy);
             free(probe->fallbackStr);
             probe->fallbackStr = nullptr;
         }
@@ -992,7 +1000,6 @@ void AllProbes::compileFallbacks() {
                 probe->fallbacks[i++] = nullProbe;
             }
         }
-
         if (i <= MAXFALLBACKS) probe->fallbacks[i] = nullptr;
     }
     for (auto *probe : probes) {
@@ -1012,12 +1019,15 @@ void AllProbes::buildPortIndex() {
     portIndex_.clear();
     for (auto *probe : probes) {
         int proto = probe->getProtocol();
-        for (auto it = probe->probablePortsBegin(); it != probe->probablePortsEnd(); ++it) {
-            portIndex_[portIndexKey(proto, *it)].push_back(probe);
-        }
+        for (auto it = probe->probablePortsBegin(); it != probe->probablePortsEnd(); ++it)
+            portIndex_[portIndexKey(proto, ServiceTunnel::NONE, *it)].push_back(probe);
+        for (auto it = probe->probableSslPortsBegin(); it != probe->probableSslPortsEnd(); ++it)
+            portIndex_[portIndexKey(proto, ServiceTunnel::SSL, *it)].push_back(probe);
     }
 }
 
+
+/* ═══════════════════════ probe file parser ═══════════════════════════ */
 
 namespace {
 struct MmapGuard {
@@ -1044,32 +1054,32 @@ void parse_nmap_service_probe_file(AllProbes *AP, const char *filename) {
     size_t filesize = (size_t)st.st_size;
     if (filesize == 0) { close(fd); AP->compileFallbacks(); return; }
 
-    void *mapped = mmap(nullptr, filesize, PROT_READ | PROT_WRITE,
-                         MAP_PRIVATE, fd, 0);
-    close(fd);  /* fd not needed once the mapping exists */
+    void *mapped = mmap(nullptr, filesize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    close(fd);
     if (mapped == MAP_FAILED)
-        fatal("mmap failed on nmap-service-probes file: %s (%s)",
-              filename, strerror(errno));
+        fatal("mmap failed on nmap-service-probes file: %s (%s)", filename, strerror(errno));
 
     MmapGuard guard{mapped, filesize};
     madvise(mapped, filesize, MADV_SEQUENTIAL);
 
-    char *base = (char *)mapped;
-    char *cursor = base;
-    char *end    = base + filesize;
+    char *cursor = (char *)mapped;
+    char *end    = cursor + filesize;
 
-    int           lineno   = 0;
-    ServiceProbe *newProbe = nullptr;
+    int  lineno = 0;
+    /* unique_ptr: a parse error (fatal() throws) no longer leaks the half-built probe */
+    std::unique_ptr<ServiceProbe> newProbe;
 
     auto finishProbe = [&]() {
         if (!newProbe) return;
-        if (newProbe->isNullProbe()) {
+        const bool is_null_probe = newProbe->getProtocol() == IPPROTO_TCP &&
+                                   strcmp(newProbe->getName(), "NULL") == 0;
+        if (is_null_probe) {
             if (AP->nullProbe) fatal("Duplicate NULL probe at line %d", lineno);
-            AP->nullProbe = newProbe;
+            AP->nullProbe = newProbe.release();
         } else {
-            AP->probes.push_back(newProbe);
+            AP->probes.push_back(newProbe.get());
+            newProbe.release();
         }
-        newProbe = nullptr;
     };
 
     while (cursor < end) {
@@ -1079,8 +1089,14 @@ void parse_nmap_service_probe_file(AllProbes *AP, const char *filename) {
         char *line = cursor;
         cursor = nl ? nl + 1 : end;
         if (nl) *nl = '\0';
+        else if (end > (char *)mapped) {
+            /* last line without a trailing newline: it is not NUL-terminated inside
+             * the mapping, so work on a private copy */
+            static thread_local std::string lastline;
+            lastline.assign(line, (size_t)(end - line));
+            line = &lastline[0];
+        }
 
-        /* Strip a trailing '\r' so CRLF-formatted probe files parse cleanly. */
         size_t linelen = strlen(line);
         if (linelen > 0 && line[linelen - 1] == '\r') line[linelen - 1] = '\0';
 
@@ -1096,7 +1112,7 @@ void parse_nmap_service_probe_file(AllProbes *AP, const char *filename) {
 
         if (strncmp(line, "Probe ", 6) == 0) {
             finishProbe();
-            newProbe = new ServiceProbe();
+            newProbe = std::make_unique<ServiceProbe>();
             newProbe->setProbeDetails(line + 6, lineno);
             continue;
         }
@@ -1111,19 +1127,21 @@ void parse_nmap_service_probe_file(AllProbes *AP, const char *filename) {
         } else if (strncmp(line, "rarity ", 7) == 0) {
             newProbe->setRarity(line + 7, lineno);
         } else if (strncmp(line, "fallback ", 9) == 0) {
+            free(newProbe->fallbackStr);
             newProbe->fallbackStr = strdup(line + 9);
+            if (!newProbe->fallbackStr) throw std::bad_alloc();
         } else if (strncmp(line, "totalwaitms ", 12) == 0) {
             long ms = strtol(line + 12, nullptr, 10);
             if (ms < 100 || ms > 300000) fatal("Bad totalwaitms %ld on line %d", ms, lineno);
             newProbe->setTotalWaitMs((int)ms);
-        } else if (strncmp(line, "tcpwrappedms ", 13) == 0) {
-            long ms = strtol(line + 13, nullptr, 10);
-            if (ms < 100 || ms > 300000) fatal("Bad tcpwrappedms %ld on line %d", ms, lineno);
-            newProbe->setTcpWrappedMs((int)ms);
         } else if (strncmp(line, "match ", 6) == 0
                 || strncmp(line, "softmatch ", 10) == 0) {
             newProbe->addMatch(line, lineno);
-        } else {
+        }
+        else if (strncmp(line, "tcpwrappedms ", 13) == 0) {
+            long ms = strtol(line + 13, nullptr, 10);
+            if (ms < 100 || ms > 300000) fatal("Bad tcpwrappedms %ld on line %d", ms, lineno);
+            newProbe->setTcpWrappedMs((int)ms);
         }
     }
     finishProbe();
@@ -1131,7 +1149,13 @@ void parse_nmap_service_probe_file(AllProbes *AP, const char *filename) {
 }
 
 
-ServiceNFO::ServiceNFO(AllProbes *ap) : AP(ap) {
+/* ═══════════════════════════ ServiceNFO ══════════════════════════════ */
+
+ServiceNFO::~ServiceNFO() {
+    free(servicefp_);
+}
+
+void ServiceNFO::clearMatchFields() {
     memset(product_matched,    0, sizeof(product_matched));
     memset(version_matched,    0, sizeof(version_matched));
     memset(extrainfo_matched,  0, sizeof(extrainfo_matched));
@@ -1141,113 +1165,27 @@ ServiceNFO::ServiceNFO(AllProbes *ap) : AP(ap) {
     memset(cpe_a_matched,      0, sizeof(cpe_a_matched));
     memset(cpe_h_matched,      0, sizeof(cpe_h_matched));
     memset(cpe_o_matched,      0, sizeof(cpe_o_matched));
-    memset(probe_matched_stripped, 0, sizeof(probe_matched_stripped));
-    current_probe_ = AP->probes.begin();
 }
 
-ServiceNFO::~ServiceNFO() {
-    free(currentresp_);
+void ServiceNFO::resetFingerprint() {
     free(servicefp_);
+    servicefp_ = nullptr;
+    servicefplen_ = servicefpalloc_ = 0;
 }
 
-ServiceProbe *ServiceNFO::currentProbe() {
-    if (probe_state == ProbeState::INITIAL)                return nextProbe(true);
-    if (probe_state == ProbeState::NULLPROBE)              return AP->nullProbe;
-    if (probe_state == ProbeState::MATCHINGPROBES
-     || probe_state == ProbeState::NONMATCHINGPROBES)      return *current_probe_;
-    return nullptr;
-}
-
-ServiceProbe *ServiceNFO::nextProbe(bool newresp) {
-    if (newresp) { free(currentresp_); currentresp_ = nullptr; currentresplen_ = 0; }
-
-    bool dropdown = false;
-
-    if (probe_state == ProbeState::INITIAL) {
-        probe_state = ProbeState::NULLPROBE;
-        if (proto == IPPROTO_TCP && AP->nullProbe) return AP->nullProbe;
-    }
-
-    if (probe_state == ProbeState::NULLPROBE) {
-        probe_state    = ProbeState::MATCHINGPROBES;
-        dropdown       = true;
-        current_probe_ = AP->probes.begin();
-    }
-
-    if (probe_state == ProbeState::MATCHINGPROBES) {
-        if (!dropdown && current_probe_ != AP->probes.end()) ++current_probe_;
-        while (current_probe_ != AP->probes.end()) {
-            ServiceProbe *p = *current_probe_;
-            if (p->getProtocol() == proto
-             && p->portIsProbable(tunnel, portno)
-             && (!softMatchFound || p->serviceIsPossible(probe_matched)))
-                return p;
-            ++current_probe_;
-        }
-        probe_state    = ProbeState::NONMATCHINGPROBES;
-        dropdown       = true;
-        current_probe_ = AP->probes.begin();
-    }
-
-    if (probe_state == ProbeState::NONMATCHINGPROBES) {
-        if (!dropdown && current_probe_ != AP->probes.end()) ++current_probe_;
-        int intensity = MAX_VERSION_INTENSITY;
-        while (current_probe_ != AP->probes.end()) {
-            ServiceProbe *p = *current_probe_;
-            bool ok = (p->getProtocol() == proto)
-                   && !p->portIsProbable(tunnel, portno)
-                   && ((!softMatchFound && p->getRarity() <= intensity)
-                     || (softMatchFound
-                         && (intensity >= 9 || p->serviceIsPossible(probe_matched))));
-            if (ok) return p;
-            ++current_probe_;
-        }
-        probe_state = softMatchFound ? ProbeState::FINISHED_SOFTMATCHED
-                                     : ProbeState::FINISHED_NOMATCH;
-        return nullptr;
-    }
-
-    fatal("nextProbe: unexpected state %d", (int)probe_state);
-}
-
-void ServiceNFO::resetProbes(bool freeFP) {
-    free(currentresp_); currentresp_ = nullptr; currentresplen_ = 0;
-    if (freeFP) { free(servicefp_); servicefp_ = nullptr; servicefplen_ = servicefpalloc_ = 0; }
-    probe_state    = ProbeState::INITIAL;
-    current_probe_ = AP->probes.begin();
-}
-
-void ServiceNFO::appendResponse(const u8 *data, int len) {
-    currentresp_ = (u8 *)realloc(currentresp_, currentresplen_ + len);
-    if (!currentresp_) throw std::bad_alloc();
-    memcpy(currentresp_ + currentresplen_, data, len);
-    currentresplen_ += len;
-}
-
-u8 *ServiceNFO::getResponse(int *lenout) {
-    *lenout = currentresplen_;
-    return currentresp_;
-}
-
-void ServiceNFO::clearResponse() {
-    free(currentresp_); currentresp_ = nullptr; currentresplen_ = 0;
-}
-
-/* ── Fingerprint helpers ─────────────────────────────────────────── */
 void ServiceNFO::addFpChar(char c, int wrapat) {
-    if (servicefpalloc_ - servicefplen_ < 8) {
-        servicefpalloc_ = (servicefpalloc_ == 0) ? 1024 : servicefpalloc_ * 2;
-        servicefp_ = (char *)realloc(servicefp_, servicefpalloc_);
-        if (!servicefp_) throw std::bad_alloc();
-    }
+    auto grow = [&]() {
+        int na = (servicefpalloc_ == 0) ? 1024 : servicefpalloc_ * 2;
+        char *n = (char *)realloc(servicefp_, (size_t)na);
+        if (!n) throw std::bad_alloc();
+        servicefp_ = n;
+        servicefpalloc_ = na;
+    };
+    if (servicefpalloc_ - servicefplen_ < 8) grow();
     if (servicefplen_ % (wrapat + 1) == wrapat) {
         memcpy(servicefp_ + servicefplen_, "\nSF:", 4);
         servicefplen_ += 4;
-        if (servicefpalloc_ - servicefplen_ < 8) {
-            servicefpalloc_ *= 2;
-            servicefp_ = (char *)realloc(servicefp_, servicefpalloc_);
-            if (!servicefp_) throw std::bad_alloc();
-        }
+        if (servicefpalloc_ - servicefplen_ < 8) grow();
     }
     servicefp_[servicefplen_++] = c;
 }
@@ -1260,20 +1198,17 @@ void ServiceNFO::addToFingerprint(const char *probeName,
                                    const u8 *resp, int resplen) {
     if (servicefplen_ > 2200) return;
     static constexpr int WRAP = 74;
+    if (resplen < 0) resplen = 0;
     int used = std::min(resplen, 900);
 
     if (servicefplen_ == 0) {
         time_t  now  = time(nullptr);
         struct  tm lt = {};
-#ifdef _WIN32
-        localtime_s(&lt, &now);
-#else
         localtime_r(&now, &lt);
-#endif
         char hdr[256];
         snprintf(hdr, sizeof(hdr),
-                 "SF-Port%hu-%s:V=custom%%I=7%%D=%d/%d%%Time=%X%%P=custom",
-                 portno, (proto == IPPROTO_TCP) ? "TCP" : "UDP",
+                 "SF-Port%hu-%s:V=custom%%I=%d%%D=%d/%d%%Time=%X%%P=custom",
+                 portno, (proto == IPPROTO_TCP) ? "TCP" : "UDP", version_intensity,
                  lt.tm_mon + 1, lt.tm_mday, (unsigned int)now);
         if (tunnel == ServiceTunnel::SSL) {
             char ssl[16]; snprintf(ssl, sizeof(ssl), "%%T=SSL");
@@ -1312,9 +1247,10 @@ void ServiceNFO::addToFingerprint(const char *probeName,
 const char *ServiceNFO::getFingerprint(int *flen) {
     if (servicefplen_ == 0) { if (flen) *flen = 0; return nullptr; }
     if (servicefpalloc_ - servicefplen_ < 4) {
+        char *n = (char *)realloc(servicefp_, (size_t)servicefpalloc_ + 32);
+        if (!n) throw std::bad_alloc();
+        servicefp_ = n;
         servicefpalloc_ += 32;
-        servicefp_ = (char *)realloc(servicefp_, servicefpalloc_);
-        if (!servicefp_) throw std::bad_alloc();
     }
     servicefp_[servicefplen_]     = ';';
     servicefp_[servicefplen_ + 1] = '\0';
@@ -1322,22 +1258,24 @@ const char *ServiceNFO::getFingerprint(int *flen) {
     return servicefp_;
 }
 
-ProbeEngine::ProbeEngine(AllProbes *ap, int vi) : ap_(ap), version_intensity_(vi) {}
 
-bool ProbeEngine::processMatch(const MatchDetails *md, ServiceNFO *svc,
-                                const char *probeName, const char *fallbackName) {
+/* ═══════════════════════════ ProbeEngine ═════════════════════════════ */
+
+ProbeEngine::ProbeEngine(AllProbes *ap, int vi)
+    : ap_(ap), version_intensity_(std::clamp(vi, 1, MAX_VERSION_INTENSITY)) {}
+
+bool ProbeEngine::processMatch(const MatchDetails *md, ServiceNFO *svc) {
     if (!md || !md->serviceName) return false;
 
-    if (md->isSoft && svc->probe_matched) {
-        if (strcmp(svc->probe_matched, md->serviceName) != 0)
-            logError("Soft-match conflict on port %hu: was %s, now %s — ignoring",
-                     svc->portno, svc->probe_matched, md->serviceName);
-        return false;
-    }
+    /* A second soft match never replaces the first one. */
+    if (md->isSoft && svc->probe_matched) return false;
 
     svc->probe_matched    = md->serviceName;
-    svc->tcpwrap_possible = false;
     svc->softMatchFound   = md->isSoft;
+
+    /* Start from a clean slate: a hard match that follows a soft one must not
+     * inherit product/version fields the hard match did not set itself. */
+    svc->clearMatchFields();
 
     auto copyField = [](char *dst, size_t dlen, const char *src) {
         if (src) { strncpy(dst, src, dlen - 1); dst[dlen - 1] = '\0'; }
@@ -1373,85 +1311,14 @@ bool ProbeEngine::scanThroughTunnel(ServiceNFO *svc) {
       && strcmp(svc->probe_matched, "dtls") != 0))
         return false;
 
+    /* Matched "ssl": the real service is inside the tunnel, so restart matching
+     * from scratch with the SSL probe set. */
     svc->tunnel         = ServiceTunnel::SSL;
     svc->probe_matched  = nullptr;
     svc->softMatchFound = false;
-    memset(svc->product_matched,    0, sizeof(svc->product_matched));
-    memset(svc->version_matched,    0, sizeof(svc->version_matched));
-    memset(svc->extrainfo_matched,  0, sizeof(svc->extrainfo_matched));
-    memset(svc->hostname_matched,   0, sizeof(svc->hostname_matched));
-    memset(svc->ostype_matched,     0, sizeof(svc->ostype_matched));
-    memset(svc->devicetype_matched, 0, sizeof(svc->devicetype_matched));
-    memset(svc->cpe_a_matched,      0, sizeof(svc->cpe_a_matched));
-    memset(svc->cpe_h_matched,      0, sizeof(svc->cpe_h_matched));
-    memset(svc->cpe_o_matched,      0, sizeof(svc->cpe_o_matched));
-    svc->resetProbes(true);
+    svc->clearMatchFields();
+    svc->resetFingerprint();
     return true;
-}
-
-bool ProbeEngine::feedResponse(ServiceNFO *svc, const u8 *data, int datalen) {
-    svc->appendResponse(data, datalen);
-
-    int           resplen = 0;
-    const u8     *resp    = svc->getResponse(&resplen);
-    ServiceProbe *probe   = svc->currentProbe();
-    if (!probe) return false;
-
-    const MatchDetails *md       = nullptr;
-    ServiceProbe       *fallback = nullptr;
-    for (int d = 0; d < MAXFALLBACKS + 1; d++) {
-        fallback = probe->fallbacks[d];
-        if (!fallback) break;
-        md = fallback->testMatch(resp, resplen);
-        if (md && md->serviceName) break;
-    }
-
-    bool hardMatch = false;
-    if (fallback && md && md->serviceName)
-        hardMatch = processMatch(md, svc, probe->getName(), fallback->getName());
-
-    if (hardMatch) {
-        if (scanThroughTunnel(svc)) return true;
-        svc->probe_state = ProbeState::FINISHED_HARDMATCHED;
-        return true;
-    }
-
-    if (resplen >= MAX_PROBE_RESPONSE_BYTES) {
-        if (resplen > 0) svc->addToFingerprint(probe->getName(), resp, resplen);
-        svc->nextProbe(true);
-    }
-    return false;
-}
-
-bool ProbeEngine::handleEOF(ServiceNFO *svc, bool hadData, long elapsedMs) {
-    ServiceProbe *probe = svc->currentProbe();
-
-    if (hadData) {
-        svc->tcpwrap_possible = false;
-        int resplen = 0;
-        const u8 *resp = svc->getResponse(&resplen);
-        if (resplen > 0)
-            svc->addToFingerprint(probe ? probe->getName() : "unknown", resp, resplen);
-    }
-
-    if (!hadData && svc->tcpwrap_possible && probe && probe->isNullProbe()
-     && elapsedMs < probe->getTcpWrappedMs()) {
-        svc->probe_state = ProbeState::FINISHED_TCPWRAPPED;
-        return true;
-    }
-
-    ServiceProbe *next = svc->nextProbe(true);
-    if (!next) return true;
-    return false;
-}
-
-bool ProbeEngine::hasMoreProbes(ServiceNFO *svc) const {
-    return svc->probe_state != ProbeState::FINISHED_HARDMATCHED
-        && svc->probe_state != ProbeState::FINISHED_SOFTMATCHED
-        && svc->probe_state != ProbeState::FINISHED_NOMATCH
-        && svc->probe_state != ProbeState::FINISHED_TCPWRAPPED
-        && svc->probe_state != ProbeState::FINISHED_EXCLUDED
-        && svc->probe_state != ProbeState::INCOMPLETE;
 }
 
 ScanResult ProbeEngine::buildResult(ServiceNFO *svc) const {
@@ -1480,8 +1347,8 @@ ScanResult ProbeEngine::buildResult(ServiceNFO *svc) const {
 ScanResult ProbeEngine::matchResponse(u16 port, int proto,
                                        ServiceTunnel tunnel,
                                        const u8 *data, int datalen,
-                                       const std::string &probeName) {
-    if (ap_->isExcluded(port, proto)) {
+                                       const MatchContext &ctx) {
+    if (!ignore_exclude_ && ap_->isExcluded(port, proto)) {
         ScanResult r;
         r.port    = port; r.proto = proto;
         r.state   = ProbeState::FINISHED_EXCLUDED;
@@ -1489,70 +1356,71 @@ ScanResult ProbeEngine::matchResponse(u16 port, int proto,
         return r;
     }
 
-    if (!probeName.empty()) {
-        ServiceProbe *probe = ap_->getProbeByName(probeName.c_str(), proto);
-        if (probe) {
-            const MatchDetails *md = nullptr;
-            for (int d = 0; d < MAXFALLBACKS + 1; d++) {
-                ServiceProbe *fb = probe->fallbacks[d];
-                if (!fb) break;
-                md = fb->testMatch(data, datalen);
-                if (md && md->serviceName) break;
+    ServiceNFO svc;
+    svc.portno = port; svc.proto = proto; svc.tunnel = tunnel;
+    svc.version_intensity = version_intensity_;
+
+    if (!data || datalen <= 0) {
+        /* tcpwrapped: TCP peer accepted and then closed at once, sending nothing. */
+        if (proto == IPPROTO_TCP && ctx.closed_without_data && ctx.elapsed_ms >= 0) {
+            const int limit = ap_->nullProbe ? ap_->nullProbe->getTcpWrappedMs() : DEFAULT_TCPWRAPPEDMS;
+            if (ctx.elapsed_ms < limit) {
+                svc.probe_state = ProbeState::FINISHED_TCPWRAPPED;
+                ScanResult r = buildResult(&svc);
+                r.service = "tcpwrapped";
+                return r;
             }
-            ServiceNFO svc(ap_);
-            svc.portno = port; svc.proto = proto; svc.tunnel = tunnel;
-            if (md && md->serviceName)
-                processMatch(md, &svc, probe->getName(), probe->getName());
-            svc.probe_state = svc.probe_matched ? ProbeState::FINISHED_HARDMATCHED
-                                                : ProbeState::FINISHED_NOMATCH;
-            if (!svc.probe_matched)
-                svc.addToFingerprint(probe->getName(), data, datalen);
-            return buildResult(&svc);
         }
+        svc.probe_state = ProbeState::FINISHED_NOMATCH;
+        return buildResult(&svc);
     }
 
-    ServiceNFO svc(ap_);
-    svc.portno = port; svc.proto = proto; svc.tunnel = tunnel;
+    /* The probe that actually produced this response gets its own match list first. */
+    ServiceProbe *hinted = nullptr;
+    if (ctx.probe_name && *ctx.probe_name) hinted = ap_->getProbeByName(ctx.probe_name, proto);
 
+    /* Tries one probe's match list (and its fallbacks); true only on a HARD match. */
     auto tryProbeSet = [&](ServiceProbe *probe) -> bool {
         if (!probe) return false;
         const MatchDetails *md = nullptr;
-        ServiceProbe *usedFB   = nullptr;
         for (int d = 0; d < MAXFALLBACKS + 1; d++) {
             ServiceProbe *fb = probe->fallbacks[d];
             if (!fb) break;
             md = fb->testMatch(data, datalen);
-            if (md && md->serviceName) { usedFB = fb; break; }
+            if (md && md->serviceName) break;
+            md = nullptr;
         }
-        if (!md || !md->serviceName) return false;
-        return processMatch(md, &svc, probe->getName(), usedFB->getName());
+        if (!md) return false;
+        return processMatch(md, &svc);   // copies out of the per-thread scratch right away
     };
 
-    /* 1. NULL probe — FIX #5b: always try first for TCP, no port filter */
-    if (proto == IPPROTO_TCP && ap_->nullProbe) {
+    /* 0. the probe that generated this response */
+    if (hinted && tryProbeSet(hinted)) {
+        if (!scanThroughTunnel(&svc)) goto done_hard;
+    }
+
+    /* 1. NULL probe — always tried first for TCP, no port filter */
+    if (proto == IPPROTO_TCP && ap_->nullProbe && ap_->nullProbe != hinted) {
         if (tryProbeSet(ap_->nullProbe)) {
             if (!scanThroughTunnel(&svc)) goto done_hard;
         }
     }
 
-    /* 2. MATCHINGPROBES */
-    {
-        auto idxIt = ap_->portIndex_.find(AllProbes::portIndexKey(proto, port));
-        if (idxIt != ap_->portIndex_.end()) {
-            for (auto *probe : idxIt->second) {
-                if (svc.softMatchFound && !probe->serviceIsPossible(svc.probe_matched)) continue;
-                if (tryProbeSet(probe)) {
-                    if (!scanThroughTunnel(&svc)) goto done_hard;
-                }
-            }
+    /* 2. probes that explicitly list this port (for this tunnel type) */
+    for (auto *probe : ap_->probesForPort(proto, svc.tunnel, port)) {
+        if (probe == hinted) continue;
+        if (svc.softMatchFound && !probe->serviceIsPossible(svc.probe_matched)) continue;
+        if (tryProbeSet(probe)) {
+            if (!scanThroughTunnel(&svc)) goto done_hard;
         }
     }
     if (svc.probe_matched && !svc.softMatchFound) goto done_hard;
 
-    /* 3. NONMATCHINGPROBES */
+    /* 3. all other probes, limited by rarity / soft-match service */
     for (auto *probe : ap_->probes) {
         if (probe->getProtocol() != proto) continue;
-        if (probe->portIsProbable(tunnel, port)) continue;
+        if (probe == hinted) continue;
+        if (probe->portIsProbable(svc.tunnel, port)) continue;   // already done in step 2
         if (!svc.softMatchFound && probe->getRarity() > version_intensity_) continue;
         if (svc.softMatchFound && version_intensity_ < 9
             && !probe->serviceIsPossible(svc.probe_matched)) continue;
@@ -1560,11 +1428,12 @@ ScanResult ProbeEngine::matchResponse(u16 port, int proto,
             if (!scanThroughTunnel(&svc)) goto done_hard;
         }
     }
-    if (proto == IPPROTO_UDP && tunnel == ServiceTunnel::NONE) {
+
+    /* 4. UDP probes that list this port as DTLS (sslports) */
+    if (proto == IPPROTO_UDP && svc.tunnel == ServiceTunnel::NONE) {
         for (auto *probe : ap_->probes) {
             if (probe->getProtocol() != IPPROTO_UDP) continue;
             if (!probe->portIsSSL(port)) continue;
-            /* Temporarily mark the virtual tunnel for this attempt */
             svc.tunnel = ServiceTunnel::SSL;
             if (tryProbeSet(probe)) {
                 if (!scanThroughTunnel(&svc)) goto done_hard;
@@ -1582,40 +1451,4 @@ ScanResult ProbeEngine::matchResponse(u16 port, int proto,
 done_hard:
     svc.probe_state = ProbeState::FINISHED_HARDMATCHED;
     return buildResult(&svc);
-}
-
-/* ── ScanResult::summary() ───────────────────────────────────────── */
-std::string ScanResult::summary() const {
-    std::ostringstream ss;
-    const char *proto_str = (proto == IPPROTO_TCP)  ? "tcp"
-                          : (proto == IPPROTO_UDP)  ? "udp"
-                          : (proto == IPPROTO_SCTP) ? "sctp" : "?";
-
-    ss << port << "/" << proto_str;
-    if (tunnel == ServiceTunnel::SSL) ss << " (ssl)";
-    ss << "  ";
-
-    switch (state) {
-        case ProbeState::FINISHED_HARDMATCHED:  ss << "open";          break;
-        case ProbeState::FINISHED_SOFTMATCHED:  ss << "open?";         break;
-        case ProbeState::FINISHED_NOMATCH:      ss << "open  unknown"; break;
-        case ProbeState::FINISHED_TCPWRAPPED:   ss << "tcpwrapped";    break;
-        case ProbeState::FINISHED_EXCLUDED:     ss << "excluded";      break;
-        default:                                ss << "?";             break;
-    }
-
-    if (!service.empty())   ss << "  " << service;
-    if (!product.empty())   ss << "  " << product;
-    if (!version.empty())   ss << " "  << version;
-    if (!extrainfo.empty()) ss << " (" << extrainfo << ")";
-    if (!hostname.empty())  ss << "  hostname=" << hostname;
-    if (!ostype.empty())    ss << "  os="       << ostype;
-    if (!cpe_a.empty())     ss << "  cpe="      << cpe_a;
-
-    if (!fingerprint.empty()) {
-        ss << "\n  FINGERPRINT:\n";
-        ss << "  " << fingerprint.substr(0, std::min((size_t)200, fingerprint.size()));
-        if (fingerprint.size() > 200) ss << "...";
-    }
-    return ss.str();
 }

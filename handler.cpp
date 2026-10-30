@@ -9,6 +9,7 @@
 #include "probe.hpp"
 #include "async_io.hpp"
 #include "netns_split.hpp"
+#include "os_detect.hpp"
 #include <stdexcept>
 #include <future>
 #include <thread>
@@ -34,8 +35,11 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/x509.h>
+#include <atomic>
 #include "debug.hpp"
 #include "handler.hpp"
+#include "dns_enum.hpp"
+#include "simulations.hpp"
 
 static int init_arp_ring(struct io_uring* ring, unsigned entries) {
     struct io_uring_params p{};
@@ -91,14 +95,20 @@ constexpr size_t MAX_EXPANDED_IPS_PER_CIDR = 1000000;
 constexpr size_t MAX_TOTAL_IPS             = 50000000;    
 constexpr size_t MAX_INPUT_TOKEN_LEN       = 2048;
 constexpr size_t TARGETS_PER_QUEUE = 1000;
-
+constexpr size_t MAX_IL_FILE_LINES         = 2000000;
+constexpr size_t MAX_IL_FILE_BYTES         = 256ull * 1024 * 1024;
 
 std::unordered_map<std::string, std::string> mac_vendor_map;
 std::unordered_map<std::string, std::string> ip_to_domain_map;
 std::vector<std::string> g_dns_bypassed_targets;
+std::unordered_map<std::string, std::vector<std::string>> g_not_scanned_map;
 std::vector<std::string> g_dns_servers;
 std::vector<std::string> g_dns_tls_servers;
+std::unordered_set<std::string> g_seen_target_ips;
+std::vector<std::pair<std::string, std::string>> g_eliminated_targets;
 std::atomic<int> crash_signal{0};
+int g_target_ip_pref = 0;
+bool g_saw_literal_target = false;
 
 struct termios g_orig_termios;
 bool g_termios_saved = false;
@@ -194,6 +204,18 @@ void expand_cidr(const std::string& cidr, std::vector<std::string>& ips);
 bool resolve_domain_to_ip(const std::string& domain, std::string& resolved_ip);
 bool custom_dns_configured();
 
+// Vectorized forward resolution (hostname -> IP). Resolves the whole batch
+// concurrently instead of one blocking getaddrinfo()/thread per name --
+// suitable for 1000+ hostnames in a single call. See definition below for
+// the exact server-selection and fallback rules.
+bool resolve_domain_to_ip_batch(const std::vector<std::string>& domains,
+                                 std::unordered_map<std::string, std::string>& out_ip,
+                                 std::unordered_map<std::string, std::vector<std::string>>& out_all_ips,
+                                 std::vector<std::string>& out_unresolved,
+                                 int timeout_ms = 2000,
+                                 int retries = 2,
+                                 int concurrency = 500);
+
 static bool parse_targets(
     std::vector<std::string>& tokens_in,   // caller pre-splits into tokens
     std::vector<std::string>& ips,         // output accumulator
@@ -207,11 +229,13 @@ static bool parse_targets(
     std::vector<std::string> bulk_ips;
     bulk_ips.reserve(bulk_reserve);
 
-    std::unordered_set<std::string> seen;
-    seen.reserve(seen_reserve);
+    std::unordered_set<std::string>& seen = g_seen_target_ips;
+    seen.reserve(seen.size() + seen_reserve);
 
-    std::unordered_map<std::string, std::string> dns_cache;
-    dns_cache.reserve(dns_reserve);
+    std::vector<std::string> pending_hostnames;      // domains seen this call, in order
+    std::unordered_set<std::string> pending_seen;    // de-dupe before the batch resolve
+    pending_hostnames.reserve(dns_reserve);
+    pending_seen.reserve(dns_reserve);
 
     size_t idx = 0;
     for (std::string& token : tokens_in) {
@@ -229,14 +253,41 @@ static bool parse_targets(
         trim_in_place(token);
         if (token.empty()) continue;
 
-        // ── Step C: control-character guard ─────────────────────────────
-        if (has_bad_control_char(token)) {
-            std::cerr << "Invalid characters at " << ctx.pos(idx) << "\n";
-            return false;
+        {
+            std::string base_domain;
+            if (simulations::is_wildcard_target_spec(token, base_domain)) {
+                g_saw_literal_target = true;
+
+                simulations::SimulationResult sim =
+                    simulations::run_wildcard_enum_simulation(base_domain);
+
+                if (!sim.ok) {
+                    std::cerr << "Simulation failed for *." << base_domain
+                              << ": " << sim.error << "\n";
+                    return false;
+                }
+
+                for (const auto& host : sim.resolved_hosts)
+                    for (const auto& ip : host.ips)
+                        ip_to_domain_map[ip] = host.hostname;
+
+                if (!sim.unresolved_hosts.empty())
+                    g_not_scanned_map[base_domain] = sim.unresolved_hosts;
+
+                for (const auto& ip : sim.unique_ips)
+                    add_unique_ip(bulk_ips, seen, ip);
+
+                if (ips.size() + bulk_ips.size() > MAX_TOTAL_IPS) {
+                    std::cerr << "Too many IPs after expansion (limit "
+                              << MAX_TOTAL_IPS << ")\n";
+                    return false;
+                }
+                continue;
+            }
         }
 
-        // ── Step D: CIDR branch ─────────────────────────────────────────
         if (token.find('/') != std::string::npos) {
+            g_saw_literal_target = true;
             if (token.find(':') != std::string::npos) {
                 std::cerr << "IPv6 CIDR ranges are not supported at " << ctx.pos(idx)
                           << " -> " << token
@@ -299,30 +350,22 @@ static bool parse_targets(
                 return false;
             }
 
-            // Numeric IP literal (v4 or v6)? Otherwise DNS — one call now
-            // checks both A and AAAA records.
             if (!normalize_ip_string(token, out_ip)) {
-                // Not an IP, try DNS resolution
-                auto it = dns_cache.find(token);
-                if (it != dns_cache.end()) {
-                    out_ip = it->second;
-                } else {
-                    if (!resolve_domain_to_ip(token, out_ip)) {
-                        std::cerr << "Cannot resolve '" << token
-                                  << "' at " << ctx.pos(idx) << "\n";
-                        return false;
-                    }
-                    dns_cache.emplace(token, out_ip);
+                // Not a literal IP — defer to the single batch DNS pass
+                // after this loop instead of resolving one name at a time.
+                if (pending_seen.insert(token).second) pending_hostnames.push_back(token);
+                continue; // Step F's limit check runs after the batch resolve instead
+            } else {
+                g_saw_literal_target = true;
+                if (custom_dns_configured()) {
+                    g_dns_bypassed_targets.push_back(token);
                 }
-                // Remember the original hostname for this IP so grepable
-                // output can show "domain (ip)" instead of a bare IP.
-                ip_to_domain_map[out_ip] = token;
-            } else if (custom_dns_configured()) {
-                g_dns_bypassed_targets.push_back(token);
             }
-            
-            // Add unique IP using the helper function
-            add_unique_ip(bulk_ips, seen, std::move(out_ip));
+           
+            const std::string literal_ip = out_ip;
+            if (!add_unique_ip(bulk_ips, seen, std::move(out_ip))) {
+                g_eliminated_targets.emplace_back(token, literal_ip);
+            }
         }
 
         // ── Step F: global limit check ──────────────────────────────────
@@ -330,6 +373,32 @@ static bool parse_targets(
             std::cerr << "Too many IPs after expansion (limit "
                       << MAX_TOTAL_IPS << ")\n";
             return false;
+        }
+    }
+    if (!pending_hostnames.empty()) {
+        std::unordered_map<std::string, std::string> resolved_ip;
+        std::unordered_map<std::string, std::vector<std::string>> resolved_all_ips;
+        std::vector<std::string> unresolved;
+        resolve_domain_to_ip_batch(pending_hostnames, resolved_ip, resolved_all_ips, unresolved);
+
+        if (!unresolved.empty()) {
+            std::cerr << "Cannot resolve '" << unresolved.front() << "'\n";
+            return false;
+        }
+
+        for (const auto& token : pending_hostnames) {
+            const std::string& out_ip = resolved_ip.at(token);
+            if (add_unique_ip(bulk_ips, seen, out_ip)) {
+                ip_to_domain_map[out_ip] = token;
+            } else {
+                g_eliminated_targets.emplace_back(token, out_ip);
+            }
+
+            if (ips.size() + bulk_ips.size() > MAX_TOTAL_IPS) {
+                std::cerr << "Too many IPs after expansion (limit "
+                          << MAX_TOTAL_IPS << ")\n";
+                return false;
+            }
         }
     }
 
@@ -364,22 +433,24 @@ void load_mac_vendors(const std::string &filename) {
     const char* end = data + file_size;
     const char* p = data;
     while (p < end) {
-        const char* line_end = static_cast<const char*>(memchr(p, '\n', end - p));
-        if (!line_end) line_end = end;
-        if (p == line_end || *p == '#') { p = line_end + 1; continue; }
+        const char* nl = static_cast<const char*>(memchr(p, '\n', end - p));
+        const char* line_end = nl ? nl : end;
+        const char* next_line = nl ? nl + 1 : end;
+        if (line_end > p && line_end[-1] == '\r') --line_end;
+        if (p == line_end || *p == '#') { p = next_line; continue; }
         const char* delim = p;
         while (delim < line_end && *delim != ' ' && *delim != '\t') ++delim;
-        if (delim == line_end) { p = line_end + 1; continue; }
+        if (delim == line_end) { p = next_line; continue; }
         char key[7]; int k = 0;
         for (const char* c = p; c < delim && k < 6; ++c)
             if (*c != ':') key[k++] = toupper((unsigned char)*c);
-        if (k != 6) { p = line_end + 1; continue; }
+        if (k != 6) { p = next_line; continue; }
 
         const char* v = delim;
         while (v < line_end && (*v == ' ' || *v == '\t')) ++v;
 
         mac_vendor_map.emplace(std::string(key, 6), std::string(v, line_end - v));
-        p = line_end + 1;
+        p = next_line;
     }
 }
 
@@ -408,6 +479,54 @@ std::string get_mac_vendor(const std::string &mac_address) {
     return "unknown";
 }
 
+struct IfaceSubnetInfo { bool ok = false; uint32_t netmask_int = 0; };
+
+static std::mutex g_iface_subnet_mutex;
+static std::unordered_map<std::string, IfaceSubnetInfo> g_iface_subnet_cache;
+
+static IfaceSubnetInfo get_iface_subnet_info_cached(const std::string& interface) {
+    {
+        std::lock_guard<std::mutex> lk(g_iface_subnet_mutex);
+        auto it = g_iface_subnet_cache.find(interface);
+        if (it != g_iface_subnet_cache.end()) return it->second;
+    }
+    IfaceSubnetInfo info;
+    uint8_t src_ip_bytes[4] = {0}, netmask[4] = {0};
+    int tmp_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+    if (tmp_sock >= 0) {
+        if (get_interface_ip_and_netmask(tmp_sock, interface.c_str(), src_ip_bytes, netmask)) {
+            memcpy(&info.netmask_int, netmask, 4);
+            info.ok = true;
+        }
+        close(tmp_sock);
+    }
+    if (!info.ok) return info;
+    std::lock_guard<std::mutex> lk(g_iface_subnet_mutex);
+    return g_iface_subnet_cache[interface] = info;
+}
+
+static bool classify_v4_onlink(const std::string& target_ip, uint32_t ip_int,
+                                uint32_t local_ip_int, uint32_t netmask_int, bool subnet_ok,
+                                const std::string& interface) {
+    bool topologically_onlink = subnet_ok && is_same_subnet(ip_int, local_ip_int, netmask_int);
+
+    bool route_onlink = false;
+    std::string route_iface;
+    if (!topologically_onlink) {
+        bool is_onlink_route = false;
+        if (route_lookup(target_ip, AF_INET, route_iface, is_onlink_route) && is_onlink_route)
+            route_onlink = true;
+    }
+
+    bool cache_onlink = !topologically_onlink && !route_onlink
+                         && (neighbor_cache_has_entry_v4(target_ip) || conntrack_has_entry(target_ip));
+
+    std::string check_iface = topologically_onlink ? interface : route_iface;
+    bool is_ptp = !check_iface.empty() && is_point_to_point_interface(check_iface);
+
+    return (topologically_onlink || route_onlink || cache_onlink) && !is_ptp;
+}
+
 bool is_target_onlink(const std::string& target_ip, std::string interface = "") {
     int ip_version = get_ip_version(target_ip.c_str());
     if (ip_version == 4) {
@@ -415,45 +534,41 @@ bool is_target_onlink(const std::string& target_ip, std::string interface = "") 
         if (local_ip_int == 0) return false;
         if (interface.empty()) interface = autodetect_interface(local_ip_int);
 
-        uint8_t  src_ip_bytes[4] = {0}, netmask[4] = {0};
-        uint32_t netmask_int = 0;
-        bool     subnet_ok   = false;
-        int tmp_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
-        if (tmp_sock >= 0) {
-            if (get_interface_ip_and_netmask(tmp_sock, interface.c_str(), src_ip_bytes, netmask)) {
-                memcpy(&netmask_int, netmask, 4);
-                subnet_ok = true;
-            }
-            close(tmp_sock);
-        }
+        IfaceSubnetInfo iface_info = get_iface_subnet_info_cached(interface);
+        uint32_t netmask_int = iface_info.netmask_int;
+        bool     subnet_ok   = iface_info.ok;
 
         uint8_t ip_bytes[4] = {0};
         if (inet_pton(AF_INET, target_ip.c_str(), ip_bytes) <= 0) return false;
         uint32_t ip_int; memcpy(&ip_int, ip_bytes, 4);
-        bool topologically_onlink = subnet_ok && is_same_subnet(ip_int, local_ip_int, netmask_int);
 
-        bool route_onlink = false;
-        std::string route_iface;
-        if (!topologically_onlink) {
-            bool is_onlink_route = false;
-            if (route_lookup(target_ip, AF_INET, route_iface, is_onlink_route) && is_onlink_route)
-                route_onlink = true;
-        }
-
-        bool cache_onlink = !topologically_onlink && !route_onlink
-                             && (neighbor_cache_has_entry_v4(target_ip) || conntrack_has_entry(target_ip));
-
-        std::string check_iface = topologically_onlink ? interface : route_iface;
-        bool is_ptp = !check_iface.empty() && is_point_to_point_interface(check_iface);
-
-        return (topologically_onlink || route_onlink || cache_onlink) && !is_ptp;
+        return classify_v4_onlink(target_ip, ip_int, local_ip_int, netmask_int, subnet_ok, interface);
     } else if (ip_version == 6) {
         struct in6_addr target6{};
         bool topologically_onlink = false;
         if (inet_pton(AF_INET6, target_ip.c_str(), &target6) == 1) {
-            std::string check_if = interface.empty() ? autodetect_interface(target6) : interface;
+            std::string check_if = interface;
+            if (check_if.empty()) {
+                bool route_onlink_v6 = false;
+                std::string route_iface_v6;
+                if (route_lookup(target_ip, AF_INET6, route_iface_v6, route_onlink_v6) &&
+                    !route_iface_v6.empty()) {
+                    check_if = route_iface_v6;
+                } else {
+                    uint8_t local_ip6_bytes[16] = {0};
+                    if (get_local_ip6(target_ip.c_str(), local_ip6_bytes)) {
+                        struct in6_addr local_addr6{};
+                        memcpy(&local_addr6, local_ip6_bytes, 16);
+                        check_if = autodetect_interface(local_addr6);
+                    } else {
+                        std::string default_iface, default_gw;
+                        check_if = (get_default_route(AF_INET6, default_iface, default_gw) && !default_iface.empty())
+                                       ? default_iface : "eth0";
+                    }
+                }
+            }
             for (const auto& local : get_all_interface_ip6(check_if)) {
-                if (local.scope == Ipv6Scope::LinkLocal) continue; // link-local never implies routable match
+                if (local.scope == Ipv6Scope::LinkLocal) continue; 
                 int full_bytes = local.prefix_len / 8;
                 int rem_bits   = local.prefix_len % 8;
                 bool match = (full_bytes == 0) || memcmp(target6.s6_addr, local.addr, full_bytes) == 0;
@@ -499,17 +614,8 @@ bool is_target_same_network_internal(const std::string& target_ip, std::string* 
     return !same_as_default_path;
 }
 
-static std::mutex g_onlink_cache_mutex;
-static std::unordered_map<std::string, bool> g_onlink_cache;
-
 bool is_target_onlink_cached(const std::string& target_ip, const std::string& interface = "") {
-    std::string key = target_ip + "|" + interface;
-    { std::lock_guard<std::mutex> lk(g_onlink_cache_mutex);
-      auto it = g_onlink_cache.find(key);
-      if (it != g_onlink_cache.end()) return it->second; }
-    bool result = is_target_onlink(target_ip, interface);
-    std::lock_guard<std::mutex> lk(g_onlink_cache_mutex);
-    return g_onlink_cache[key] = result;
+    return is_target_onlink(target_ip, interface);
 }
 
 TargetLocality assess_target_locality(const std::string& target_ip, std::string interface) {
@@ -536,10 +642,6 @@ TargetLocality assess_target_locality(const std::string& target_ip, std::string 
             std::chrono::steady_clock::now().time_since_epoch()).count();
         bool in_post_split_grace = entered_at != 0 &&
             static_cast<uint64_t>(now_ms) - entered_at < kConntrackGraceMs;
-
-        // During the grace window treat as "unknown, don't penalize" rather
-        // than reading a fresh, legitimately-empty conntrack table as proof
-        // the target isn't corroborated.
         result.corroborated = in_post_split_grace ? true : conntrack_has_entry(target_ip);
     }
     return result;
@@ -554,6 +656,33 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
     alive_ips.reserve(ips.size());
     down_hosts_out = 0;
     if (ips.empty()) return alive_ips;
+
+    {
+        bool has_v4 = false, has_v6 = false;
+        for (const auto& ip_str : ips) {
+            uint8_t tmp4[4];
+            struct in6_addr tmp6;
+            if (inet_pton(AF_INET, ip_str.c_str(), tmp4) == 1) has_v4 = true;
+            else if (inet_pton(AF_INET6, ip_str.c_str(), &tmp6) == 1) has_v6 = true;
+            if (has_v4 && has_v6) break;
+        }
+        std::vector<std::string> parts;
+        if (has_v4) parts.push_back("ARP");
+        if (has_v6) parts.push_back("NDP");
+        parts.push_back("ICMP");
+
+        std::string method_label;
+        for (size_t p = 0; p < parts.size(); ++p) {
+            if (p > 0) method_label += " + ";
+            method_label += parts[p];
+        }
+        method_label += " Ping";
+
+        std::cout << "\nStarting " << color::bold << "Shiv" << color::reset
+                  << " (" << color::yellow << method_label << color::reset
+                  << ") scan at " << get_current_time() << "\n";
+        std::cout.flush();
+    }
 
     // ---- overall timing, for the "Overall arp ping completed" summary ----
     auto fn_start = std::chrono::steady_clock::now();
@@ -581,7 +710,7 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
     // Our own interface IP, for the self-scan special case below.
     uint32_t own_ip_int = 0;
     if (subnet_ok) memcpy(&own_ip_int, src_ip_bytes, 4);
-    
+
     int      ifindex6           = 0;
     bool     have_v6_iface      = false;
     struct in6_addr local_ip6_prefix {};
@@ -661,33 +790,16 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
             continue;
         }
         uint32_t ip_int; memcpy(&ip_int, ip_bytes, 4);
-        slots[i].ip_int = ip_int;  
+        slots[i].ip_int = ip_int;
         if (subnet_ok && ip_int == own_ip_int) {
             slots[i].alive        = true;
             slots[i].mac          = format_mac(src_mac);
             slots[i].is_self_host = true;
             continue;
         }
+        bool is_onlink = classify_v4_onlink(ips[i], ip_int, local_ip_int, netmask_int, subnet_ok, interface);
 
-        // On-link decision, in order of confidence:
-        bool topologically_onlink = subnet_ok && is_same_subnet(ip_int, local_ip_int, netmask_int);
-
-        bool route_onlink = false;
-        std::string route_iface;
-        if (!topologically_onlink) {
-            bool is_onlink_route = false;
-            if (route_lookup(ips[i], AF_INET, route_iface, is_onlink_route) && is_onlink_route) {
-                route_onlink = true;
-            }
-        }
-
-        bool cache_onlink = !topologically_onlink && !route_onlink
-                             && neighbor_cache_has_entry_v4(ips[i]);
-
-        std::string check_iface = topologically_onlink ? interface : route_iface;
-        bool is_ptp = !check_iface.empty() && is_point_to_point_interface(check_iface);
-
-        if ((topologically_onlink || route_onlink || cache_onlink) && !is_ptp) {
+        if (is_onlink) {
             auto buf = std::make_unique<uint8_t[]>(4);
             memcpy(buf.get(), ip_bytes, 4);
             arp_target_ptrs.push_back(buf.get());
@@ -700,29 +812,6 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
             icmp_ips.push_back(ips[i]);
             icmp_indices.push_back(i);
         }
-    }
-    
-    {
-        bool has_arp  = !arp_target_ptrs.empty();
-        bool has_ndp  = !ndp_ips.empty();
-        bool has_icmp = !icmp_ips.empty() || !icmp6_ips.empty();
-
-        std::vector<std::string> parts;
-        if (has_arp)  parts.push_back("ARP");
-        if (has_ndp)  parts.push_back("NDP");
-        if (has_icmp) parts.push_back("ICMP");
-
-        std::string method_label;
-        for (size_t p = 0; p < parts.size(); ++p) {
-            if (p > 0) method_label += " + ";
-            method_label += parts[p];
-        }
-        method_label += (parts.size() == 1 && parts[0] == "ICMP") ? " Ping" : " Ping";
-
-        std::cout << "\nStarting " << color::bold << "Shiv" << color::reset
-                  << " (" << color::yellow << method_label << color::reset
-                  << ") scan at " << get_current_time() << "\n";
-        std::cout.flush();
     }
 
     constexpr size_t ARP_BATCH_SIZE = 63;
@@ -738,7 +827,7 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
                 std::vector<double> arp_rtt_ms_all(total_arp_targets, 0.0);
                 for (size_t batch_start = 0; batch_start < total_arp_targets; batch_start += ARP_BATCH_SIZE) {
                     const size_t batch_end = std::min(batch_start + ARP_BATCH_SIZE, total_arp_targets);
-                    const size_t this_batch_size = batch_end - batch_start;  
+                    const size_t this_batch_size = batch_end - batch_start;
 
                     std::vector<uint8_t*> batch_target_ptrs(
                         arp_target_ptrs.begin() + batch_start, arp_target_ptrs.begin() + batch_end);
@@ -828,7 +917,7 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
             size_t idx = icmp_indices[k];
             if (is_lan_host[idx]) continue;
             bool retryable = results[k].state == IcmpHostState::NoResponse
-               		    || results[k].state == IcmpHostState::FragNeeded
+                            || results[k].state == IcmpHostState::FragNeeded
                             || results[k].state == IcmpHostState::TtlExceeded
                             || results[k].state == IcmpHostState::FragTimeout
                             || results[k].state == IcmpHostState::BadSpi;
@@ -859,7 +948,7 @@ std::vector<std::string> perform_sn_discovery(const std::vector<std::string>& ip
             }
         }
     }
-    
+
     // ---- NDP pass: on-link IPv6 targets, mirrors the ARP pass above ----
     struct rusage ru_v6_start{}; getrusage(RUSAGE_SELF, &ru_v6_start);
     if (!ndp_ips.empty() && ifindex6 > 0) {
@@ -1291,6 +1380,44 @@ bool dns_parse_answer(const uint8_t* buf, size_t len, uint16_t want_type, std::s
     return false;
 }
 
+void dns_parse_answer_all(const uint8_t* buf, size_t len, uint16_t want_type,
+                           std::vector<std::string>& out_ips) {
+    if (len < sizeof(DnsHeader)) return;
+    DnsHeader hdr{};
+    memcpy(&hdr, buf, sizeof(hdr));
+    uint16_t qdcount = ntohs(hdr.qdcount);
+    uint16_t ancount = ntohs(hdr.ancount);
+    if (ancount == 0) return;
+
+    size_t pos = sizeof(DnsHeader);
+    for (uint16_t i = 0; i < qdcount; ++i) {
+        pos = dns_skip_name(buf, len, pos);
+        pos += 4;
+        if (pos > len) return;
+    }
+    for (uint16_t i = 0; i < ancount; ++i) {
+        pos = dns_skip_name(buf, len, pos);
+        if (pos + 10 > len) return;
+        uint16_t rtype, rclass, rdlen;
+        memcpy(&rtype,  buf + pos, 2); rtype  = ntohs(rtype);  pos += 2;
+        memcpy(&rclass, buf + pos, 2); rclass = ntohs(rclass); pos += 2;
+        pos += 4;
+        memcpy(&rdlen,  buf + pos, 2); rdlen  = ntohs(rdlen);  pos += 2;
+        if (pos + rdlen > len) return;
+
+        if (rtype == want_type && rclass == 1) {
+            if (want_type == 1 && rdlen == 4) {
+                char ipbuf[INET_ADDRSTRLEN];
+                if (inet_ntop(AF_INET, buf + pos, ipbuf, sizeof(ipbuf))) out_ips.emplace_back(ipbuf);
+            } else if (want_type == 28 && rdlen == 16) {
+                char ipbuf[INET6_ADDRSTRLEN];
+                if (inet_ntop(AF_INET6, buf + pos, ipbuf, sizeof(ipbuf))) out_ips.emplace_back(ipbuf);
+            }
+        }
+        pos += rdlen;
+    }
+}
+
 size_t dns_decode_name(const uint8_t* buf, size_t len, size_t pos, std::string& out) {
     out.clear();
     size_t original_pos = pos;
@@ -1434,11 +1561,12 @@ bool resolve_via_custom_dns(const std::string& host, std::string& resolved_ip,
         if (socks.empty()) continue;
 
         std::string a_result, aaaa_result;
+        std::vector<std::string> all_a, all_aaaa;
         bool got_a = false, got_aaaa = false;
         auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1200);
         uint8_t buf[512];
 
-        while (!got_a && !socks.empty()) {
+        while (!(got_a && got_aaaa) && !socks.empty()) {
             auto remaining = deadline - std::chrono::steady_clock::now();
             if (remaining.count() <= 0) break;
 
@@ -1461,10 +1589,11 @@ bool resolve_via_custom_dns(const std::string& host, std::string& resolved_ip,
                             if (it->want_type == 1 && !got_a)        { a_result = ip_out;    got_a = true; }
                             else if (it->want_type == 28 && !got_aaaa) { aaaa_result = ip_out; got_aaaa = true; }
                         }
+                        if (it->want_type == 1)  dns_parse_answer_all(buf, static_cast<size_t>(n), 1,  all_a);
+                        else                     dns_parse_answer_all(buf, static_cast<size_t>(n), 28, all_aaaa);
                     }
                     close(it->fd);
                     it = socks.erase(it);
-                    if (got_a) break; // an A record settles it — stop waiting on the rest
                 } else {
                     ++it;
                 }
@@ -1472,9 +1601,18 @@ bool resolve_via_custom_dns(const std::string& host, std::string& resolved_ip,
         }
         for (auto& s : socks) close(s.fd);
 
-        if (got_a)    { resolved_ip = a_result;    return true; }
-        if (got_aaaa) { resolved_ip = aaaa_result; return true; }
-        // neither arrived this round — try once more
+        if (got_a || got_aaaa) {
+            if (g_target_ip_pref == 4 && !got_a) {
+                return false;   // -4: IPv4-only, and no A record — do not fall back to v6
+            }
+            if (g_target_ip_pref == 6 && !got_aaaa) {
+                return false;   // -6: IPv6-only, and no AAAA record — do not fall back to v4
+            }
+            resolved_ip = (g_target_ip_pref == 6) ? aaaa_result : a_result;
+            for (const auto& other : all_a)    if (other != resolved_ip) g_not_scanned_map[resolved_ip].push_back(other);
+            for (const auto& other : all_aaaa) if (other != resolved_ip) g_not_scanned_map[resolved_ip].push_back(other);
+            return true;
+        }
     }
     return false;
 }
@@ -1598,6 +1736,26 @@ bool dot_query_server(const std::string& server, const std::string& host,
     return ok;
 }
 
+bool dot_query_server_all(const std::string& server, const std::string& host,
+                           uint16_t qtype, std::vector<std::string>& out_ips,
+                           int timeout_ms) {
+    DotConn conn = dot_connect(server, timeout_ms);
+    if (!conn.ssl) return false;
+    bool ok = false;
+    auto query = dns_build_query(
+        static_cast<uint16_t>((getpid() * 2654435761u) ^ static_cast<uint32_t>(time(nullptr))),
+        host, qtype);
+    if (dot_send_query(conn.ssl, query)) {
+        std::vector<uint8_t> resp;
+        if (dot_recv_message(conn.ssl, resp)) {
+            dns_parse_answer_all(resp.data(), resp.size(), qtype, out_ips);
+            ok = !out_ips.empty();
+        }
+    }
+    dot_close(conn);
+    return ok;
+}
+
 // Reverse (PTR) query over DoT.
 bool dot_ptr_query_server(const std::string& server, const std::string& qname,
                            std::string& out_domain, int timeout_ms) {
@@ -1621,18 +1779,24 @@ bool dot_ptr_query_server(const std::string& server, const std::string& qname,
 bool resolve_via_custom_dns_tls(const std::string& host, std::string& resolved_ip,
                                  const std::vector<std::string>& servers) {
     if (servers.empty()) return false;
-    std::string aaaa_fallback;
-    bool got_aaaa = false;
 
     for (const auto& srv : servers) {
-        std::string ip_out;
-        if (dot_query_server(srv, host, 1, ip_out, 2000)) { resolved_ip = ip_out; return true; }
-        if (!got_aaaa && dot_query_server(srv, host, 28, ip_out, 2000)) {
-            aaaa_fallback = ip_out;
-            got_aaaa = true;
+        std::vector<std::string> all_a, all_aaaa;
+        bool got_a    = dot_query_server_all(srv, host, 1,  all_a,    2000);
+        bool got_aaaa = dot_query_server_all(srv, host, 28, all_aaaa, 2000);
+        if (!got_a && !got_aaaa) continue; // this server gave nothing; try the next one
+
+        if (g_target_ip_pref == 4 && !got_a) {
+            continue;   // -4: no A record from this server — don't fall back to v6, try next server
         }
+        if (g_target_ip_pref == 6 && !got_aaaa) {
+            continue;   // -6: no AAAA record from this server — don't fall back to v4, try next server
+        }
+        resolved_ip = (g_target_ip_pref == 6) ? all_aaaa.front() : all_a.front();
+        for (const auto& other : all_a)    if (other != resolved_ip) g_not_scanned_map[resolved_ip].push_back(other);
+        for (const auto& other : all_aaaa) if (other != resolved_ip) g_not_scanned_map[resolved_ip].push_back(other);
+        return true;
     }
-    if (got_aaaa) { resolved_ip = aaaa_fallback; return true; }
     return false;
 }
 
@@ -1725,109 +1889,186 @@ bool resolve_ptr_via_custom_dns(const std::string& ip, std::string& out_domain,
     return false;
 }
 
-bool resolve_domain_to_ip(const std::string& domain, std::string& resolved_ip) {
-    resolved_ip.clear();
-    if (domain.empty() || domain.size() > 253) return false;
+// Returns the plain-UDP --dns-servers list, or empty if only
+// --dns-servers-tls (DoT) was configured, or empty if nothing was set.
+// dns_query_batch() speaks plain UDP only, so an empty return here with
+// custom_dns_configured()==true means "DoT-only, can't be batched" and
+// callers should fall back to a thread pool over the single-target TLS path.
+std::vector<std::string> get_configured_plain_dns_servers() {
+    return g_dns_servers;
+}
 
-    std::string host = domain;
-    trim_in_place(host);
-    if (host.empty() || has_bad_control_char(host)) return false;
-    if (normalize_ip_string(host, resolved_ip)) return true;
-    
+// Vectorized forward resolution (hostname -> IP). Resolves the whole
+// `domains` batch concurrently instead of one blocking call per name:
+//
+//   - Literal IP strings pass straight through, no DNS involved.
+//   - DoT-only (--dns-servers-tls): raw UDP can't pipeline TLS, so this
+//     falls back to a bounded thread pool over the existing single-target
+//     resolve_via_custom_dns_tls(), capped at 64 concurrent handshakes.
+//   - Plain --dns-servers, or (when nothing is configured) the system
+//     resolvers read from /etc/resolv.conf: both speak ordinary UDP, so
+//     the whole batch is fired through dns_query_batch() — the same
+//     vectorized engine dns_enum.cpp uses for subdomain brute force —
+//     two jobs per host (A + AAAA), `concurrency` in flight at once.
+//     A short retry pass re-issues anything that never got a definitive
+//     answer, since some UDP loss is normal at this volume.
+//
+// out_ip: hostname -> chosen address (honors g_target_ip_pref).
+// out_all_ips: hostname -> every address the response(s) contained (used
+//   to populate g_not_scanned_map exactly as the old single-target
+//   function did).
+// out_unresolved: hostnames that could not be resolved at all.
+// Returns true iff at least one hostname resolved.
+bool resolve_domain_to_ip_batch(const std::vector<std::string>& domains,
+                                 std::unordered_map<std::string, std::string>& out_ip,
+                                 std::unordered_map<std::string, std::vector<std::string>>& out_all_ips,
+                                 std::vector<std::string>& out_unresolved,
+                                 int timeout_ms,
+                                 int retries,
+                                 int concurrency) {
+    out_ip.clear();
+    out_all_ips.clear();
+    out_unresolved.clear();
+    if (domains.empty()) return false;
+
+    // 1) Validate, de-dupe, and let literal IPs pass straight through.
+    std::vector<std::string> to_query;
+    to_query.reserve(domains.size());
+    std::unordered_set<std::string> seen;
+    for (const auto& d : domains) {
+        std::string host = d;
+        trim_in_place(host);
+        if (host.empty() || host.size() > 253 || has_bad_control_char(host)) {
+            out_unresolved.push_back(d);
+            continue;
+        }
+        if (!seen.insert(host).second) continue;
+        std::string literal_ip;
+        if (normalize_ip_string(host, literal_ip)) { out_ip[host] = literal_ip; continue; }
+        to_query.push_back(host);
+    }
+    if (to_query.empty()) return !out_ip.empty();
+
+    // 2) DoT-only custom servers -- bounded thread pool over the existing
+    //    single-target TLS resolver (see comment above).
     if (!g_dns_tls_servers.empty()) {
-        if (resolve_via_custom_dns_tls(host, resolved_ip, g_dns_tls_servers)) return true;
-        std::cerr << "domain to ip resolution failed via --dns-servers-tls, can't perform without ip.\n";
-        return false;
-    }
-
-    if (!g_dns_servers.empty()) {
-        if (resolve_via_custom_dns(host, resolved_ip, g_dns_servers)) return true;
-        std::cerr << "domain to ip resolution failed via --dns-servers, can't perform without ip.\n";
-        return false;
-    }
-
-    auto attempt_once = [&host]() -> std::pair<int, std::string> {
-        struct AddrState {
-            std::mutex m;
-            std::condition_variable cv;
-            bool done = false;
-            int rc = -1;
-            std::string ip;
+        const int pool_size = std::max(1, std::min(concurrency, 64));
+        std::mutex out_mutex;
+        std::atomic<size_t> next{0};
+        auto worker = [&]() {
+            for (;;) {
+                size_t idx = next.fetch_add(1);
+                if (idx >= to_query.size()) return;
+                const std::string& host = to_query[idx];
+                std::string ip;
+                bool ok = resolve_via_custom_dns_tls(host, ip, g_dns_tls_servers);
+                std::lock_guard<std::mutex> lock(out_mutex);
+                if (ok) out_ip[host] = ip;
+                else    out_unresolved.push_back(host);
+            }
         };
-        auto state = std::make_shared<AddrState>();
+        std::vector<std::thread> pool;
+        pool.reserve(pool_size);
+        for (int i = 0; i < pool_size; ++i) pool.emplace_back(worker);
+        for (auto& t : pool) t.join();
+        return !out_ip.empty();
+    }
 
-        std::thread([state, host]() {
-            addrinfo hints{};
-            hints.ai_family   = AF_UNSPEC;   // fetch both A and AAAA in one query
-            hints.ai_socktype = SOCK_STREAM;
-            hints.ai_protocol = IPPROTO_TCP;
-            hints.ai_flags    = AI_ADDRCONFIG;
+    // 3) Plain custom servers, or the system resolver -- the real
+    //    vectorized path. Both speak ordinary UDP, so route the whole
+    //    batch through dns_query_batch(), two jobs per host (A + AAAA).
+    std::vector<std::string> servers = !g_dns_servers.empty() ? g_dns_servers : get_system_resolvers();
+    if (servers.empty()) {
+        std::cerr << "resolve_domain_to_ip_batch: no DNS servers available "
+                     "(resolv.conf unreadable and no --dns-servers set)\n";
+        for (auto& h : to_query) out_unresolved.push_back(h);
+        return !out_ip.empty();
+    }
 
-            addrinfo* result = nullptr;
-            int rc = getaddrinfo(host.c_str(), nullptr, &hints, &result);
-            std::string ip_out;
-            if (rc == 0 && result) {
-                struct Guard { addrinfo* p; ~Guard(){ if(p) freeaddrinfo(p); } } g{result};
-                rc = EAI_NONAME; // default if no usable record found
+    std::unordered_map<std::string, std::vector<std::string>> v4, v6;
+    std::unordered_set<std::string> answered_hosts;
 
-                // Prefer an IPv4 (A) record first — same precedence the old
-                // two-function version had.
-                for (addrinfo* rp = result; rp; rp = rp->ai_next) {
-                    if (rp->ai_family != AF_INET || !rp->ai_addr) continue;
-                    if (rp->ai_addrlen < static_cast<socklen_t>(sizeof(sockaddr_in))) continue;
-                    const auto* sa = reinterpret_cast<const sockaddr_in*>(rp->ai_addr);
-                    char buf[INET_ADDRSTRLEN];
-                    if (!inet_ntop(AF_INET, &sa->sin_addr, buf, sizeof(buf))) continue;
-                    ip_out = buf;
-                    rc = 0;
-                    break;
-                }
-                // No A record — fall back to the first AAAA record.
-                if (rc != 0) {
-                    for (addrinfo* rp = result; rp; rp = rp->ai_next) {
-                        if (rp->ai_family != AF_INET6 || !rp->ai_addr) continue;
-                        if (rp->ai_addrlen < static_cast<socklen_t>(sizeof(sockaddr_in6))) continue;
-                        const auto* sa = reinterpret_cast<const sockaddr_in6*>(rp->ai_addr);
-                        char buf[INET6_ADDRSTRLEN];
-                        if (!inet_ntop(AF_INET6, &sa->sin6_addr, buf, sizeof(buf))) continue;
-                        ip_out = buf;
-                        rc = 0;
-                        break;
-                    }
-                }
+    auto run_pass = [&](std::vector<AsyncDnsJob>& job_list) {
+        auto results = dns_query_batch(job_list, servers, timeout_ms, concurrency, /*use_edns0=*/true);
+        for (auto& r : results) {
+            if (r.answered) answered_hosts.insert(r.tag);
+            for (auto& rec : r.records) {
+                if (rec.type == DnsRRType::A)    v4[r.tag].push_back(rec.value);
+                if (rec.type == DnsRRType::AAAA) v6[r.tag].push_back(rec.value);
             }
-            {
-                std::lock_guard<std::mutex> lock(state->m);
-                state->rc   = rc;
-                state->ip   = ip_out;
-                state->done = true;
-            }
-            state->cv.notify_all();
-        }).detach();
-
-        std::unique_lock<std::mutex> lock(state->m);
-        bool finished = state->cv.wait_for(lock, std::chrono::milliseconds(2000),
-                                            [&] { return state->done; });
-        if (!finished) return {-1, std::string{}};   // timeout -> transient
-        return {state->rc, state->ip};
+        }
     };
 
-    int rc = 0;
-    for (int attempt = 1; attempt <= 2; ++attempt) {
-        auto [code, ip] = attempt_once();
-        rc = code;
+    std::vector<AsyncDnsJob> jobs;
+    jobs.reserve(to_query.size() * 2);
+    for (auto& host : to_query) {
+        jobs.push_back({host, DnsRRType::A,    host});
+        jobs.push_back({host, DnsRRType::AAAA, host});
+    }
+    run_pass(jobs);
 
-        if (rc == 0 && !ip.empty()) {
-            resolved_ip = ip;
-            return true;
+    // Retry pass: re-issue only for hosts that never got a definitive
+    // answer at all (packet loss is expected at hundreds of in-flight
+    // UDP queries) -- a host that got a real NXDOMAIN is not retried.
+    for (int attempt = 1; attempt < retries; ++attempt) {
+        std::vector<AsyncDnsJob> leftover;
+        leftover.reserve(to_query.size() * 2);
+        for (auto& host : to_query) {
+            if (answered_hosts.count(host)) continue;
+            leftover.push_back({host, DnsRRType::A,    host});
+            leftover.push_back({host, DnsRRType::AAAA, host});
         }
-
-        if (rc == EAI_FAIL || rc == EAI_NONAME) break;
-        if (attempt < 2) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (leftover.empty()) break;
+        run_pass(leftover);
     }
 
-    std::cerr << "domain to ip resolution failed, can't perform without ip.\n";
-    return false;
+    // 4) Apply g_target_ip_pref and populate outputs, exactly matching
+    //    the old single-target function's selection rules.
+    for (auto& host : to_query) {
+        auto& all4 = v4[host];
+        auto& all6 = v6[host];
+
+        if (g_target_ip_pref == 6 && all6.empty()) { out_unresolved.push_back(host); continue; }
+        if (g_target_ip_pref == 4 && all4.empty()) { out_unresolved.push_back(host); continue; }
+
+        std::string chosen;
+        if (g_target_ip_pref == 6)      chosen = all6.front();
+        else if (g_target_ip_pref == 4) chosen = all4.front();
+        else if (!all4.empty())         chosen = all4.front();
+        else if (!all6.empty())         chosen = all6.front();
+
+        if (chosen.empty()) { out_unresolved.push_back(host); continue; }
+
+        std::vector<std::string> all;
+        all.reserve(all4.size() + all6.size());
+        all.insert(all.end(), all4.begin(), all4.end());
+        all.insert(all.end(), all6.begin(), all6.end());
+
+        out_ip[host] = chosen;
+        out_all_ips[host] = all;
+        for (auto& other : all) if (other != chosen) g_not_scanned_map[chosen].push_back(other);
+    }
+
+    return !out_ip.empty();
+}
+
+// Single-target convenience wrapper — kept for every existing call site
+// (the target-token parser above, etc.) that only has one hostname in
+// hand. Internally just runs the vectorized engine with a batch of 1, so
+// selection/caching semantics stay identical to calling the batch entry
+// point directly. For resolving many hostnames at once, call
+// resolve_domain_to_ip_batch() directly instead of looping this — looping
+// this still serializes one DNS round trip per call.
+bool resolve_domain_to_ip(const std::string& domain, std::string& resolved_ip) {
+    resolved_ip.clear();
+    std::unordered_map<std::string, std::string> out_ip;
+    std::unordered_map<std::string, std::vector<std::string>> out_all_ips;
+    std::vector<std::string> unresolved;
+    resolve_domain_to_ip_batch({domain}, out_ip, out_all_ips, unresolved,
+                                /*timeout_ms=*/2000, /*retries=*/2, /*concurrency=*/2);
+    if (out_ip.empty()) return false;
+    resolved_ip = out_ip.begin()->second; // batch of 1 -- only one possible entry
+    return true;
 }
 
 bool custom_dns_configured() {
@@ -1843,6 +2084,18 @@ bool resolve_ptr_via_configured_dns(const std::string& ip, std::string& out_doma
 bool read_ips_from_file(const std::string& filename,
                         std::vector<std::string>& ips)
 {
+    struct stat st{};
+    if (stat(filename.c_str(), &st) != 0) {
+        std::cerr << "Failed to open IP file: " << filename << "\n";
+        return false;
+    }
+    if (!S_ISREG(st.st_mode)) {
+        std::cerr << "Error: '" << filename << "' is not a regular file "
+                   << "(-iL requires a plain text file of targets, not a "
+                   << "device, pipe, or socket).\n";
+        return false;
+    }
+
     std::ifstream file(filename);
     if (!file.is_open()) {
         std::cerr << "Failed to open IP file: " << filename << "\n";
@@ -1852,7 +2105,20 @@ bool read_ips_from_file(const std::string& filename,
     std::vector<std::string> tokens;
     tokens.reserve(4096);
     std::string line;
+    size_t bytes_read = 0;
     while (std::getline(file, line)) {
+        bytes_read += line.size() + 1;
+        if (bytes_read > MAX_IL_FILE_BYTES) {
+            std::cerr << "Error: '" << filename << "' exceeds the "
+                      << (MAX_IL_FILE_BYTES / (1024 * 1024))
+                      << "MB limit for -iL target files.\n";
+            return false;
+        }
+        if (tokens.size() >= MAX_IL_FILE_LINES) {
+            std::cerr << "Error: '" << filename << "' exceeds the "
+                      << MAX_IL_FILE_LINES << "-line limit for -iL target files.\n";
+            return false;
+        }
         tokens.emplace_back(std::move(line));
     }
 
@@ -1874,6 +2140,25 @@ bool process_ip_string(const std::string& ip_str,
 
     ParseContext ctx{ "CLI argument", false };
     return parse_targets(tokens, ips, ctx);
+}
+
+static std::string strip_ansi_codes(const std::string& input) {
+    std::string result;
+    result.reserve(input.size());
+
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (input[i] == '\033' && i + 1 < input.size() && input[i + 1] == '[') {
+            size_t j = i + 2;
+            while (j < input.size() && input[j] != 'm') {
+                ++j;
+            }
+            i = j;
+        } else {
+            result += input[i];
+        }
+    }
+
+    return result;
 }
 
 void save_scan_results(const std::vector<RecPross>& results, const std::string& output_file,
@@ -1911,7 +2196,7 @@ void save_scan_results(const std::vector<RecPross>& results, const std::string& 
     std::sort(combined_result.open_ports.begin(), combined_result.open_ports.end());
     std::sort(combined_result.filtered_ports.begin(), combined_result.filtered_ports.end());
 
-    const auto& service_map = read_services_from_file("services");
+    const auto& service_map = read_services_from_file("/usr/share/nmap/nmap-services");
 
     const std::string safe_mac = combined_result.mac_address;
     const std::string safe_vendor = combined_result.mac_address.empty()
@@ -1919,7 +2204,7 @@ void save_scan_results(const std::vector<RecPross>& results, const std::string& 
         : get_mac_vendor(combined_result.mac_address);
 
     if (!raw_log.empty()) {
-        out_file << raw_log;
+        out_file << strip_ansi_codes(raw_log);
     } else {
         out_file << "shiv scan results\n";
 
@@ -2128,8 +2413,6 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                    const VersionDetectOptions& sv_opts) {
                    
     
-    // Local aliases: same names the body below has always used, now backed
-    // by the shared opts struct instead of ~29 individual parameters.
     const uint8_t&     window_scale            = opts.window_scale;
     const bool&        use_tfo_cookie          = opts.use_tfo_cookie;
     const bool&        tfo_cookie_as_hex       = opts.tfo_cookie_as_hex;
@@ -2138,7 +2421,6 @@ void thread_worker(const std::vector<std::string>& thread_ips,
     const uint64_t&    tfo_cookie_num          = opts.tfo_cookie_num;
     const size_t&      tfo_cookie_length       = opts.tfo_cookie_length;
 
-    // NEW:
     std::random_device rd;
     thread_local std::mt19937 rng(rd() + std::hash<std::thread::id>{}(std::this_thread::get_id()));
     std::uniform_int_distribution<uint16_t> port_dist(1, 65535); 
@@ -2193,7 +2475,6 @@ void thread_worker(const std::vector<std::string>& thread_ips,
     std::vector<std::array<uint8_t, 4>> statically_arped_ips;
     bool multi_ip = (thread_ips.size() > 1);
     std::unordered_set<uint32_t> counted_down_ips;
-    // NEW:
     std::vector<std::unique_ptr<uint8_t[]>> same_subnet_target_ips;
     std::vector<uint32_t> same_subnet_ip_ints;
     std::vector<size_t> same_subnet_indices;
@@ -2496,7 +2777,7 @@ void thread_worker(const std::vector<std::string>& thread_ips,
         }
 
         RecPross& result = results[i];
-        const auto& service_map = read_services_from_file("services");
+        const auto& service_map = read_services_from_file("/usr/share/nmap/nmap-services");
         std::string not_shown_message;
         if (result.closed_ports > 0 && !print_individual_closed_filtered) {
             not_shown_message += std::to_string(result.closed_ports) + " closed tcp ports (reset)";
@@ -2530,10 +2811,11 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                 [&](uint16_t a, uint16_t b) { return rank(a) < rank(b); });
 
             int shown_filtered = 0;
+            std::string sorted_filtered_state = PacketTask::expects_rst_response(scan_type) ? "confused" : "filtered";
             for (size_t idx = 0; idx < filtered_sorted.size() && shown_filtered < want_filtered; ++idx, ++shown_filtered) {
                 uint16_t p = filtered_sorted[idx];
                 std::string svc = service_map.count(p) ? service_map.at(p) : "unknown";
-                print_output(PrintOutputType::PORT_RESULT, "", p, "filtered", svc, scan_name,
+                print_output(PrintOutputType::PORT_RESULT, "", p, sorted_filtered_state, svc, scan_name,
                              0, 0, 0, 0, 0, 0, "", "", 0.0, "", false, true);
             }
             int shown_closed = 0;
@@ -2565,7 +2847,7 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                 auto rit = result.icmp_filter_reasons.find(fport);
                 if (rit != result.icmp_filter_reasons.end()) {
                     std::string icmp_note;
-                    switch (rit->second) {
+                    switch (rit->second.reason) {
                         case IcmpFilterReason::NetAdminProhibited:
                             icmp_note = "Net-admin-prohibited"
                                         " (" + color::red + "ACL/router policy blocks subnet" + color::reset + ")";
@@ -2590,7 +2872,7 @@ void thread_worker(const std::vector<std::string>& thread_ips,
             }
             if (!result.icmp_warnings.empty()) {
                 std::unordered_set<int> seen_w;
-                for (auto& [wr, wmsg] : result.icmp_warnings) {
+                for (auto& [wr, wmsg, wreplier] : result.icmp_warnings) {
                     if (seen_w.insert(static_cast<int>(wr)).second) {
                         layer3_reason += "Warning        : "
                                        + color::yellow + wmsg + color::reset + "\n";
@@ -2648,10 +2930,66 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                                  0.0, "", false, true);
                 
             }
+            {
+                const uint64_t tx_loss = result.loss_buffer_pool
+                                       + result.loss_build_fail
+                                       + result.loss_kernel_reject
+                                       + result.loss_drain_timeout
+                                       + result.loss_no_socket
+                                       + result.loss_aborted;
+                const uint64_t rx_loss = result.rx_kernel_ovfl
+                                       + result.rx_cq_overflow
+                                       + result.rx_truncated;
+
+                if (tx_loss || rx_loss || result.rx_slot_starved) {
+                    const uint64_t attempted =
+                        static_cast<uint64_t>(result.packets_sent) + tx_loss;
+                    const double pct = attempted
+                        ? (100.0 * static_cast<double>(tx_loss)
+                                 / static_cast<double>(attempted))
+                        : 0.0;
+
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cout << "\nIncident\n";
+
+                    auto checkpoint = [](const char* name, const char* reason, uint64_t n,
+                                          const char* label = "Drops") {
+                        if (!n) return;
+                        std::cout << "  -> CheckPoint  : " << std::left << std::setw(13) << name
+                                  << "| Reason : " << std::setw(31) << reason
+                                  << "| " << label << " : " << n << "\n";
+                    };
+
+                    checkpoint("BufferPool",   "pool exhausted",                result.loss_buffer_pool);
+                    checkpoint("Build",        "packet build rejected",         result.loss_build_fail);
+                    checkpoint("KernelReject", "sendmsg returned error",        result.loss_kernel_reject);
+                    checkpoint("DrainTimeout", "CQE unreaped, buffer stranded", result.loss_drain_timeout);
+                    checkpoint("NoSocket",     "IPv6 task, no v6 socket",       result.loss_no_socket);
+                    checkpoint("Abandoned",    "batch aborted / submit error",  result.loss_aborted);
+                    checkpoint("RxKernelDrop", "SO_RXQ_OVFL, recv buffer full", result.rx_kernel_ovfl);
+                    checkpoint("RxCqOverflow", "io_uring CQ overflow",          result.rx_cq_overflow);
+                    checkpoint("RxTruncated",  "frame exceeded MAX_LEN",        result.rx_truncated, "Truncated");
+                    checkpoint("RxSlotStarve", "no free slot, re-arm deferred", result.rx_slot_starved);
+
+                    std::cout << std::right;
+
+                    if (tx_loss) {
+                        std::cout << "  -> TX total    : " << tx_loss << " of " << attempted
+                                  << " attempted (" << std::fixed << std::setprecision(2)
+                                  << pct << "%)\n";
+                        std::cout << "     note        : transmit attempts, not probe failures —\n"
+                                     "                   retries may still have resolved the port.\n";
+                    }
+                    if (rx_loss || result.rx_slot_starved) {
+                        std::cout << "     note        : RX counters are socket-wide; concurrent\n"
+                                     "                   targets will show overlapping figures.\n";
+                    }
+                }
+            }
 	    if (!multi_ip) {
 	        if (debug_rtt && !result.rtt_debug_entries.empty()) {
-		    std::lock_guard<std::mutex> lock(cout_mutex);
-		    std::cout << "\nRTT Debug      : \n";
+		    std::ostringstream rtt_oss;
+		    rtt_oss << "\nRTT Debug      : \n";
 
 		    const auto& entries = result.rtt_debug_entries;
 		    const size_t INLINE_THRESHOLD = 10;
@@ -2678,7 +3016,7 @@ void thread_worker(const std::vector<std::string>& thread_ips,
 		        int rtt_int = static_cast<int>(open_entries[i].second);
 		        if (open_entries[i].second > 0 && rtt_int == 0) rtt_int = 1;
 		    
-		        std::cout << "    " << color::green << std::left << std::setw(7) << "open" << color::reset
+		        rtt_oss << "    " << color::green << std::left << std::setw(7) << "open" << color::reset
 		                  << " " << std::setw(10) << (std::to_string(open_entries[i].first) + "/tcp")
 		                  << ": ewma=" << std::fixed << std::setprecision(3)
 		                  << open_entries[i].second << "ms → int=" << rtt_int << "ms\n";
@@ -2693,7 +3031,7 @@ void thread_worker(const std::vector<std::string>& thread_ips,
 		                int rtt_int = static_cast<int>(other_entries[i].second);
 		                if (other_entries[i].second > 0 && rtt_int == 0) rtt_int = 1;
 		            
-		                std::cout << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
+		                rtt_oss << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
 		                          << " " << std::setw(10) << (std::to_string(other_entries[i].first) + "/tcp")
 		                          << ": ewma=" << std::fixed << std::setprecision(3)
 		                          << other_entries[i].second << "ms → int=" << rtt_int << "ms\n";
@@ -2738,21 +3076,25 @@ void thread_worker(const std::vector<std::string>& thread_ips,
 		            int avg_int = static_cast<int>(avg_closest); 
 		            if (avg_closest > 0 && avg_int == 0) avg_int = 1;
 
-		            std::cout << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
+		            rtt_oss << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
 		                      << " " << other_entries.size() << " ports sampled\n";
-		            std::cout << "    Min ewma       "
+		            rtt_oss << "    Min ewma       "
 		                      << " " << std::setw(10) << (std::to_string(min_port) + "/tcp")
 		                      << ": ewma=" << std::fixed << std::setprecision(3) << min_rtt << "ms"
 		                      << " → int=" << min_int << "ms\n";
-		            std::cout << "    Avg ewma       "
+		            rtt_oss << "    Avg ewma       "
 		                      << " " << std::setw(10) << (std::to_string(avg_port) + "/tcp")
 		                      << ": ewma=" << std::fixed << std::setprecision(3) << avg_closest << "ms"
 		                      << " → int=" << avg_int << "ms\n";
-		            std::cout << "    Max ewma       "
+		            rtt_oss << "    Max ewma       "
 		                      << " " << std::setw(10) << (std::to_string(max_port) + "/tcp")
 		                      << ": ewma=" << std::fixed << std::setprecision(3) << max_rtt << "ms"
 		                      << " → int=" << max_int << "ms\n";
 		        }
+		    }
+		    {
+		        std::lock_guard<std::mutex> lock(cout_mutex);
+		        std::cout << rtt_oss.str();
 		    }
 	        }
 	    }
@@ -2785,6 +3127,15 @@ void thread_worker(const std::vector<std::string>& thread_ips,
             if (!result.packet_details.empty() && !terminate_flag && debug_wsn) {
                 display_wsn_analysis(result.packet_details, window_scale, ip_str.c_str());
             }
+            
+            if (g_os_detect && !terminate_flag) {
+                const osdetect::Context os_ctx =
+                    osdetect::make_context(scan_type, opts, custom_ttl, win_size);
+                const osdetect::Result os_res =
+                    osdetect::analyze(result.packet_details, os_ctx);
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cout << osdetect::render(os_res, ip_str, sv_opts.verbose);
+            }
             const bool udp_probe_all_ports = sv_opts.udp && !ports.empty();
             if (enable_version_detection && vprobes && !terminate_flag
 	        && (!result.open_ports.empty() || udp_probe_all_ports)) {
@@ -2792,9 +3143,6 @@ void thread_worker(const std::vector<std::string>& thread_ips,
 
 	        constexpr size_t kMaxConcurrentProbes = 16;
 	        std::vector<std::future<void>> inflight;
-
-	        // --udp: probe every requested port (bypasses TCP open_ports).
-	        // Otherwise: stick to the TCP scan's open_ports, as before.
 	        std::vector<uint16_t> udp_probe_ports;
 	        if (udp_probe_all_ports) {
 	            udp_probe_ports.reserve(ports.size());
@@ -3162,6 +3510,7 @@ void print_full_help() {
 		std::cerr << color::yellow << " --interface" << color::reset << " Set desired interface\n";
 		std::cerr << color::yellow << " --grep" << color::reset << " Print a plain, copy-friendly grepable target list at the end of the scan\n";
 		std::cerr << color::yellow << " --traceroute" << color::reset << " Print traced routes informations with Geo locations,ASN etc\n";
+	        std::cerr << color::yellow << " --os-detect" << color::reset << " Passively fingerprint the target OS from the replies received\n";
 		std::cerr << color::yellow << " -o" << color::reset << " <File_Name>.txt Save results to file (plain text)\n\n";
 
 		std::cerr << color::green << "Multi Host Specification:\n" << color::reset;
@@ -3169,42 +3518,87 @@ void print_full_help() {
 		std::cerr << color::yellow << " -iL" << color::reset << " <ips.txt> Scan saved hosts\n";
 		std::cerr << color::yellow << " --dns-servers" << color::reset << " <server,server,...> Use these DNS servers (1-10, IPv4 or IPv6) instead of the system resolver\n";
 		std::cerr << color::yellow << " --dns-servers-tls" << color::reset << " <server,server,...> Use these DNS servers over DNS-over-TLS, port 853, cert-verified (1-10, IPv4 or IPv6)\n";
+		std::cerr << color::yellow << " -4" << color::reset << " Force IPv4-only when resolving domain targets (fails instead of falling back to IPv6)\n";
+		std::cerr << color::yellow << " -6" << color::reset << " Force IPv6-only when resolving domain targets (fails instead of falling back to IPv4)\n";
 		std::cerr << color::yellow << " --exclude-ports" << color::reset << " <PORT_SPEC> Ports to exclude from scanning (format same as -p)\n\n";
-
 		std::cerr << color::green << "State Machine Scan:\n" << color::reset;
 		std::cerr << color::yellow << " -G" << color::reset << " State Machine Scan (perform 4 way handshake , it run inside namespace )\n\n";
 
 		std::cerr << color::green << "Enumeration Options\n" << color::reset;
 		std::cerr << color::yellow << " --enum" << color::reset << " <module,module,...> Run one or more OSINT/enumeration modules, comma-separated, any order\n";
-		std::cerr << "                                      shodan        Query Shodan InternetDB for target info\n";
-		std::cerr << "                                      dns           Passive+active DNS/OSINT enumeration (records, AXFR , email-security posture, DNSSEC , Wayback/RDAP/ASN)\n";
-		std::cerr << "                                      trail:<key>   Use security trials API to fetch subdomains\n\n";
+		std::cerr << "                                      shodan        : Query Shodan InternetDB for target info\n";
+		std::cerr << "                                      ssl           : SSL/TLS enumeration (chain, SANs, key strength, expiry, OCSP/CT, SNI variance)\n";
+		std::cerr << "                                      dns           : Passive+active DNS/OSINT enumeration (records,AXFR,DNSSEC,Wayback/RDAP/ASN)\n";
+		std::cerr << "                                      trail:<key>   : Use security trials API to fetch subdomains\n\n";
 		std::cerr << "                                      For eg: shiv  abc.com --enum trail:<api-key> (only perform trail)\n";
 		std::cerr << "                                      For eg: shiv  abc.com -sS -Pn --enum shodan,dns (scan, then shodan + dns enum)\n";
 		std::cerr << "                                      For eg: shiv  abc.com --enum shodan,trail:<api-key>,dns (multiple modules, any order)\n\n";
 		
-		std::cerr << color::cyan << "Filtered State Tackle Controller / Performance Options \n" << color::reset;
+		std::cerr << color::green << "Passive Discovery (--netradar) Options:\n" << color::reset;
+		std::cerr << color::yellow << " --netradar" << color::reset << " Passively watch the wire instead of sending probes: puts the interface in promiscuous mode\n";
+		std::cerr << "             and correlates TCP SYN/SYN-ACK/ACK/PSH/PSH-ACK/FIN-ACK traffic plus QUIC and DNS\n";
+		std::cerr << "             query/response exchanges to report which hosts have which ports open. No packets\n";
+		std::cerr << "             of shiv's own are ever sent -- only what already crosses the capture NIC is seen\n";
+		std::cerr << "             (same LAN segment, a switch mirror/SPAN port, or an on-path gateway).\n";
+		std::cerr << color::yellow << " --time" << color::reset << " <N>[s|m|h] Only valid together with --netradar. Capture for this long, then stop\n";
+		std::cerr << "             automatically and print one aggregated report (grouped by host, every open port\n";
+		std::cerr << "             folded into a single comma-separated cell). Omit --time to run until Ctrl-C instead\n";
+		std::cerr << "             -- the report still prints once, at that point.\n\n";
+		std::cerr << "                                      For eg: shiv --netradar (run until Ctrl-C, then print the report)\n";
+		std::cerr << "                                      For eg: shiv --netradar --time 30s (capture for 30 seconds)\n";
+		std::cerr << "                                      For eg: shiv --netradar --time 5m --interface eth0 (5 minutes on a specific interface)\n\n";
+		
+	        std::cerr << color::green << "Discovery Options:\n" << color::reset;
+		std::cerr << "  category 1 - ASN / organisation lookup:\n";
+		std::cerr << color::yellow << "   --cn" << color::reset << " <country>         List every ASN and org name for a country\n";
+		std::cerr << "            Accepts a name (nepal, \"south korea\"), ISO-2 (np) or ISO-3 (npl); typos are corrected.\n";
+		std::cerr << "                                      For eg: shiv --cn nepal\n";
+		std::cerr << color::yellow << "   --org" << color::reset << " <name>           Filter the ASN list to one organisation (typo-tolerant)\n";
+		std::cerr << "            With --cn, filters that country's list; used alone, it scans every country's list for a match.\n";
+		std::cerr << "                                      For eg: shiv --cn nepal --org \"sky broadband\"\n";
+		std::cerr << "                                      For eg: shiv --org worldlink\n\n";
+
+		std::cerr << "  category 2 - IP-range discovery:\n";
+		std::cerr << color::yellow << "   --country" << color::reset << " <country>     Fetch a country's public IPv4/IPv6 ranges from RIR/NetworksDB\n";
+		std::cerr << "            Accepts a name (nepal, \"south korea\"), ISO-2 (np) or ISO-3 (npl); typos are corrected.\n";
+		std::cerr << "                                      For eg: shiv --country nepal --ipv4 -o np.txt\n";
+		std::cerr << color::yellow << "   --owner" << color::reset << " [name]          Annotate ranges with their owner, or filter to one owner/ASN\n";
+		std::cerr << "            Looks up one sample address per range (Team Cymru ASN DNS lookup).\n";
+		std::cerr << "                                      For eg: shiv --country nepal --owner\n";
+		std::cerr << "                                      For eg: shiv --country nepal --owner worldlink\n";
+		std::cerr << color::yellow << "   --ipv4" << color::reset << " / " << color::yellow << "--ipv6" << color::reset << "         Restrict output to one family (default: both)\n\n";
+
+		std::cerr << "  category 3 - IP/ASN to domains:\n";
+		std::cerr << color::yellow << "   --ip" << color::reset << " <ip>               Reverse-lookup domains hosted on an IPv4 address\n";
+		std::cerr << color::yellow << "   --range" << color::reset << " <cidr/24>       Reverse-lookup domains in an IPv4 /24 (host bits are cleared automatically)\n";
+		std::cerr << "                                      For eg: shiv --ip 103.48.88.33\n";
+		std::cerr << "                                      For eg: shiv --range 103.48.88.0/24\n";
+		std::cerr << color::yellow << "   --asn" << color::reset << " <ASN>             Print the IPv4/IPv6 routes announced by an ASN (no domain lookups)\n";
+		std::cerr << color::yellow << "   --ipv4" << color::reset << " / " << color::yellow << "--ipv6" << color::reset << "         With --asn, restrict routes to one family (default: both)\n";
+		std::cerr << "                                      For eg: shiv --asn AS45353 --ipv6\n\n";
+		
+		std::cerr << color::green << "Filtered State Tackle Controller / Performance Options \n" << color::reset;
 		std::cerr << color::yellow << "  --retry-delay-min" << color::reset << " <dur>       Floor for congestion-scaled retry delay (default: 3ms)\n";
 		std::cerr << color::yellow << "  --retry-delay-max" << color::reset << " <dur>       Ceiling for congestion-scaled retry delay (default: 700ms)\n";
 		std::cerr << color::yellow << "  --retry-delay-floor-div" << color::reset << " <n>   Divisor applied to learned RTT timeout for the delay floor (default: 4)\n";
-		std::cerr << color::yellow << "  --cong-curve" << color::reset << " <float>          Exponent shaping how fast delay ramps up with congestion (default: 2.0, higher = more aggressive near the ceiling)\n";
+		std::cerr << color::yellow << "  --cong-curve" << color::reset << " <float>          Exponent shaping how fast retry delay, dynamic rate limit, batch delay and retry cap ramp up with congestion (default: 2.0, higher = stays gentle longer, then ramps harder near full congestion)\n";
 		std::cerr << color::yellow << "  --cong-alpha-up" << color::reset << " <0-1>         EMA smoothing weight when congestion is rising (default: 0.5, higher = reacts faster)\n";
 		std::cerr << color::yellow << "  --cong-alpha-down" << color::reset << " <0-1>       EMA smoothing weight when congestion is falling (default: 0.1, lower = recovers slower/more cautiously)\n\n";
 
 		std::cerr << color::yellow << "  --rto-mult" << color::reset << " <n>                RTT-variance multiplier in the RTO formula base_rtt + n*rttvar (default: 4, Jacobson/Karels)\n";
 		std::cerr << color::yellow << "  --rto-pad1" << color::reset << " <ms>               Extra timeout padding added on 1st retry (default: 40ms)\n";
-		std::cerr << color::yellow << "  --rto-pad2" << color::reset << " <ms>               Extra timeout padding added on 2nd+ retry (default: 100ms)\n\n";
+		std::cerr << color::yellow << "  --rto-pad2" << color::reset << " <ms>               Extra timeout padding added on the 2nd retry, escalating by +50% of this value per retry stage beyond that (default: 100ms)\n";
 
 		std::cerr << color::yellow << "  --rate-dyn-window" << color::reset << " <dur>       Window size for the adaptive rate limiter (default: 200ms)\n";
 		std::cerr << color::yellow << "  --rate-dyn-min" << color::reset << " <n>            Min packets/window under heavy congestion (default: 20)\n";
-		std::cerr << color::yellow << "  --rate-dyn-max" << color::reset << " <n>            Max packets/window when healthy (default: 150)\n\n";
+		std::cerr << color::yellow << "  --rate-dyn-max" << color::reset << " <n>            Max packets/window once congestion is detected (default: 150); rate is unlimited until the first retry congestion appears\n\n";
 
 		std::cerr << color::yellow << "  --batch-delay-dyn-min" << color::reset << " <dur>   Min inter-batch sleep under adaptive batch delay (default: 0)\n";
 		std::cerr << color::yellow << "  --batch-delay-dyn-max" << color::reset << " <dur>   Max inter-batch sleep under adaptive batch delay (default: 800ms)\n\n";
 
-		std::cerr << color::yellow << "  --buf-peak" << color::reset << " <float>            Peak buffer-pool over-allocation factor (default: 1.3)\n";
-		std::cerr << color::yellow << "  --batch-settle" << color::reset << " <us>           io_uring batch-settle wait before submit (default: 500)\n";
-		std::cerr << color::yellow << "  --sqpoll-threshold" << color::reset << " <n>        Probe volume (hosts*ports) that auto-enables SQPOLL when pacing is adaptive/dynamic (default: 300000). When rate/batch-delay use fixed, non-dynamic pacing, an estimated-duration check is used instead.\n";
+		std::cerr << color::yellow << "  --buf-peak" << color::reset << " <float>            Peak buffer-pool over-allocation factor, 1.0-20.0 (default: 1.3; hard limit 65536 buffers)\n";
+		std::cerr << color::yellow << "  --batch-settle" << color::reset << " <us>           Min wait (us) for receive-ring completions to coalesce before processing (default: 500)\n";
+		std::cerr << color::yellow << "  --sqpoll-threshold" << color::reset << " <n>        Probe volume (hosts*ports) per host batch that auto-enables SQPOLL when pacing is adaptive/dynamic (default: 300000, triggers at >=). When rate/batch-delay use fixed, non-dynamic pacing, an estimated-duration check is used instead.\n";
 		std::cerr << "\n  " << color::yellow << "Note: --rate-dyn-* requires the rate limiter to stay in its default adaptive mode —\n"
                      				     << "  combining it with an explicit --rate is rejected at startup.\n"
                                                      << "  Same rule for --batch-delay-dyn-* and an explicit --batch-delay." << color::reset << "\n\n";
@@ -3234,12 +3628,12 @@ void print_full_help() {
 		std::cerr << color::green << "Buffer Management:\n" << color::reset;
 		std::cerr << color::yellow << " --rcv-uring" << color::reset << " <depth> Set io_uring receive queue depth (Allowed values: 2, 4, 6, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, default: auto=dynamic)\n";
 		std::cerr << color::yellow << " --rcvbuf" << color::reset << " <size> Set receive buffer size in bytes(128k, 2m, 1g, or bytes), (default: auto)\n";
-		std::cerr << color::yellow << " --send-uring" << color::reset << " <depth> Set io_uring send queue depth (Allowed values: 2, 4, 6, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, default: auto=1024)\n";
-		std::cerr << color::yellow << " --sqpoll" << color::reset << " Force-enable io_uring SQPOLL mode (kernel-thread submission, fewer io_uring_enter syscalls). Auto-enabled when adaptive pacing sees >300000 total probes, or when fixed pacing predicts a scan >=8s\n";
-		std::cerr << color::yellow << " -b <size>" << color::reset << " Set max port batch size (default: 250, support: 1 to 10000)\n"
+		std::cerr << color::yellow << " --send-uring" << color::reset << " <depth> Set io_uring send queue depth (Allowed values: 2, 4, 6, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, default: auto=2048)\n";
+		std::cerr << color::yellow << " --sqpoll" << color::reset << " Force-enable io_uring SQPOLL mode (kernel-thread submission, fewer io_uring_enter syscalls). Auto-enabled when adaptive pacing sees >= --sqpoll-threshold probes (default 300000, counted per host batch), or when fixed pacing predicts a scan >=8s\n";
+		std::cerr << color::yellow << " -b <size>" << color::reset << " Set max port batch size (default: 500, support: 1 to 65535)\n"
 			  		   << "     Ports are split into batches of at most this size, evenly\n"
-			                   << "     distributed across batches — actual batch sizes may be smaller(auto handles uneven).\n"
-			                   << "     Example: -b 250  (batches of ~250 ports or fewer)\n";
+			                   << "     distributed across chunk — actual batch sizes may be smaller(auto handles uneven).\n"
+			                   << "     Example: -b 500  (batches of ~500 ports or fewer)\n";
 		
 		std::cerr << color::yellow << " --set-rtt" << color::reset << " <ms|s> Set initial RTT seed (default: 290ms). e.g. --set-rtt 150ms or --set-rtt 0.5s\n\n";
 
@@ -3275,10 +3669,17 @@ void print_full_help() {
 		std::cerr << "         "
 		          << color::yellow << "strack" << color::reset
 		          << "   Show State-transition output, Ports marked as filtered by initial syn may be get discover when retry\n\n";
+		          
+		std::cerr << color::green << "Server Options:\n" << color::reset;
+		std::cerr << color::yellow << " --server" << color::reset << " Start shiv as a LAN control-panel server (open a browser to run scans remotely)\n";
+		std::cerr << color::yellow << " --server-port" << color::reset << " <port> Public HTTPS port clients connect to (default: 8443). TLS is handled automatically via stunnel\n";
+		std::cerr << color::yellow << " --server-token" << color::reset << " <token> Use a fixed auth token instead of a randomly generated one (not allowed with --count)\n";
+		std::cerr << color::yellow << " --count" << color::reset << " <2-15> Generate this many independent links, each with its own port (consecutive from --server-port) and its own random token.\n";
+		std::cerr << "                                            For eg: shiv --server (starts on the default port, prints a ready-to-use https link)\n";
+		std::cerr << "                                            For eg: shiv --server --server-port 9443\n";
+		std::cerr << "                                            For eg: shiv --server --count 5 (5 links on ports 8443-8447)\n\n";
 }
 
-// Defined in control.cpp: loads user-editable header/tag/regex signatures
-// from signatures.conf at startup (see the top of that file's config-driven
-// signature section for the file format). Declared here directly rather
-// than in scan.hpp/utils.hpp since those aren't part of this change.
-void load_signature_config(const std::string &path);
+void load_signature_config(const std::string &path) {
+    g_signature_conf_path = path;
+}

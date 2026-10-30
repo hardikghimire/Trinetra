@@ -9,6 +9,7 @@
 #include <sstream>
 #include <chrono>
 #include <cstdint>
+#include <utility>
 #include <termios.h>
 #include "scan.hpp"
 #include "probe.hpp"
@@ -45,6 +46,10 @@ extern std::unordered_map<std::string, std::string> ip_to_domain_map;
 extern std::vector<std::string> g_dns_bypassed_targets;
 extern std::vector<std::string> g_dns_servers;
 extern std::vector<std::string> g_dns_tls_servers;
+extern std::string g_signature_conf_path;
+extern int g_target_ip_pref;
+extern bool g_saw_literal_target;
+extern std::vector<std::pair<std::string, std::string>> g_eliminated_targets;
 extern struct termios g_orig_termios;
 extern bool g_termios_saved;
 void restore_terminal_echo();

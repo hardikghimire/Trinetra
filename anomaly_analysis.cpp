@@ -6,6 +6,8 @@
 #include <deque>
 #include <iomanip>
 #include <iostream>
+#include <list>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <arpa/inet.h>
@@ -33,7 +35,8 @@ inline double sigmoid(double x) {
     double z = std::exp(x); return z / (1.0 + z);
 }
 
-double median_of(const std::vector<double>& v) {
+template <typename Container>
+double median_of(const Container& v) {
     if (v.empty()) return 0.0;
     std::vector<double> t(v.begin(), v.end());
     std::sort(t.begin(), t.end());
@@ -56,7 +59,8 @@ double quantile(const std::vector<double>& v, double q) {
     return t[lo] * (1.0 - w) + t[hi] * w;
 }
 
-double mad_of(const std::vector<double>& v, double med) {
+template <typename Container>
+double mad_of(const Container& v, double med) {
     if (v.empty()) return 0.0;
     std::vector<double> d;
     d.reserve(v.size());
@@ -76,11 +80,35 @@ double stddev_of(const std::vector<double>& v) {
     return std::sqrt(a / static_cast<double>(v.size()));
 }
 
-double robust_z(double x, const std::vector<double>& hist, size_t min_hist) {
+template <typename Container>
+double robust_z(double x, const Container& hist, size_t min_hist) {
     if (hist.size() < min_hist) return 0.0;
     double m = median_of(hist);
     double a = mad_of(hist, m);
     return std::fabs(x - m) / robust_scale(a);
+}
+
+struct RobustStats {
+    double median = 0.0;
+    double mad = 0.0;
+    double scale = 1e-9;
+    bool valid = false;
+};
+
+template <typename Container>
+RobustStats compute_robust_stats(const Container& hist) {
+    RobustStats s;
+    if (hist.empty()) return s;
+    s.median = median_of(hist);
+    s.mad = mad_of(hist, s.median);
+    s.scale = robust_scale(s.mad);
+    s.valid = true;
+    return s;
+}
+
+inline double robust_z_from_stats(double x, const RobustStats& s, size_t hist_size, size_t min_hist) {
+    if (!s.valid || hist_size < min_hist) return 0.0;
+    return std::fabs(x - s.median) / s.scale;
 }
 
 double entropy_norm(const std::unordered_map<int,int>& counts, int total) {
@@ -100,9 +128,10 @@ std::string safe_ip(const char* ip) {
     return (ip && *ip) ? std::string(ip) : std::string("unknown");
 }
 
-inline void push_capped(std::vector<double>& v, double x, size_t cap) {
-    v.push_back(x);
-    if (v.size() > cap) v.erase(v.begin());
+template <typename Container, typename T>
+inline void push_capped(Container& v, T x, size_t cap) {
+    v.push_back(std::move(x));
+    if (v.size() > cap) v.pop_front();
 }
 
 
@@ -189,36 +218,96 @@ uint16_t infer_initial(uint8_t recv, int& hop, bool& valid, double& conf) {
 template <typename Hist>
 class TargetHistoryStore {
 public:
-    explicit TargetHistoryStore(size_t max_targets) : max_targets_(max_targets) {}
+    explicit TargetHistoryStore(size_t max_targets, size_t max_summaries = 0)
+        : max_targets_(max_targets),
+          max_summaries_(max_summaries ? max_summaries : max_targets * 4) {}
 
-    Hist& get(const std::string& key) {
-        auto it = map_.find(key);
-        if (it != map_.end()) return it->second;
-        if (map_.size() >= max_targets_ && !order_.empty()) {
-            map_.erase(order_.front());
+    std::shared_ptr<Hist> get(const std::string& key) {
+        std::lock_guard<std::mutex> g(store_mu_);
+
+        auto it = index_.find(key);
+        if (it != index_.end()) {
+            order_.splice(order_.end(), order_, it->second.order_it);
+            return it->second.hist;
+        }
+
+        auto hist = std::make_shared<Hist>();
+        auto sit = summaries_.find(key);
+        if (sit != summaries_.end()) {
+            for (double v : sit->second) hist->score_hist.push_back(v);
+            summary_order_.erase(summary_index_.at(key));
+            summary_index_.erase(key);
+            summaries_.erase(sit);
+        }
+        if (index_.size() >= max_targets_ && !order_.empty()) {
+            const std::string& victim_key = order_.front();
+            auto vit = index_.find(victim_key);
+            if (vit != index_.end()) {
+                snapshot_before_evict(victim_key, *vit->second.hist);
+            }
+            index_.erase(victim_key);
             order_.pop_front();
         }
+
         order_.push_back(key);
-        return map_[key];
+        auto order_it = std::prev(order_.end());
+        index_.emplace(key, Entry{hist, order_it});
+        return hist;
     }
 
 private:
+    struct Entry {
+        std::shared_ptr<Hist> hist;
+        typename std::list<std::string>::iterator order_it;
+    };
+    static constexpr size_t kSummaryPoints = 40;
+    void snapshot_before_evict(const std::string& key, Hist& h) {
+        std::vector<double> tail;
+        {
+            std::lock_guard<std::mutex> lg(h.data_mu);
+            const size_t n = h.score_hist.size();
+            const size_t take = std::min(n, kSummaryPoints);
+            tail.reserve(take);
+            for (size_t i = n - take; i < n; ++i) tail.push_back(h.score_hist[i]);
+        }
+        if (tail.empty()) return;
+        auto existing = summary_index_.find(key);
+        if (existing != summary_index_.end()) {
+            summary_order_.erase(existing->second);
+            summary_index_.erase(existing);
+        } else if (summaries_.size() >= max_summaries_ && !summary_order_.empty()) {
+            summaries_.erase(summary_order_.front());
+            summary_index_.erase(summary_order_.front());
+            summary_order_.pop_front();
+        }
+        summary_order_.push_back(key);
+        summary_index_.emplace(key, std::prev(summary_order_.end()));
+        summaries_.emplace(key, std::move(tail));
+    }
     size_t max_targets_;
-    std::unordered_map<std::string, Hist> map_;
-    std::deque<std::string> order_;
+    size_t max_summaries_;
+    std::unordered_map<std::string, Entry> index_;
+    std::list<std::string> order_;
+    std::unordered_map<std::string, std::vector<double>> summaries_;
+    std::unordered_map<std::string, typename std::list<std::string>::iterator> summary_index_;
+    std::list<std::string> summary_order_;
+    std::mutex store_mu_;
 };
 
-double bounded_adaptive_threshold(double base_threshold,
-                                   const std::vector<double>& score_hist,
-                                   size_t min_samples) {
-    if (score_hist.size() < min_samples) return base_threshold;
-    double sm = median_of(score_hist);
-    double sa = mad_of(score_hist, sm);
-    double raw = sm + 3.0 * robust_scale(sa);
-
+double bounded_adaptive_threshold_from_stats(double base_threshold, const RobustStats& stats) {
+    if (!stats.valid) return base_threshold;
+    const double raw = stats.median + 3.0 * stats.scale;
     constexpr double kMinMult = 0.6;
     constexpr double kMaxMult = 2.0;
     return std::max(base_threshold * kMinMult, std::min(raw, base_threshold * kMaxMult));
+}
+
+template <typename Container>
+double bounded_adaptive_threshold(double base_threshold,
+                                   const Container& score_hist,
+                                   size_t min_samples) {
+    if (score_hist.size() < min_samples) return base_threshold;
+    return bounded_adaptive_threshold_from_stats(base_threshold, compute_robust_stats(score_hist));
 }
 
 struct Sig {
@@ -271,7 +360,8 @@ constexpr WsnWeights kWsnWeights{};
 using Vec = std::vector<double>;
 using Mat = std::vector<std::vector<double>>;
 
-Vec mean_vector(const std::vector<Vec>& data) {
+template <typename Container>
+Vec mean_vector(const Container& data) {
     const size_t k = data.empty() ? 0 : data.front().size();
     Vec m(k, 0.0);
     if (data.empty()) return m;
@@ -281,7 +371,8 @@ Vec mean_vector(const std::vector<Vec>& data) {
     return m;
 }
 
-Mat covariance_matrix(const std::vector<Vec>& data, const Vec& mean, double ridge) {
+template <typename Container>
+Mat covariance_matrix(const Container& data, const Vec& mean, double ridge) {
     const size_t k = mean.size();
     Mat cov(k, Vec(k, 0.0));
     if (data.size() < 2) {
@@ -364,10 +455,11 @@ void display_ttl_analysis(const std::vector<std::pair<int,double>>& rtt_entries,
                           bool dest_responded)
 {
     struct Hist {
-        std::vector<double> hop_hist;
-        std::vector<double> rtt_med_hist;
-        std::vector<double> score_hist;
-        std::vector<double> ttl_conf_hist;
+        std::deque<double> hop_hist;
+        std::deque<double> rtt_med_hist;
+        std::deque<double> score_hist;
+        std::deque<double> ttl_conf_hist;
+        std::mutex data_mu;   // per-target lock; different targets no longer contend
     };
 
     static constexpr size_t MAXH = 300;
@@ -402,7 +494,6 @@ void display_ttl_analysis(const std::vector<std::pair<int,double>>& rtt_entries,
     double ttl_conf = 0.0;
     const uint16_t init_ttl = infer_initial(received_ttl, hop, hop_valid, ttl_conf);
 
-    static std::mutex mu;
     static TargetHistoryStore<Hist> store(MAX_TRACKED_TARGETS);
 
     double z_hop = 0.0, z_rtt = 0.0, z_ttl_conf = 0.0, z_score = 0.0;
@@ -427,11 +518,15 @@ void display_ttl_analysis(const std::vector<std::pair<int,double>>& rtt_entries,
     double c_tail = 0.0, c_nonstationary = 0.0, c_sparse = 0.0, c_ttl_conf_drop = 0.0, c_bucket_edge = 0.0;
 
     {
-        std::lock_guard<std::mutex> g(mu);
-        auto& h = store.get(ip);
+        const std::shared_ptr<Hist> hist_ptr = store.get(ip);
+        std::lock_guard<std::mutex> g(hist_ptr->data_mu);
+        Hist& h = *hist_ptr;
 
-        z_hop = (hop_valid ? robust_z(static_cast<double>(hop), h.hop_hist, 8) : 0.0);
-        z_rtt = (rtt_med > 0.0 ? robust_z(rtt_med, h.rtt_med_hist, 8) : 0.0);
+        const RobustStats hop_stats = compute_robust_stats(h.hop_hist);
+        const RobustStats rtt_stats = compute_robust_stats(h.rtt_med_hist);
+
+        z_hop = hop_valid ? robust_z_from_stats(static_cast<double>(hop), hop_stats, h.hop_hist.size(), 8) : 0.0;
+        z_rtt = (rtt_med > 0.0) ? robust_z_from_stats(rtt_med, rtt_stats, h.rtt_med_hist.size(), 8) : 0.0;
         z_ttl_conf = robust_z(ttl_conf, h.ttl_conf_hist, 8);
 
         // Plausibility terms
@@ -449,27 +544,27 @@ void display_ttl_analysis(const std::vector<std::pair<int,double>>& rtt_entries,
             : 0.5;
 
         // Overlap/order/action against learned manifold
-        if (hop_valid && !h.hop_hist.empty() && !h.rtt_med_hist.empty()) {
-            double hm = median_of(h.hop_hist), ha = mad_of(h.hop_hist, hm);
-            double rm = median_of(h.rtt_med_hist), ra = mad_of(h.rtt_med_hist, rm);
+        if (hop_valid && hop_stats.valid && rtt_stats.valid) {
+            const double hm = hop_stats.median, ha_scale = hop_stats.scale;
+            const double rm = rtt_stats.median, ra_scale = rtt_stats.scale;
 
-            double h_lo = hm - 2.5 * robust_scale(ha), h_hi = hm + 2.5 * robust_scale(ha);
-            double r_lo = std::max(0.0, rm - 2.5 * robust_scale(ra)), r_hi = rm + 2.5 * robust_scale(ra);
+            double h_lo = hm - 2.5 * ha_scale, h_hi = hm + 2.5 * ha_scale;
+            double r_lo = std::max(0.0, rm - 2.5 * ra_scale), r_hi = rm + 2.5 * ra_scale;
 
             double out_h = (hop < h_lo) ? (h_lo - hop) : ((hop > h_hi) ? (hop - h_hi) : 0.0);
             double out_r = (rtt_med < r_lo) ? (r_lo - rtt_med) : ((rtt_med > r_hi) ? (rtt_med - r_hi) : 0.0);
 
             c_overlap = clamp01(
-                0.5 * sigmoid(out_h / (robust_scale(ha) + 1e-9)) +
-                0.5 * sigmoid(out_r / (robust_scale(ra) + 1e-9))
+                0.5 * sigmoid(out_h / (ha_scale + 1e-9)) +
+                0.5 * sigmoid(out_r / (ra_scale + 1e-9))
             );
 
             double dh = static_cast<double>(hop) - hm;
             double dr = rtt_med - rm;
             c_order = clamp01(sigmoid((-dh * dr) / (std::fabs(dh) + std::fabs(dr) + 1e-9)));
 
-            double zh = std::fabs(static_cast<double>(hop) - hm) / robust_scale(ha);
-            double zr = std::fabs(rtt_med - rm) / robust_scale(ra);
+            double zh = std::fabs(static_cast<double>(hop) - hm) / ha_scale;
+            double zr = std::fabs(rtt_med - rm) / ra_scale;
             double support = std::exp(-0.5 * (zh * zh + zr * zr));
             c_action = clamp01(dest_responded ? (1.0 - support) : support);
         }
@@ -509,8 +604,13 @@ void display_ttl_analysis(const std::vector<std::pair<int,double>>& rtt_entries,
             kTtlWeights.ttl_conf_drop * c_ttl_conf_drop +
             kTtlWeights.bucket_edge * c_bucket_edge;
 
-        threshold = bounded_adaptive_threshold(BASE_THRESHOLD, h.score_hist, 18);
-        z_score = robust_z(score, h.score_hist, 8);
+        {
+            const RobustStats score_stats = compute_robust_stats(h.score_hist);
+            threshold = (h.score_hist.size() >= 18)
+                ? bounded_adaptive_threshold_from_stats(BASE_THRESHOLD, score_stats)
+                : BASE_THRESHOLD;
+            z_score = robust_z_from_stats(score, score_stats, h.score_hist.size(), 8);
+        }
 
         if (hop_valid) push_capped(h.hop_hist, static_cast<double>(hop), MAXH);
         if (rtt_med > 0.0) push_capped(h.rtt_med_hist, rtt_med, MAXH);
@@ -591,12 +691,13 @@ void display_wsn_analysis(const std::unordered_map<uint16_t, PacketDetails>& pac
                           const char* dest_ip)
 {
     struct Hist {
-        std::vector<double> score_hist;
-        std::vector<double> miss_hist;
-        std::vector<double> ent_hist;
-        std::vector<double> imp_hist;
-        std::vector<double> seg_hist;
-        std::vector<Vec> feat_hist;
+        std::deque<double> score_hist;
+        std::deque<double> miss_hist;
+        std::deque<double> ent_hist;
+        std::deque<double> imp_hist;
+        std::deque<double> seg_hist;
+        std::deque<Vec> feat_hist;
+        std::mutex data_mu;   // per-target lock; different targets no longer contend
     };
     struct Obs {
         uint16_t port;
@@ -806,7 +907,6 @@ void display_wsn_analysis(const std::unordered_map<uint16_t, PacketDetails>& pac
     static constexpr size_t MAX_TRACKED_TARGETS = 4096;
     static constexpr double BASE_THRESHOLD = 0.55;
 
-    static std::mutex hist_mu;
     static TargetHistoryStore<Hist> store(MAX_TRACKED_TARGETS);
 
     const std::string ip = safe_ip(dest_ip);
@@ -826,8 +926,9 @@ void display_wsn_analysis(const std::unordered_map<uint16_t, PacketDetails>& pac
     double maha_d2 = 0.0;
 
     {
-        std::lock_guard<std::mutex> g(hist_mu);
-        auto& hist = store.get(ip);
+        const std::shared_ptr<Hist> hist_ptr = store.get(ip);
+        std::lock_guard<std::mutex> g(hist_ptr->data_mu);
+        Hist& hist = *hist_ptr;
 
         z_missing = robust_z(p_missing, hist.miss_hist, 12);
         z_entropy = robust_z(ws_entropy_n, hist.ent_hist, 12);
@@ -866,8 +967,13 @@ void display_wsn_analysis(const std::unordered_map<uint16_t, PacketDetails>& pac
             score = linear_score;
         }
 
-        threshold = bounded_adaptive_threshold(BASE_THRESHOLD, hist.score_hist, 20);
-        z_score = robust_z(score, hist.score_hist, 12);
+        {
+            const RobustStats score_stats = compute_robust_stats(hist.score_hist);
+            threshold = (hist.score_hist.size() >= 20)
+                ? bounded_adaptive_threshold_from_stats(BASE_THRESHOLD, score_stats)
+                : BASE_THRESHOLD;
+            z_score = robust_z_from_stats(score, score_stats, hist.score_hist.size(), 12);
+        }
 
         push_capped(hist.score_hist, score, MAXH);
         push_capped(hist.miss_hist, p_missing, MAXH);
@@ -875,8 +981,7 @@ void display_wsn_analysis(const std::unordered_map<uint16_t, PacketDetails>& pac
         push_capped(hist.imp_hist, imp_profile, MAXH);
         push_capped(hist.seg_hist, seg_complex, MAXH);
 
-        hist.feat_hist.push_back(feat_vec);
-        if (hist.feat_hist.size() > MAXH) hist.feat_hist.erase(hist.feat_hist.begin());
+        push_capped(hist.feat_hist, feat_vec, MAXH);
     }
 
     std::vector<Sig> sigs;

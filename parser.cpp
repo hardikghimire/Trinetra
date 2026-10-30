@@ -1,6 +1,7 @@
 #include "parser.hpp"
 #include <cctype>
 #include <unordered_map>
+#include <stdexcept>
 
 bool parse_sport_range_config(const std::string& arg, SportRangeConfig& out) {
     auto parse_one_range = [](const std::string& s, uint16_t& lo, uint16_t& hi) -> bool {
@@ -180,13 +181,20 @@ bool parse_duration_to_us(std::string_view s,
         std::cerr << flag_name << ": missing numeric value before unit\n";
         return false;
     }
-
+    std::string num(s.substr(0, num_len));
+    for (char c : num) {
+        if (!(std::isdigit(static_cast<unsigned char>(c)) || c == '.')) {
+            std::cerr << flag_name << ": invalid numeric value '" << s << "'\n";
+            return false;
+        }
+    }
     double val = 0.0;
     try {
-        val = std::stod(std::string(s.substr(0, num_len)));
+        size_t used = 0;
+        val = std::stod(num, &used);
+        if (used != num.size()) throw std::invalid_argument("trailing characters");
     } catch (const std::exception&) {
-        std::cerr << flag_name << ": invalid numeric value '"
-                  << s << "'\n";
+        std::cerr << flag_name << ": invalid numeric value '" << s << "'\n";
         return false;
     }
 
@@ -202,7 +210,18 @@ bool parse_duration_to_us(std::string_view s,
         return false;
     }
 
-    out = static_cast<uint64_t>(val * multiplier);
+    // ── range check (no silent truncation to 0 / overflow wrap) ──────────
+    double us = val * multiplier;
+    if (us < 1.0) {
+        std::cerr << flag_name << ": value is below 1 microsecond\n";
+        return false;
+    }
+    if (us > 1.8e19) {
+        std::cerr << flag_name << ": value too large\n";
+        return false;
+    }
+
+    out = static_cast<uint64_t>(us);
     return true;
 }
 

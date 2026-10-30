@@ -10,6 +10,8 @@
 #include "probe.hpp"
 #include "async_io.hpp"
 #include "netns_split.hpp"
+#include "net_capture.hpp"
+#include "os_detect.hpp"
 #include <stdexcept>
 #include <future>
 #include <thread>
@@ -26,6 +28,7 @@
 #include <set>
 #include <iomanip>
 #include <cstdio>
+#include <cerrno>
 #include <queue>
 #include <unordered_set>
 #include <csignal>
@@ -37,6 +40,11 @@
 #include <openssl/x509.h>
 #include "handler.hpp"
 #include "dns_enum.hpp"
+#include "server.hpp"
+#include <sys/utsname.h>
+#include "dns_enum.hpp"
+#include "ssl_enum.hpp"
+#include "discover.hpp"
 
 
 namespace color {
@@ -53,7 +61,70 @@ namespace color {
     
 }
 
+static std::string shiv_get_os_pretty_name() {
+    std::ifstream f("/etc/os-release");
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.rfind("PRETTY_NAME=", 0) == 0) {
+            std::string val = line.substr(12);
+            if (!val.empty() && val.front() == '"') val.erase(0, 1);
+            if (!val.empty() && val.back() == '"') val.pop_back();
+            return val;
+        }
+    }
+    return "Unknown";
+}
+
+static std::string shiv_get_kernel_release() {
+    struct utsname uts{};
+    if (uname(&uts) == 0) return std::string(uts.release);
+    return "Unknown";
+}
+
+static bool shiv_kernel_supports_io_uring(const std::string& release) {
+    int major = 0, minor = 0;
+    if (sscanf(release.c_str(), "%d.%d", &major, &minor) != 2) return false;
+    if (major > 5) return true;
+    if (major == 5 && minor >= 1) return true;
+    return false;
+}
+
+static std::string shiv_enum_timestamp() {
+    time_t now = time(nullptr);
+    struct tm t;
+    localtime_r(&now, &t);
+    char buf[100];
+    strftime(buf, sizeof(buf), "%a %b %d %H:%M:%S %Y", &t);
+    return std::string(buf);
+}
+
+static void print_shiv_enum_banner(const std::string& scan_name) {
+    std::cout << "\nStarting " << color::bold << "Shiv" << color::reset
+               << " (" << color::yellow << scan_name << color::reset << ") at "
+               << shiv_enum_timestamp() << "\n";
+}
+
+static bool network_is_up() {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return false;
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port   = htons(53);
+    if (inet_pton(AF_INET, "8.8.8.8", &addr.sin_addr) != 1) {
+        close(fd);
+        return false;
+    }
+
+    int rc = connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    close(fd);
+    return rc == 0;
+}
+
 int main(int argc, char *argv[]) {
+    if (argc > 1 && std::string(argv[1]) == "--server") {
+        return server::run(argc, argv);
+    }
 
     mallopt(M_ARENA_MAX, 2);          
     mallopt(M_MMAP_THRESHOLD, 1 << 20);
@@ -146,12 +217,12 @@ int main(int argc, char *argv[]) {
             print_filtered_if_few = false, graceful_scan = false,use_manual_tcp_checksum = false,
             sack_permitted = true, use_custom_data = false, generate_random_data = false,debug_packet = false,use_trial_api = false,expect_domain_for_trial = false,use_shodan_enum = false,
             force_sqpoll = false;
-       uint16_t custom_badsum_value = 0, manual_tcp_checksum = 0,base_source_port = 443, retry_source_port = 8443, win_size = 0, custom_ip_flags = 0x4000,
+       uint16_t custom_badsum_value = 0, manual_tcp_checksum = 0,base_source_port = 0, retry_source_port = 8443, win_size = 0, custom_ip_flags = 0x4000,
                 fixed_ip_id = 0, data_length = 0, nops_count = 0, mss_value = 1460,frag_offset_size  = 8,mtu_size = 0;
        int user_rcvbuf_size = -1,port_timeout_min_ms = 5,port_timeout_max_ms = 700;
        uint8_t custom_ttl = 64, window_scale = 7,custom_dscp = 0,custom_ip_tos = 0;SportRangeConfig sport_range_cfg;GsportConfig gsport_cfg;
-       uint32_t seq_num = 0, timestamp_val = 1234567, timestamp_ecr_custom = 0;
-       size_t send_uring_depth = 1024, rcv_uring_depth = 0, main_batch_size = 250;
+       uint32_t seq_num = 0, timestamp_val = generate_tcp_tsval(), timestamp_ecr_custom = 0;
+       size_t send_uring_depth = 2048, rcv_uring_depth = 0, main_batch_size = 500;
        bool batch_specified = false;
        bool debug_rtt = false;
        int initial_rtt_ms = 290;
@@ -224,10 +295,45 @@ int main(int argc, char *argv[]) {
                    sv_tls_cert, sv_tls_key, sv_tls_sni, sv_host_override;
        EthArpOptions eth_opts;
        bool dns_enum_enabled = false;
+       bool ssl_enum_enabled = false;
+       bool netradar_enabled = false;
+       int  netradar_duration_ms = 0;     
+       bool netradar_time_specified = false;
+       std::string discover_country;
+       std::string discover_cn;
+       std::string discover_org;
+       bool        discover_owner = false;
+       std::string discover_owner_name;
+       std::string discover_ip;
+       std::string discover_range;
+       std::string discover_asn;   
    } config;
    
     std::vector<std::string> ips;
     int arg_idx = 1;
+    auto parse_duration_allow_zero = [](const std::string& s, uint64_t& out, const char* opt) -> bool {
+        if (s == "0" || s == "0ms" || s == "0s" || s == "0m") { out = 0; return true; }
+        return parse_duration_to_us(s, out, opt);
+    };
+    auto parse_long_in = [](const std::string& s, const char* opt, long lo, long hi, long& out) -> bool {
+        char* end = nullptr; errno = 0;
+        long v = s.empty() ? 0 : std::strtol(s.c_str(), &end, 10);
+        if (s.empty() || errno != 0 || end == s.c_str() || *end != '\0' || v < lo || v > hi) {
+            std::cerr << opt << ": must be an integer between " << lo << " and " << hi << "\n";
+            return false;
+        }
+        out = v; return true;
+    };
+    auto parse_dbl_in = [](const std::string& s, const char* opt, double lo, double hi, bool lo_excl, double& out) -> bool {
+        char* end = nullptr; errno = 0;
+        double v = s.empty() ? 0.0 : std::strtod(s.c_str(), &end);
+        if (s.empty() || errno != 0 || end == s.c_str() || *end != '\0' || !std::isfinite(v)
+            || v > hi || (lo_excl ? v <= lo : v < lo)) {
+            std::cerr << opt << ": must be a number " << (lo_excl ? "> " : ">= ") << lo << " and <= " << hi << "\n";
+            return false;
+        }
+        out = v; return true;
+    };
 
     auto get_next_arg = [&](int& idx, const std::string& option_name) -> std::string {
         if (idx + 1 >= argc) {
@@ -337,6 +443,15 @@ int main(int argc, char *argv[]) {
         const std::vector<size_t> allowed_depths = {2, 4, 6, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096};
         return std::find(allowed_depths.begin(), allowed_depths.end(), depth) != allowed_depths.end();
     };
+    bool saw_dash4 = false, saw_dash6 = false;
+    auto read_words = [&](int& idx, const char* flag) {
+        std::string v = get_next_arg(idx, flag);
+        while (idx + 1 < argc && argv[idx + 1][0] != '-') { v += ' '; v += argv[++idx]; }
+        for (unsigned char ch : v) {
+            if (ch < 0x20 || ch == 0x7F) { std::cerr << flag << ": disallowed control character\n"; exit(1); }
+        }
+        return v;
+    };
     std::unordered_map<std::string, std::function<void(int&)>> option_handlers = {
         {"-iL", [&](int& idx) {
             config.ip_file = get_next_arg(idx, "-iL");
@@ -360,7 +475,7 @@ int main(int argc, char *argv[]) {
                 if (!tok.empty()) modules.push_back(tok);
             }
             if (modules.empty()) {
-                std::cerr << "--enum requires at least one of: shodan, dns, trail:<key> (e.g. --enum shodan,dns,trail:mykey)\n";
+                std::cerr << "--enum requires at least one of: shodan, dns, trail:<key> (e.g. --enum shodan,ssl,dns,trail:mykey)\n";
                 exit(1);
             }
             for (const auto& mod : modules) {
@@ -373,8 +488,10 @@ int main(int argc, char *argv[]) {
                 if (mod == "shodan") {
                     config.use_shodan_enum = true;
                 } else if (mod == "dns") {
-                    config.dns_enum_enabled = true;
-                } else if (mod.rfind("trail:", 0) == 0) {
+		    config.dns_enum_enabled = true;
+		} else if (mod == "ssl") {
+		    config.ssl_enum_enabled = true;
+		} else if (mod.rfind("trail:", 0) == 0) {
                     std::string key = mod.substr(6);
                     if (key.empty()) {
                         std::cerr << "--enum trail requires a key, e.g. --enum trail:<api-key>\n";
@@ -393,6 +510,36 @@ int main(int argc, char *argv[]) {
                 }
             }
         }},
+        
+        {"--netradar", [&](int& idx) {
+            config.netradar_enabled = true;
+        }},
+        
+        {"--time", [&](int& idx) {
+            std::string val = get_next_arg(idx, "--time");
+            int ms = 0;
+            if (!net_capture::parse_duration_ms(val, ms)) {
+                std::cerr << "--time: invalid duration '" << sanitize_echo(val)
+                           << "' (expected a positive integer with an optional s/m/h suffix, "
+                              "e.g. 30s, 5m, 2h -- a bare number is treated as seconds)\n";
+                exit(1);
+            }
+            config.netradar_duration_ms = ms;
+            config.netradar_time_specified = true;
+        }},
+        
+        {"--country", [&](int& idx) { config.discover_country = read_words(idx, "--country"); }},
+        {"--cn", [&](int& idx) { config.discover_cn = read_words(idx, "--cn"); }},
+        {"--org", [&](int& idx) { config.discover_org = read_words(idx, "--org"); }},
+        {"--owner", [&](int& idx) {
+            config.discover_owner = true;
+            if (idx + 1 < argc && argv[idx + 1][0] != '-') config.discover_owner_name = read_words(idx, "--owner");
+        }},
+        {"--ip", [&](int& idx) { config.discover_ip = get_next_arg(idx, "--ip"); }},
+        {"--range", [&](int& idx) { config.discover_range = get_next_arg(idx, "--range"); }},
+        {"--asn", [&](int& idx) { config.discover_asn = get_next_arg(idx, "--asn"); }},
+        {"--ipv4", [&](int&) { saw_dash4 = true; }},
+        {"--ipv6", [&](int&) { saw_dash6 = true; }},
         
         {"--sport-range", [&](int& idx) {
 	    std::string range_str = get_next_arg(idx, "--sport-range");
@@ -451,12 +598,12 @@ int main(int argc, char *argv[]) {
         
         {"--batch-delay-dyn-min", [&](int& idx) {
             std::string val = get_next_arg(idx, "--batch-delay-dyn-min");
-            if (!parse_duration_to_us(val, config.batch_delay_dyn_min_us, "--batch-delay-dyn-min")) exit(1);
+            if (!parse_duration_allow_zero(val, config.batch_delay_dyn_min_us, "--batch-delay-dyn-min")) exit(1);
             config.batch_delay_dyn_explicit = true;
         }},
         {"--batch-delay-dyn-max", [&](int& idx) {
             std::string val = get_next_arg(idx, "--batch-delay-dyn-max");
-            if (!parse_duration_to_us(val, config.batch_delay_dyn_max_us, "--batch-delay-dyn-max")) exit(1);
+            if (!parse_duration_allow_zero(val, config.batch_delay_dyn_max_us, "--batch-delay-dyn-max")) exit(1);
             config.batch_delay_dyn_explicit = true;
         }},
 
@@ -473,113 +620,63 @@ int main(int argc, char *argv[]) {
 	
 	{"--retry-delay-min", [&](int& idx) {
             std::string val = get_next_arg(idx, "--retry-delay-min");
-            if (!parse_duration_to_us(val, g_cong_tune.retry_delay_min_us, "--retry-delay-min")) exit(1);
+            if (!parse_duration_allow_zero(val, g_cong_tune.retry_delay_min_us, "--retry-delay-min")) exit(1);
         }},
         {"--retry-delay-max", [&](int& idx) {
             std::string val = get_next_arg(idx, "--retry-delay-max");
             if (!parse_duration_to_us(val, g_cong_tune.retry_delay_max_us, "--retry-delay-max")) exit(1);
         }},
         {"--retry-delay-floor-div", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--retry-delay-floor-div");
-            try {
-                int d = std::stoi(val);
-                if (d < 1) { std::cerr << "--retry-delay-floor-div: must be >= 1\n"; exit(1); }
-                g_cong_tune.rtt_floor_div = static_cast<uint32_t>(d);
-            } catch (...) { std::cerr << "--retry-delay-floor-div: invalid number\n"; exit(1); }
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--retry-delay-floor-div"), "--retry-delay-floor-div", 1, 1000000, v)) exit(1);
+            g_cong_tune.rtt_floor_div = static_cast<uint32_t>(v);
         }},
-        
         {"--cong-curve", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--cong-curve");
-            try {
-                double c = std::stod(val);
-                if (c <= 0.0) { std::cerr << "--cong-curve: must be > 0\n"; exit(1); }
-                g_cong_tune.curve_exp = c;
-            } catch (...) { std::cerr << "--cong-curve: invalid number\n"; exit(1); }
+            double v;
+            if (!parse_dbl_in(get_next_arg(idx, "--cong-curve"), "--cong-curve", 0.0, 1000.0, true, v)) exit(1);
+            g_cong_tune.curve_exp = v;
         }},
-        
         {"--cong-alpha-up", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--cong-alpha-up");
-            try {
-                double a = std::stod(val);
-                if (!std::isfinite(a) || a <= 0.0 || a > 1.0) {
-                    std::cerr << "--cong-alpha-up: must be a finite number in (0,1]\n"; exit(1);
-                }
-                g_cong_tune.alpha_up = a;
-            } catch (...) { std::cerr << "--cong-alpha-up: invalid number\n"; exit(1); }
+            double v;
+            if (!parse_dbl_in(get_next_arg(idx, "--cong-alpha-up"), "--cong-alpha-up", 0.0, 1.0, true, v)) exit(1);
+            g_cong_tune.alpha_up = v;
         }},
-        
         {"--cong-alpha-down", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--cong-alpha-down");
-            try {
-                double a = std::stod(val);
-                if (!std::isfinite(a) || a <= 0.0 || a > 1.0) {
-                    std::cerr << "--cong-alpha-down: must be a finite number in (0,1]\n"; exit(1);
-                }
-                g_cong_tune.alpha_down = a;
-            } catch (...) { std::cerr << "--cong-alpha-down: invalid number\n"; exit(1); }
+            double v;
+            if (!parse_dbl_in(get_next_arg(idx, "--cong-alpha-down"), "--cong-alpha-down", 0.0, 1.0, true, v)) exit(1);
+            g_cong_tune.alpha_down = v;
         }},
-        
         {"--rto-mult", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--rto-mult");
-            try {
-                int m = std::stoi(val);
-                if (m < 1 || m > 64) { std::cerr << "--rto-mult: must be between 1 and 64\n"; exit(1); }
-                g_cong_tune.rto_mult = m;
-            } catch (...) { std::cerr << "--rto-mult: invalid number\n"; exit(1); }
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--rto-mult"), "--rto-mult", 1, 64, v)) exit(1);
+            g_cong_tune.rto_mult = static_cast<int>(v);
         }},
-        
         {"--rto-pad1", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--rto-pad1");
-            try {
-                int p = std::stoi(val);
-                if (p < 0 || p > 10000) { std::cerr << "--rto-pad1: must be between 0 and 10000 (ms)\n"; exit(1); }
-                g_cong_tune.rto_pad1_ms = p;
-            } catch (...) { std::cerr << "--rto-pad1: invalid number\n"; exit(1); }
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--rto-pad1"), "--rto-pad1", 0, 10000, v)) exit(1);
+            g_cong_tune.rto_pad1_ms = static_cast<int>(v);
         }},
-        
         {"--rto-pad2", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--rto-pad2");
-            try {
-                int p = std::stoi(val);
-                if (p < 0 || p > 10000) { std::cerr << "--rto-pad2: must be between 0 and 10000 (ms)\n"; exit(1); }
-                g_cong_tune.rto_pad2_ms = p;
-            } catch (...) { std::cerr << "--rto-pad2: invalid number\n"; exit(1); }
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--rto-pad2"), "--rto-pad2", 0, 10000, v)) exit(1);
+            g_cong_tune.rto_pad2_ms = static_cast<int>(v);
         }},
-        
         {"--buf-peak", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--buf-peak");
-            try {
-                double p = std::stod(val);
-                if (!std::isfinite(p) || p < 1.0 || p > 20.0) {
-                    std::cerr << "--buf-peak: must be a finite number between 1.0 and 20.0\n"; exit(1);
-                }
-                g_cong_tune.buf_peak_factor = p;
-            } catch (...) { std::cerr << "--buf-peak: invalid number\n"; exit(1); }
+            double v;
+            if (!parse_dbl_in(get_next_arg(idx, "--buf-peak"), "--buf-peak", 1.0, 20.0, false, v)) exit(1);
+            g_cong_tune.buf_peak_factor = v;
         }},
-        
         {"--batch-settle", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--batch-settle");
-            if (val.find('-') != std::string::npos) {
-                std::cerr << "--batch-settle: must be a non-negative number\n"; exit(1);
-            }
-            try {
-                unsigned long v = std::stoul(val);
-                if (v > 5'000'000UL) { std::cerr << "--batch-settle: must be <= 5000000 (us)\n"; exit(1); }
-                g_cong_tune.batch_settle_us = static_cast<unsigned>(v);
-            } catch (...) { std::cerr << "--batch-settle: invalid number (microseconds)\n"; exit(1); }
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--batch-settle"), "--batch-settle", 0, 5000000, v)) exit(1);
+            g_cong_tune.batch_settle_us = static_cast<unsigned>(v);
         }},
-        
         {"--sqpoll-threshold", [&](int& idx) {
-            std::string val = get_next_arg(idx, "--sqpoll-threshold");
-            if (val.find('-') != std::string::npos) {
-                std::cerr << "--sqpoll-threshold: must be a non-negative number\n"; exit(1);
-            }
-            try {
-                g_cong_tune.sqpoll_threshold = static_cast<size_t>(std::stoul(val));
-            } catch (...) { std::cerr << "--sqpoll-threshold: invalid number\n"; exit(1); }
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--sqpoll-threshold"), "--sqpoll-threshold", 0, 1L << 40, v)) exit(1);
+            g_cong_tune.sqpoll_threshold = static_cast<size_t>(v);
         }},
         
-	
 	{"--bandwidth", [&](int& idx) {
             std::string bw_str = get_next_arg(idx, "--bandwidth");
             if (!parse_bandwidth_config(bw_str, config.bandwidth_config)) {
@@ -788,8 +885,8 @@ int main(int argc, char *argv[]) {
             std::string batch_spec = get_next_arg(idx, "-b");
             try {
                 size_t val = std::stoul(batch_spec);
-                if (val < 1 || val > 10000) {
-                    std::cerr << "Batch size must be between 1 and 10000\n";
+                if (val < 1 || val > 65535) {
+                    std::cerr << "Batch size must be between 1 and 65535\n";
                     exit(1);
                 }
                 config.main_batch_size = val;
@@ -1407,6 +1504,12 @@ int main(int argc, char *argv[]) {
         }},
         {"-6", [&](int& idx) {
             config.traceroute_ip_version = 6;
+            g_target_ip_pref = 6;
+            saw_dash6 = true;
+        }},
+        {"-4", [&](int& idx) {
+            g_target_ip_pref = 4;
+            saw_dash4 = true;
         }},
         
         {"--grep", [&](int& idx) {
@@ -1548,6 +1651,10 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
         }},
+        
+        {"--os-detect", [&](int& idx) {
+            g_os_detect = true;
+        }},
 
         {"--sqpoll", [&](int& idx) {
             config.force_sqpoll = true;
@@ -1572,6 +1679,17 @@ int main(int argc, char *argv[]) {
         {"--garud-scan", ScanType::GARUD}, {"-sD", ScanType::GARUD},
         {"--jatayu-scan", ScanType::JATAYU}, {"-sJ", ScanType::JATAYU}
     };
+
+    if (!network_is_up()) {
+        std::cerr << "network seems down, scan terminated\n";
+        return 0;
+    }
+    
+    for (int pre_idx = arg_idx; pre_idx < argc; ++pre_idx) {
+        const std::string pre_arg = argv[pre_idx];
+        if (pre_arg == "-6") g_target_ip_pref = 6;
+        else if (pre_arg == "-4") g_target_ip_pref = 4;
+    }
 
     while (arg_idx < argc) {
         std::string arg = argv[arg_idx];
@@ -1600,6 +1718,88 @@ int main(int argc, char *argv[]) {
 	}
     }
     
+    if (config.netradar_time_specified && !config.netradar_enabled) {
+        std::cerr << "--time is only valid together with --netradar.\n";
+        return 1;
+    }
+
+    if (config.netradar_enabled) {
+        net_capture::Options nopts;
+        nopts.verbose = config.sv_verbose;
+        nopts.duration_ms = config.netradar_duration_ms;
+        nopts.iface = config.interface;
+        return net_capture::run_netradar(nopts);
+    }
+
+    if (saw_dash4 && saw_dash6) {
+        std::cerr << "Error: -4 and -6 are mutually exclusive , default it use both\n";
+        return 1;
+    }
+
+    if ((saw_dash4 || saw_dash6) && g_saw_literal_target) {
+        std::cerr << "Error: -4/-6 only apply to DNS domain-name resolution — "
+                      "not to literal IPs or CIDR ranges.\n";
+        return 1;
+    }
+    
+    const bool disc_country = !config.discover_country.empty();
+    const bool disc_asnlist = !config.discover_cn.empty() || !config.discover_org.empty();
+    const bool disc_reverse = !config.discover_ip.empty() || !config.discover_range.empty();
+    const bool disc_routes  = !config.discover_asn.empty();
+    const int  disc_modes   = disc_country + disc_asnlist + disc_reverse + disc_routes;
+
+    if (disc_modes > 0) {
+        if (!ips.empty() || !config.ip_file.empty() || config.scan_type_specified) {
+            std::cerr << "Discovery options run on their own: don't combine them with targets, -iL or scan flags.\n";
+            return 1;
+        }
+        if (disc_modes > 1) {
+            std::cerr << "Use only one of --country, --cn/--org, --ip/--range, --asn at a time.\n";
+            return 1;
+        }
+        if (!config.discover_ip.empty() && !config.discover_range.empty()) {
+            std::cerr << "--ip and --range are mutually exclusive.\n";
+            return 1;
+        }
+        if (disc_asnlist && config.discover_owner) {
+            std::cerr << "--owner only applies to --country.\n";
+            return 1;
+        }
+        if (disc_reverse && (config.discover_owner || saw_dash4 || saw_dash6)) {
+            std::cerr << "--owner/-4/-6/--ipv4/--ipv6 don't apply to --ip/--range.\n";
+            return 1;
+        }
+        std::cout.rdbuf(teeOut_orig);
+        std::cerr.rdbuf(teeErr_orig);
+        discover::Options dopts;
+        dopts.want_v4     = !saw_dash6;
+        dopts.want_v6     = !saw_dash4;
+        dopts.verbose     = config.sv_verbose;
+        dopts.output_file = config.output_file;
+        if (disc_country) {
+            dopts.mode       = discover::Mode::Ranges;
+            dopts.country    = config.discover_country;
+            dopts.owner      = config.discover_owner;
+            dopts.owner_name = config.discover_owner_name;
+        } else if (disc_asnlist) {
+            dopts.mode    = discover::Mode::AsnList;
+            dopts.country = config.discover_cn;
+            dopts.org     = config.discover_org;
+        } else if (disc_reverse) {
+            dopts.mode  = discover::Mode::ReverseIp;
+            dopts.ip    = config.discover_ip;
+            dopts.range = config.discover_range;
+        } else {
+            dopts.mode = discover::Mode::AsnRoutes;
+            dopts.asn  = config.discover_asn;
+        }
+        return discover::run(dopts);
+    }
+    if (config.discover_owner) {
+        std::cerr << "--owner only applies to --country.\n";
+        return 1;
+    }
+
     if (config.use_split || config.graceful_scan) {
         if (config.graceful_scan && !config.use_split) {
 
@@ -1762,6 +1962,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
+        print_shiv_enum_banner("TRAIL");
         std::cout << "\nSubdomain Enum for \"" << color::bold << sanitize_echo(target_domain) << color::reset << "\"\n";
 
         ips.clear();
@@ -1868,6 +2069,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (config.use_shodan_enum) {
+            print_shiv_enum_banner("SHODAN");
             std::cout << "\n" << std::string(60, '-') << std::endl;
             std::cout << "SHODAN INTERNETDB ENUMERATION" << std::endl;
             std::cout << std::string(60, '-') << std::endl;
@@ -1899,6 +2101,30 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     
+     auto run_ssl_enum_step = [&]() {
+        if (ips.empty()) {
+            std::cerr << color::yellow
+                      << "--enum ssl needs at least one resolved target IP.\n"
+                      << color::reset;
+            return;
+        }
+        std::vector<SslTarget> ssl_targets;
+        ssl_targets.reserve(ips.size());
+        for (const auto& ip : ips) {
+            std::string hostname;
+            auto it = ip_to_domain_map.find(ip);
+            if (it != ip_to_domain_map.end()) hostname = it->second;
+            ssl_targets.push_back({ip, hostname});
+        }
+
+        SslEnumOptions opts;
+        opts.ports = !config.parsed_ports.empty() ? config.parsed_ports : std::vector<int>{443};
+
+        print_shiv_enum_banner("SSL");
+        auto results = run_ssl_enum_batch(ssl_targets, opts);
+        for (auto& r : results) print_ssl_enum_result(r, opts);
+    };
+    
     auto run_dns_enum_step = [&]() {
         if (ip_to_domain_map.empty()) {
             std::cerr << color::yellow
@@ -1909,8 +2135,17 @@ int main(int argc, char *argv[]) {
         std::unordered_set<std::string> unique_domains;
         for (const auto& [ip, domain] : ip_to_domain_map) unique_domains.insert(domain);
 
+        DnsEnumOptions opts;
+        opts.ptr_sweep_prefix = true;
+        if (const char* key = std::getenv("GOOGLE_CSE_API_KEY"))
+            if (const char* cx = std::getenv("GOOGLE_CSE_CX")) {
+                opts.google_dork = true;
+                opts.google_api_key = key;
+                opts.google_cx = cx;
+            }
+
         for (const auto& domain : unique_domains) {
-            DnsEnumOptions opts;                
+            print_shiv_enum_banner("DNS");
             auto result = run_dns_enum(domain, opts);
             print_dns_enum_result(result, opts);
         }
@@ -1920,6 +2155,11 @@ int main(int argc, char *argv[]) {
         run_dns_enum_step();
         return 0;
     }
+    
+    if (config.ssl_enum_enabled && !config.scan_type_specified) {
+        run_ssl_enum_step();
+        return 0;
+    }
 
     if (ips.size() > 5000000000) {
         std::cerr << color::red << "❌ Error: Maximum 5000000000 IPs supported" 
@@ -1927,25 +2167,29 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     if (ips.empty()) {
-        std::cerr << color::bold;
-        print_typewriter(std::cerr, kMantra);
-        std::cerr << color::reset << "\n";
+        std::string os_name         = shiv_get_os_pretty_name();
+        std::string kernel_release  = shiv_get_kernel_release();
+        bool io_uring_supported     = shiv_kernel_supports_io_uring(kernel_release);
 
-        std::cerr                                    
-            << color::yellow << "Damn!!:" << color::reset
-            << " no target specified\n\n"
-            << color::yellow << "Usage:" << color::reset << "\n"
-            << "  " << color::green
-            << "shiv <target> -p <ports> [options]"
-            << color::reset << "\n\n"
-            << color::yellow << "Examples:" << color::reset << "\n"
-            << "  " << color::green
-            << "shiv 192.168.1.1 -p 22,80,443"
+        std::cerr
+            << "\nOS               : " << color::green << os_name << color::reset << "\n"
+            << "Kernel           : " << color::green << kernel_release << color::reset << "\n"
+            << "IO_URING         : "
+            << (io_uring_supported ? color::green : color::red)
+            << (io_uring_supported ? "yes (Supported)" : "no (Not Supported)")
             << color::reset << "\n"
-            << "  " << color::green
-            << "shiv example.com -p 1-1000 -sS"
-            << color::reset << "\n\n"
-            << color::yellow << "Help:" << color::reset << "\n"
+            << "Async I/O        : " << color::green << "IO_URING" << color::reset << "\n"
+            << "Queue            : " << color::green << "moodycamel::ConcurrentQueue" << color::reset << "\n"
+            << "SIMD             : " << color::green << "SSE2/AVX (intrinsics)" << color::reset << "\n"
+            << "Memory           : " << color::green << "RAII" << color::reset << "\n"
+            << "LinkLayer        : " << color::green << "yes" << color::reset << "\n"
+            << "Sockets          : " << color::green << "Raw" << color::reset << "\n"
+            << "IP-Stack         : " << color::green << "Dual" << color::reset << "\n"
+            << "Isolation        : " << color::green << "Namespaces (CLONE_NEWNET)" << color::reset << "\n"
+            << "Signals          : " << color::green << "SIGINT" << color::reset << "\n"
+            << "Incident         : " << color::green << "checkpoints" << color::reset << "\n"
+            << "VersionDetection : " << color::green << "Dual staged" << color::reset << "\n\n"
+            << "Help:\n"
             << "  Run "
             << color::green << "shiv --help" << color::reset
             << " for more information and unleash the power.\n";
@@ -1987,7 +2231,7 @@ int main(int argc, char *argv[]) {
         config.print_filtered_if_few = true;
     }
     
-    if (ports.empty() || terminate_flag) {
+        if (ports.empty() || terminate_flag) {
         std::cerr << "No valid ports to scan.\n";
         return 1;
     }
@@ -2014,15 +2258,18 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     if (g_cong_tune.retry_delay_min_us > g_cong_tune.retry_delay_max_us) {
-        std::cerr << "--retry-delay-min must be <= --retry-delay-max\n";
+        std::cerr << "--retry-delay-min (" << g_cong_tune.retry_delay_min_us / 1000.0
+                  << "ms) must be <= --retry-delay-max (" << g_cong_tune.retry_delay_max_us / 1000.0 << "ms)\n";
         return 1;
     }
     if (config.rate_dyn_min > config.rate_dyn_max) {
-        std::cerr << "--rate-dyn-min must be <= --rate-dyn-max\n";
+        std::cerr << "--rate-dyn-min (" << config.rate_dyn_min
+                  << ") must be <= --rate-dyn-max (" << config.rate_dyn_max << ")\n";
         return 1;
     }
     if (config.batch_delay_dyn_min_us > config.batch_delay_dyn_max_us) {
-        std::cerr << "--batch-delay-dyn-min must be <= --batch-delay-dyn-max\n";
+        std::cerr << "--batch-delay-dyn-min (" << config.batch_delay_dyn_min_us / 1000.0
+                  << "ms) must be <= --batch-delay-dyn-max (" << config.batch_delay_dyn_max_us / 1000.0 << "ms)\n";
         return 1;
     }
     static const std::unordered_map<ScanType, std::string> scan_names = {
@@ -2043,29 +2290,32 @@ int main(int argc, char *argv[]) {
     bool all_targets_internal = !ips.empty();
     bool any_routed_internal_vlan   = false;
     bool any_routed_internal_tunnel = false;
-    for (const auto& t_ip : ips) {
-        TargetLocality loc = assess_target_locality(t_ip, config.interface);
-        if (!loc.onlink) {
-            all_targets_internal = false;
-            if (loc.same_network_internal) {
-                 bool is_tunnel = !loc.routed_iface.empty() &&
-                                  !is_vlan_interface(loc.routed_iface) &&
-                                  (is_point_to_point_interface(loc.routed_iface) ||
-                                   classify_interface_kind(loc.routed_iface) == "virtual");
-                if (is_tunnel) any_routed_internal_tunnel = true;
-                else           any_routed_internal_vlan   = true;
+    const bool discovery_only_run = (config.sn_scan || config.sn6_scan) && !config.scan_type_specified;
+    if (!discovery_only_run) {
+        for (const auto& t_ip : ips) {
+            TargetLocality loc = assess_target_locality(t_ip, config.interface);
+            if (!loc.onlink) {
+                all_targets_internal = false;
+                if (loc.same_network_internal) {
+                     bool is_tunnel = !loc.routed_iface.empty() &&
+                                      !is_vlan_interface(loc.routed_iface) &&
+                                      (is_point_to_point_interface(loc.routed_iface) ||
+                                       classify_interface_kind(loc.routed_iface) == "virtual");
+                    if (is_tunnel) any_routed_internal_tunnel = true;
+                    else           any_routed_internal_vlan   = true;
+                }
+                continue;
             }
-            continue;
+            if (loc.via_virtual_interface && !loc.corroborated) {
+                all_targets_internal = false;
+            }
         }
-        if (loc.via_virtual_interface && !loc.corroborated) {
-            all_targets_internal = false;
+        if (any_routed_internal_vlan) {
+            std::cerr << "[i] some targets are routed-but-internal (different VLAN)\n";
         }
-    }
-    if (any_routed_internal_vlan) {
-        std::cerr << "[i] some targets are routed-but-internal (different VLAN)\n";
-    }
-    if (any_routed_internal_tunnel) {
-        std::cerr << "[i] some targets are routed via a separate tunnel/VPN interface\n";
+        if (any_routed_internal_tunnel) {
+            std::cerr << "[i] some targets are routed via a separate tunnel/VPN interface\n";
+        }
     }
 
     if (!config.rate_config.enabled) {
@@ -2082,17 +2332,20 @@ int main(int argc, char *argv[]) {
         config.batch_delay_config.min_us       = config.batch_delay_dyn_min_us;   // default 0
         config.batch_delay_config.max_us       = config.batch_delay_dyn_max_us;   // default 800'000
     }
-    PacketBufferPool pool(ports.size(), 1, config.main_batch_size);
+    const size_t pool_batch_cap = (config.send_uring_depth > 0)
+        ? std::min(config.main_batch_size, config.send_uring_depth)
+        : config.main_batch_size;
+    PacketBufferPool pool(ports.size(), 1, pool_batch_cap);
     std::atomic<int> total_down_hosts{0};
     // ── -sV: load probe database once, up front, not per-batch/per-host ────
     AllProbes vprobes;
     bool version_probes_loaded = false;
     if (config.enable_version_detection) {
         try {
-            vprobes.loadFromFile("nmap-service-probes.txt");
+            vprobes.loadFromFile("/usr/share/nmap/nmap-service-probes");
             version_probes_loaded = true;
         } catch (const std::exception& e) {
-            std::cerr << "[-sV] Failed to load nmap-service-probes.txt: "
+            std::cerr << "[-sV] Failed to load service-probes: "
                       << e.what() << "\n";
         }
         constexpr unsigned kMaxConcurrentProbesHint = 16;
@@ -2290,9 +2543,9 @@ int main(int argc, char *argv[]) {
 
         for (const auto& ip : ips) {
 	    if (terminate_flag) break;
-	    auto hops = (config.traceroute_ip_version == 6)
-		            ? run_traceroute6(ip, topts)
-		            : run_traceroute(ip, topts);
+	    struct in6_addr target_addr6{};
+	    const bool target_is_v6 = (::inet_pton(AF_INET6, ip.c_str(), &target_addr6) == 1);
+	    auto hops = target_is_v6 ? run_traceroute6(ip, topts) : run_traceroute(ip, topts);
 	    print_traceroute_results(ip, hops, topts.max_hops);
 	}
     };
@@ -2341,8 +2594,6 @@ int main(int argc, char *argv[]) {
                 }
             }
         }
-
-        constexpr size_t TARGETS_PER_QUEUE = 1000;   // <-- the 1k limit
 
         // Collect only external IPs for pinging
         std::vector<std::string> external_ips;
@@ -2443,7 +2694,29 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    constexpr size_t TARGETS_PER_QUEUE = 1000;   // <-- the 1k limit
+    constexpr size_t TARGETS_PER_QUEUE = 1000;  
+
+    if (!config.jitter_config.enabled) {
+        std::string default_iface,  default_gw;
+        std::string default_iface6, default_gw6;
+        bool have_default_v4 = get_default_route(AF_INET,  default_iface,  default_gw);
+        bool have_default_v6 = get_default_route(AF_INET6, default_iface6, default_gw6);
+
+        bool targets_gateway = std::any_of(ips.begin(), ips.end(), [&](const std::string& ip) {
+            return (have_default_v4 && ip == default_gw) ||
+                   (have_default_v6 && ip == default_gw6);
+        });
+
+        if (any_routed_internal_tunnel) {
+            config.jitter_config.enabled     = true;
+            config.jitter_config.random_mode = false;
+            config.jitter_config.delay_us    = 600;  
+        } else if (targets_gateway) {
+            config.jitter_config.enabled     = true;
+            config.jitter_config.random_mode = false;
+            config.jitter_config.delay_us    = 500;
+        }
+    }
 
     std::vector<RecPross> all_results(ips.size());
 
@@ -2487,17 +2760,17 @@ int main(int argc, char *argv[]) {
                 : batch_probe_volume    >= SQPOLL_FALLBACK_VOLUME
         );
 
-        if (config.debug_packet) {
-            std::cerr << "[main] SQPOLL decision: hosts=" << batch_ips.size()
-                      << " ports=" << ports.size()
-                      << " volume=" << batch_probe_volume
-                      << " pacing=" << (pacing_is_predictable ? "predictable" : "adaptive")
-                      << " est_duration_ms=" << estimated_duration_ms
-                      << " min_duration_ms=" << SQPOLL_MIN_DURATION_MS
-                      << " fallback_volume_threshold=" << SQPOLL_FALLBACK_VOLUME
-                      << " forced=" << (config.force_sqpoll ? "yes" : "no")
-                      << " -> requested=" << (enable_sqpoll ? "yes" : "no") << "\n";
-        }
+        //if (config.debug_packet) {
+            //std::cerr << "[main] SQPOLL decision: hosts=" << batch_ips.size()
+                      //<< " ports=" << ports.size()
+                      //<< " volume=" << batch_probe_volume
+                      //<< " pacing=" << (pacing_is_predictable ? "predictable" : "adaptive")
+                     // << " est_duration_ms=" << estimated_duration_ms
+                     // << " min_duration_ms=" << SQPOLL_MIN_DURATION_MS
+                     // << " fallback_volume_threshold=" << SQPOLL_FALLBACK_VOLUME
+                     // << " forced=" << (config.force_sqpoll ? "yes" : "no")
+                      //<< " -> requested=" << (enable_sqpoll ? "yes" : "no") << "\n";
+        //}
 
         {
             std::unique_ptr<GlobalRecvCtx> g_recv_ctx = init_global_recv_ctx(
@@ -2643,7 +2916,7 @@ int main(int argc, char *argv[]) {
         (ru_total_end.ru_stime.tv_usec - ru_total_start.ru_stime.tv_usec) / 1e6;
 
     std::cout << "\n";
-    if (ips.size() > 1) {
+    if (ips.size() > 1 || !g_eliminated_targets.empty()) {
     
         if (total_elapsed_ms < 1.0) {
             double total_elapsed_us = total_elapsed_ms * 1000;
@@ -2657,10 +2930,10 @@ int main(int argc, char *argv[]) {
             std::cout << "Overall scan completed in " << std::fixed << std::setprecision(2) 
                       << total_elapsed_seconds << " seconds\n";
         }
-        // CPU Time here is process-wide (RUSAGE_SELF sums all threads on
-        // Linux) — this is the efficiency number to watch when tuning
-        // SQPOLL/spin/thread-count knobs; Duration above is the
-        // user-facing speed number and the two are independent axes.
+        for (const auto& [eliminated_target, eliminated_ip] : g_eliminated_targets) {
+            std::cout << "Eliminated : " << sanitize_echo(eliminated_target)
+                      << " (duplicate ip [" << eliminated_ip << "])\n";
+        }
         std::cout << "CPU time used: " << std::fixed << std::setprecision(3)
                   << total_cpu_seconds << " seconds (user+sys)\n";
     
@@ -2668,9 +2941,6 @@ int main(int argc, char *argv[]) {
     if (!config.output_file.empty()) {
         save_scan_results(all_results, config.output_file, teeOut.str() + teeErr.str());
     }
-
-    // Restore the real streambufs (not strictly required before process exit,
-    // but keeps cout/cerr well-behaved if anything runs after this point).
     std::cout.rdbuf(teeOut_orig);
     std::cerr.rdbuf(teeErr_orig);
 
@@ -2726,6 +2996,9 @@ int main(int argc, char *argv[]) {
     
     if (config.dns_enum_enabled && config.scan_type_specified) {
         run_dns_enum_step();
+    }
+    if (config.ssl_enum_enabled && config.scan_type_specified) {
+        run_ssl_enum_step();
     }
 
     return 0;

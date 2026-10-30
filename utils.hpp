@@ -37,8 +37,22 @@ std::vector<Ipv6AddrInfo> get_all_interface_ip6(const std::string& ifname);
 bool parse_mac(const std::string& mac_str, uint8_t* out_mac);
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* s);
 std::string reverse_dns_lookup(const std::string& ip_address);
+
+// Vectorized reverse resolution (IP -> hostname). Resolves the whole
+// batch concurrently over a bounded socket pool instead of one blocking
+// call per IP -- suitable for 1000+ IPs in a single call.
+// out_hostnames only contains entries for IPs that resolved to a name;
+// an IP with a definitive "no PTR" answer or that never answered is
+// simply absent from the map (mirrors reverse_dns_lookup() returning "").
+void reverse_dns_lookup_batch(const std::vector<std::string>& ips,
+                               std::unordered_map<std::string, std::string>& out_hostnames,
+                               int timeout_ms = 2000,
+                               int retries = 2,
+                               int concurrency = 500);
+
 bool ptr_cache_lookup(const std::string& ip, std::string& out_domain);
 void ptr_cache_store(const std::string& ip, const std::string& domain);
+std::vector<std::string> get_system_resolvers();
 std::string format_mac(const uint8_t* mac);
 std::string get_current_time();
 std::string format_ipv6(const uint8_t* ip6);
@@ -86,7 +100,6 @@ struct InterfaceHealth {
 };
 bool assess_interface_health(const std::string& ifname, InterfaceHealth& out);
 bool detect_local_firewall_active(bool& has_iptables_rules, bool& has_nft_rules);
-bool detect_nat(const std::string& primary_ip, bool& likely_natted);
 bool get_icmp_ratelimit(int& ratelimit_ms, int& ratemask);
 bool is_target_local_to_host(const std::string& target_ip);
 

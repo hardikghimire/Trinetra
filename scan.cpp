@@ -23,6 +23,7 @@
 #include <linux/errqueue.h>
 #include "arp_handler.hpp"
 
+
 double estimate_scan_duration_ms(size_t batch_probe_volume,
                                   const RateConfig&       rate_cfg,
                                   const JitterConfig&     jitter_cfg,
@@ -39,10 +40,6 @@ double estimate_scan_duration_ms(size_t batch_probe_volume,
     if (jitter_cfg.enabled) {
         per_packet_us += static_cast<double>(jitter_cfg.delay_us);
     }
-
-    // Same logic: dynamic-mode batch delay is computed adaptively at
-    // runtime and isn't reflected in delay_us/max_us ahead of time, so
-    // only count it when it's an explicit, fixed value.
     if (batch_delay_cfg.enabled && !batch_delay_cfg.dynamic_mode) {
         uint64_t bd_us = batch_delay_cfg.range_mode
             ? batch_delay_cfg.max_us
@@ -117,14 +114,13 @@ namespace color {
     const std::string orange = "\033[38;5;214m";
 }
 
-std::atomic<double> g_congestion_ratio(0.0);
-std::atomic<int>    g_dynamic_max_retries(2); 
+extern std::unordered_map<std::string, std::vector<std::string>> g_not_scanned_map;
 CongestionTuneConfig g_cong_tune; 
-std::atomic<size_t> g_ports_in_retry_global(0);  
-std::atomic<size_t> g_active_ports_global(0);  
 std::atomic<bool> terminate_flag(false);
 std::atomic<int> filtered_ports_printed_count(0);
 std::atomic<size_t> total_packets_sent(0);
+std::atomic<uint64_t> g_confirmed_tx_count(0);
+std::atomic<uint64_t> g_confirmed_reply_count(0);
 std::mutex cout_mutex;
 std::mutex sent_debug_mutex;
 std::atomic<uint32_t> g_tx_ts_seq_v4{0};
@@ -203,12 +199,10 @@ size_t PacketBufferPool::get_buffer_count(size_t ports, size_t num_threads, size
 }
 
 size_t PacketBufferPool::get_max_buffer_count(size_t ports, size_t num_threads, size_t batch_size) {
-    const double PEAK_FACTOR = g_cong_tune.buf_peak_factor;
     size_t base_count = get_buffer_count(ports, num_threads, batch_size);
-    size_t max_count = static_cast<size_t>(base_count * PEAK_FACTOR);
-    size_t effective_batch = std::min(batch_size, ports);
-    const size_t ABSOLUTE_MAX = std::max<size_t>(2048, effective_batch * 2);
-    return std::min(max_count, ABSOLUTE_MAX);
+    size_t max_count  = static_cast<size_t>(base_count * g_cong_tune.buf_peak_factor);
+    constexpr size_t HARD_MAX = 65536;            
+    return std::max(base_count, std::min(max_count, HARD_MAX));
 }
 
 void PacketBufferPool::initialize_thread_local_buffers() {
@@ -216,7 +210,7 @@ void PacketBufferPool::initialize_thread_local_buffers() {
         return;
     }
 
-    const size_t effective_pool_size = std::min(pool_size, max_buffers);
+    const size_t effective_pool_size = max_buffers;
     slab.resize(effective_pool_size * buffer_size);
 
     slab_start = slab.data();
@@ -236,7 +230,6 @@ void print_output(PrintOutputType type,
 {
     std::lock_guard<std::mutex> lock(cout_mutex);
 
-    // NEW:
     auto format_time = []() -> std::string {
         time_t now = time(nullptr);
         struct tm t;
@@ -341,7 +334,19 @@ void print_output(PrintOutputType type,
                               << color::yellow << provider_label << color::white << "]"
                               << color::reset;
                 }
-                std::cout << color::reset << "\n\n";
+                std::cout << color::reset << "\n";
+
+                auto ns_it = g_not_scanned_map.find(ip);
+                if (ns_it != g_not_scanned_map.end() && !ns_it->second.empty()) {
+                    std::cout << "Not Scanned : ";
+                    for (size_t i = 0; i < ns_it->second.size(); ++i) {
+                        std::cout << color::green << ns_it->second[i] << color::reset;
+                        if (i + 1 < ns_it->second.size()) std::cout << ", ";
+                    }
+                    std::cout << "\n";
+                    g_not_scanned_map.erase(ns_it);
+                }
+                std::cout << "\n";
             }
             break;
         }
@@ -367,8 +372,7 @@ void print_output(PrintOutputType type,
 	    if (state == "unfiltered") {
 	        extra = "ACK";
 	    } else if (state == "confused") {
-	        if (!scan_name.empty() && scan_name != "SYN" && scan_name != "ACK")
-		    extra = scan_name;
+	        // extra intentionally left empty — scan type no longer shown next to service
 	    } else if (window_size > 0) {
 	        extra = "WINDOW:" + std::to_string(window_size);
 	    }
@@ -911,7 +915,7 @@ bool build_packet(const PacketTask& task, char* packet_buffer, size_t buffer_siz
     const uint16_t&    manual_tcp_checksum     = opts.manual_tcp_checksum;
     const uint8_t&     window_scale            = opts.window_scale;
     const uint16_t&    mss_value               = opts.mss_value;
-    const uint32_t&    timestamp_val           = opts.timestamp_val;
+    const uint32_t&    timestamp_val           = task.timestamp_val;
     const uint32_t&    timestamp_ecr_custom    = opts.timestamp_ecr_custom;
     const uint16_t&    nops_count              = opts.nops_count;
     const bool&        sack_permitted          = opts.sack_permitted;
@@ -1808,7 +1812,7 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                      bool frag_out_of_order,bool frag_overlap, uint16_t frag_overlap_bytes,bool frag_zof,
                      std::function<void(const std::vector<uint16_t>&,const std::vector<uint16_t>&,bool,bool)> on_pre_submit,
                      uint64_t* out_bytes_sent, bool debug_send,
-                     int sock6, const uint8_t* src_ip6) {
+                     int sock6, const uint8_t* src_ip6, TxLossCounters* txloss) {
 
     // Local aliases: same names the body below has always used, now backed
     // by the shared opts struct instead of ~29 individual parameters.
@@ -1935,9 +1939,17 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
     for (size_t i = 0; i < num_packets; ++i) {
         char *packet = pool.acquire();
         if (!packet) {
-            for (size_t j = 0; j < i; ++j) {
-                if (packets[j]) pool.release(packets[j]);
+            if (debug_send) {
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cerr << "[DBG-TX1] buffer pool exhausted before build, idx="
+                          << i << " batch=" << num_packets << "\n";
             }
+            for (size_t j = 0; j < i; ++j) {
+                if (packets[j]) { pool.release(packets[j]); packets[j] = nullptr; }
+            }
+            // The caller does NOT retry this chunk, so the whole batch is gone.
+            if (txloss)
+                txloss->buffer_pool.fetch_add(num_packets, std::memory_order_relaxed);
             return -1;
         }
         packets[i] = packet;
@@ -1993,6 +2005,14 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
             opts, packet_len, frag_step_i, debug_send, src_ip6
         );
         if (!build_success) {
+            // Same batch-wide loss as pool exhaustion, different cause.
+            if (txloss)
+                txloss->build_fail.fetch_add(num_packets, std::memory_order_relaxed);
+            if (debug_send) {
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cerr << "[DBG-TX5] build_packet failed at idx=" << i
+                          << " — dropping batch of " << num_packets << "\n";
+            }
             pool.release(packet);
             packets[i] = nullptr;
             for (size_t j = 0; j < i; ++j) {
@@ -2027,7 +2047,6 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
     // Non-fragmented packets (frag_steps[i] == 0) are untouched here.
     std::vector<BatchFrag> all_batch_frags;
     all_batch_frags.reserve(num_packets * 8);
-    bool any_frag_collect_failed = false;
 
     for (size_t i = 0; i < num_packets; ++i) {
         if (frag_steps[i] == 0) continue;   // skip non-fragmented
@@ -2159,13 +2178,21 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
         packets[i] = nullptr;
 
         if (collect_failed) {
-            // Release only THIS packet's fragments that were just added
+            // Pool ran dry partway through this packet's fragments.  Release
+            // only THIS packet's fragments — the rest of the batch is fine and
+            // still goes out.  Charge it to BufferPool: that is the real cause.
             while (!all_batch_frags.empty() &&
                    all_batch_frags.back().orig_pkt_idx == i) {
                 pool.release(all_batch_frags.back().buf);
                 all_batch_frags.pop_back();
             }
-            any_frag_collect_failed = true;
+            if (txloss)
+                txloss->buffer_pool.fetch_add(1, std::memory_order_relaxed);
+            if (debug_send) {
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cerr << "[DBG-TX1] pool exhausted mid-fragmentation, pkt idx="
+                          << i << " dropped\n";
+            }
         } else {
             // ── Apply per-packet zof / out-of-order reordering ───────────
             // Find the start index of THIS packet's fragments in all_batch_frags.
@@ -2235,9 +2262,18 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                             terminate_flag.store(true);
                             return;
                         }
-                        if (res >= 0) { total_sent++; local_bytes_sent += static_cast<uint64_t>(res); }
-                        else if (res != -EAGAIN && res != -EWOULDBLOCK)
-                            std::cerr << "[TX] send failed: " << strerror(-res) << "\n";
+                        if (res >= 0) {
+                            total_sent++;
+                            local_bytes_sent += static_cast<uint64_t>(res);
+                        } else {
+                            if (txloss)
+                                txloss->kernel_reject.fetch_add(1, std::memory_order_relaxed);
+                            if (debug_send) {
+                                std::lock_guard<std::mutex> lock(cout_mutex);
+                                std::cerr << "[DBG-TX4] sendmsg rejected res=" << res
+                                          << " (" << strerror(-res) << ")\n";
+                            }
+                        }
                     }
                     block = false;   // got at least one — switch to peek mode
                     continue;
@@ -2261,9 +2297,18 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                         disconnect = true;
                         break;
                     }
-                    if (res >= 0) { total_sent++; local_bytes_sent += static_cast<uint64_t>(res); }
-                    else if (res != -EAGAIN && res != -EWOULDBLOCK)
-                        std::cerr << "[TX] send failed: " << strerror(-res) << "\n";
+                    if (res >= 0) {
+                        total_sent++;
+                        local_bytes_sent += static_cast<uint64_t>(res);
+                    } else {
+                        if (txloss)
+                            txloss->kernel_reject.fetch_add(1, std::memory_order_relaxed);
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX4] sendmsg rejected res=" << res
+                                      << " (" << strerror(-res) << ")\n";
+                        }
+                    }
                 }
                 io_uring_cq_advance(send_ring, n);
 
@@ -2286,21 +2331,38 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                 const uint16_t step = frag_steps[pi];
 
                 if (step == 0) {
-                    // ── Normal unfragmented packet ─────────────────────────
-                    // SECURITY: check sqe availability before using it.
+                    // Cheap rejections first: no point burning an SQE, or
+                    // registering a probe in the port state machine, for a
+                    // task we already know we cannot send.
+                    if (tasks[pi].is_ipv6 && sock6 < 0) {
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX9] IPv6 task with no sock6 — dropping idx="
+                                      << pi << "\n";
+                        }
+                        if (txloss)
+                            txloss->no_socket.fetch_add(1, std::memory_order_relaxed);
+                        pool.release(packets[pi]);
+                        packets[pi] = nullptr;
+                        next_pkt++;
+                        continue;
+                    }
+
                     struct io_uring_sqe* sqe = io_uring_get_sqe(send_ring);
-                    if (!sqe) break;  // SQ full; submit what we have
-                    // Record TX timestamp BEFORE kernel touches the packet.
+                    if (!sqe) {
+                        // NOT loss.  The outer loop submits, reaps and refills;
+                        // this packet goes out on the next pass.
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX2] SQ full at pkt idx=" << pi
+                                      << " in_flight=" << in_flight
+                                      << " WINDOW=" << WINDOW << "\n";
+                        }
+                        break;
+                    }
                     if (on_pre_submit)
                         on_pre_submit({tasks[pi].src_port}, {tasks[pi].dest_port}, tasks[pi].is_ipv6, true);
                     if (tasks[pi].is_ipv6) {
-                        if (sock6 < 0) {
-                            std::cerr << "[TX] IPv6 task with no sock6 configured — dropping\n";
-                            pool.release(packets[pi]);
-                            packets[pi] = nullptr;
-                            next_pkt++;
-                            continue;
-                        }
                         if (g_send_fixed_file_active.load(std::memory_order_acquire)) {
                             io_uring_prep_sendmsg(sqe, SEND6_SOCK_FIXED_IDX, &msgs[pi], 0);
                             io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
@@ -2354,8 +2416,18 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                 struct __kernel_timespec ts = { .tv_sec = 0,
                                                 .tv_nsec = 200 * 1000 * 1000 };
                 int ret = io_uring_wait_cqe_timeout(send_ring, &cqe, &ts);
-                if (ret == -ETIME || ret == -EINTR || ret < 0) break;
-                if (!cqe) break;
+                if (ret == -ETIME || ret == -EINTR || ret < 0 || !cqe) {
+                    if (txloss && in_flight > 0) {
+                        txloss->drain_timeout.fetch_add(
+                            static_cast<uint64_t>(in_flight), std::memory_order_relaxed);
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX7] drain timeout, " << in_flight
+                                      << " CQE(s) unreaped — buffers stranded\n";
+                        }
+                    }
+                    break;
+                }
                 char* buf = static_cast<char*>(io_uring_cqe_get_data(cqe));
                 io_uring_cqe_seen(send_ring, cqe);
                 in_flight--;
@@ -2363,16 +2435,20 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
             }
         }
 
-        // Release any packets never queued (e.g. terminate_flag set before
-        // they reached the SQ fill loop).
-        for (size_t i = 0; i < num_packets; ++i) {
-            if (packets[i]) {
-                pool.release(packets[i]);
-                packets[i] = nullptr;
+        {
+            size_t abandoned = 0;
+            for (size_t i = 0; i < num_packets; ++i) {
+                if (packets[i]) {
+                    ++abandoned;
+                    pool.release(packets[i]);
+                    packets[i] = nullptr;
+                }
             }
+            if (txloss && abandoned)
+                txloss->aborted.fetch_add(abandoned, std::memory_order_relaxed);
         }
         // ── Send all pre-built fragments via io_uring ─────────────────────
-        if (!all_batch_frags.empty() && !any_frag_collect_failed) {
+        if (!all_batch_frags.empty()) {
 
             // Fix iov pointers invalidated by vector reallocation during build.
             for (auto& bf : all_batch_frags)
@@ -2407,7 +2483,12 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                     const bool frag_is_v6 = tasks[bf.orig_pkt_idx].is_ipv6;
 
                     if (frag_is_v6 && sock6 < 0) {
-                        std::cerr << "[TX-FRAG] IPv6 fragment with no sock6 configured — dropping\n";
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX9] IPv6 fragment with no sock6 — dropping\n";
+                        }
+                        if (txloss)
+                            txloss->no_socket.fetch_add(1, std::memory_order_relaxed);
                         pool.release(bf.buf);
                         bf.buf = nullptr;
                         frag_next++;
@@ -2415,7 +2496,15 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                     }
 
                     struct io_uring_sqe* sqe = io_uring_get_sqe(send_ring);
-                    if (!sqe) break;  // SQ full, submit what we have
+                    if (!sqe) {
+                        // NOT loss — same reasoning as DBG-TX2 above.
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX3] SQ full (frag path) idx=" << frag_next
+                                      << " in_flight=" << in_flight << "\n";
+                        }
+                        break;
+                    }
 
                     if (frag_is_v6) {
                         if (g_send_fixed_file_active.load(std::memory_order_acquire)) {
@@ -2471,16 +2560,31 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                 struct __kernel_timespec ts = { .tv_sec = 0,
                                                 .tv_nsec = 200 * 1000 * 1000 };
                 int ret = io_uring_wait_cqe_timeout(send_ring, &cqe, &ts);
-                if (ret == -ETIME || ret == -EINTR || ret < 0) break;
-                if (!cqe) break;
+                if (ret == -ETIME || ret == -EINTR || ret < 0 || !cqe) {
+                    if (txloss && in_flight > 0) {
+                        txloss->drain_timeout.fetch_add(
+                            static_cast<uint64_t>(in_flight), std::memory_order_relaxed);
+                        if (debug_send) {
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[DBG-TX7] frag drain timeout, " << in_flight
+                                      << " CQE(s) unreaped — buffers stranded\n";
+                        }
+                    }
+                    break;
+                }
                 char* buf = static_cast<char*>(io_uring_cqe_get_data(cqe));
                 io_uring_cqe_seen(send_ring, cqe);
                 in_flight--;
                 if (buf) pool.release(buf);
             }
         }
-        for (auto& bf : all_batch_frags) {
-            if (bf.buf) { pool.release(bf.buf); bf.buf = nullptr; }
+        {
+            size_t frag_abandoned = 0;
+            for (auto& bf : all_batch_frags) {
+                if (bf.buf) { ++frag_abandoned; pool.release(bf.buf); bf.buf = nullptr; }
+            }
+            if (txloss && frag_abandoned)
+                txloss->aborted.fetch_add(frag_abandoned, std::memory_order_relaxed);
         }
         all_batch_frags.clear();
     } else {
@@ -2490,11 +2594,16 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
             std::cerr << "[TX] send_tcp_packets: send_ring is null — "
                          "an io_uring send context is required\n";
         }
-        for (size_t i = 0; i < num_packets; ++i) {
-            if (packets[i]) { pool.release(packets[i]); packets[i] = nullptr; }
-        }
-        for (auto& bf : all_batch_frags) {
-            if (bf.buf) { pool.release(bf.buf); bf.buf = nullptr; }
+        {
+            size_t abandoned = 0;
+            for (size_t i = 0; i < num_packets; ++i) {
+                if (packets[i]) { ++abandoned; pool.release(packets[i]); packets[i] = nullptr; }
+            }
+            for (auto& bf : all_batch_frags) {
+                if (bf.buf) { ++abandoned; pool.release(bf.buf); bf.buf = nullptr; }
+            }
+            if (txloss && abandoned)
+                txloss->aborted.fetch_add(abandoned, std::memory_order_relaxed);
         }
         all_batch_frags.clear();
     }
@@ -2516,7 +2625,7 @@ static void drain_tx_errqueue(int sock, struct io_uring* ring, std::mutex& ring_
                                std::unordered_map<uint32_t, PendingTxTs>& id_map,
                                std::vector<std::atomic<uint64_t>>& tx_ts_table,
                                std::vector<std::atomic<bool>>& tx_ts_precise,
-                               const std::vector<std::atomic<uint32_t>>& port_generation) {
+                               const std::vector<std::atomic<uint32_t>>& port_generation,std::atomic<size_t>& confirmed_count) {
 
     if (!ring || sock < 0) return;
     std::lock_guard<std::mutex> ring_lock(ring_mtx);
@@ -2554,7 +2663,14 @@ static void drain_tx_errqueue(int sock, struct io_uring* ring, std::mutex& ring_
             cqe = nullptr;
             sqe_pending[i] = false;
             got_any = true;
-            if (i >= GlobalSendCtx::kErrqBatchDepth || res < 0) continue;
+            if (i >= GlobalSendCtx::kErrqBatchDepth) continue;
+	    if (res < 0) {
+	        if (res != -EAGAIN) {
+		    std::lock_guard<std::mutex> lock(cout_mutex);
+		    std::cerr << "[DBG-TX6] errqueue recvmsg res=" << res << " (" << strerror(-res) << ")\n";
+	        }
+	        continue;
+	    }
 
             uint32_t seq = 0;
             bool have_seq = false;
@@ -2594,6 +2710,7 @@ static void drain_tx_errqueue(int sock, struct io_uring* ring, std::mutex& ring_
             tx_ts_table[pending.pidx].store(ts_us, std::memory_order_release);
             tx_ts_precise[pending.pidx].store(true, std::memory_order_release);
             g_precise_tx_hits.fetch_add(1, std::memory_order_relaxed);
+            confirmed_count.fetch_add(1, std::memory_order_relaxed);
         }
 
         if (!got_any) return;   // ring's caught up — resume next call
@@ -2606,7 +2723,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                       print_filtered_if_few,
                       struct io_uring *send_ring, bool fast_scan, size_t batch_size, ScanType scan_type,uint8_t custom_ttl, uint8_t custom_dscp,uint16_t custom_ip_flags, IpIdMode ip_id_mode, uint16_t fixed_ip_id,
                       const TcpBuildOptions& opts,
-                      RTTTracker& shared_rtt_tracker,
+                      RTTTracker& shared_rtt_tracker, uint32_t shared_tsval_offset,
+                      RetryBudgetState& retry_budget,
                       bool debug_rtt,bool debug_ttl,bool debug_demux,bool debug_strack,bool frag_out_of_order,bool frag_overlap, uint16_t frag_overlap_bytes,bool
                       frag_zof,const SportRangeConfig& sport_range_cfg,const GsportConfig& gsport_cfg,int initial_rtt_ms,int port_timeout_min_ms, int port_timeout_max_ms,RateConfig rate_config,JitterConfig 
                       jitter_config,BatchDelayConfig
@@ -2615,8 +2733,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                       BandwidthConfig bandwidth_config, BandwidthLimiterState* bandwidth_state,
                       uint64_t initial_dispatch_delay_us, bool debug_send,
                       int sock6, const uint8_t* src_ip6) {
-    // Local aliases: same names the body below has always used, now backed
-    // by the shared opts struct instead of ~29 individual parameters.
+
     const bool&        use_manual_tcp_checksum = opts.use_manual_tcp_checksum;
     const uint16_t&    manual_tcp_checksum     = opts.manual_tcp_checksum;
     const uint8_t&     window_scale            = opts.window_scale;
@@ -2729,19 +2846,14 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     }
     
     {
-        RawPacket _discard[64];
-        while (my_queue->try_dequeue_bulk(_discard, 64) > 0) {}
+        thread_local std::array<RawPacket, 64> _discard_buf;
+        while (my_queue->try_dequeue_bulk(_discard_buf.data(), 64) > 0) {}
     }
     RTTTracker& global_rtt_tracker = shared_rtt_tracker;
     std::vector<int32_t> port_to_idx(65536, -1);
-
-    // Sized to exactly what we're scanning, not 65536.
     std::vector<PortState>          port_states_arr(ports.size());
     std::vector<std::atomic<bool>>  port_final(ports.size());
     std::vector<std::atomic<bool>>  port_rtt_measured(ports.size());
-
-    // Assigned sequentially in the init loop below; recovers the real
-    // port number from an index when needed (htons(), composite keys).
     std::vector<uint16_t> idx_to_port(ports.size());
 
     // Running counter for the dense index space.
@@ -2774,6 +2886,10 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     const bool use_token = (seq_num == 0);
     std::vector<std::atomic<uint64_t>> tx_ts_table(ports.size());
     for (auto& slot : tx_ts_table) slot.store(0, std::memory_order_relaxed);
+    std::vector<std::atomic<uint64_t>> real_tx_ts_us(ports.size());
+    for (auto& slot : real_tx_ts_us) slot.store(0, std::memory_order_relaxed);
+    std::vector<std::atomic<bool>> replied_this_attempt(ports.size());
+    for (auto& r : replied_this_attempt) r.store(false, std::memory_order_relaxed);
     std::mutex tx_seq_map_mutex;
     std::unordered_map<uint32_t, PendingTxTs> id_to_pidx_v4;
     std::unordered_map<uint32_t, PendingTxTs> id_to_pidx_v6;
@@ -2781,9 +2897,18 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     for (auto& g : port_generation) g.store(0, std::memory_order_relaxed);
     std::vector<std::atomic<bool>> tx_ts_precise(ports.size());
     for (auto& p : tx_ts_precise) p.store(false, std::memory_order_relaxed);
-    // Tracks "a probe is outstanding for this port", decoupled from whether
-    // we have a precise TX timestamp for it yet. Needed because the stale-RST
-    // check must not depend on the (now fallback-free) RTT timestamp value.
+    std::atomic<size_t> confirmed_tx_count{0};
+    TxLossCounters txloss;
+    // SO_RXQ_OVFL and friends are cumulative per socket, and the reader thread
+    // is shared across targets — so snapshot here and diff at the end rather
+    // than reading them as absolute per-scan figures.
+    const uint64_t rx_ovfl_v4_base    = g_recv ? g_recv->rx_kernel_ovfl_v4.load(std::memory_order_relaxed)    : 0;
+    const uint64_t rx_ovfl_v6_base    = g_recv ? g_recv->rx_kernel_ovfl_v6.load(std::memory_order_relaxed)    : 0;
+    const uint64_t rx_ovfl_icmp_base  = g_recv ? g_recv->rx_kernel_ovfl_icmp.load(std::memory_order_relaxed)  : 0;
+    const uint64_t rx_ovfl_icmp6_base = g_recv ? g_recv->rx_kernel_ovfl_icmp6.load(std::memory_order_relaxed) : 0;
+    const uint64_t rx_cqovf_base  = g_recv ? g_recv->rx_cq_overflow.load(std::memory_order_relaxed)  : 0;
+    const uint64_t rx_trunc_base = g_recv ? g_recv->rx_truncated.load(std::memory_order_relaxed)    : 0;
+    const uint64_t rx_starve_base = g_recv ? g_recv->rx_slot_starved.load(std::memory_order_relaxed) : 0;
     std::vector<std::atomic<bool>> probe_outstanding(ports.size());
     for (auto& p : probe_outstanding) p.store(false, std::memory_order_relaxed);
 
@@ -2791,7 +2916,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     active_ports.reserve(ports.size());
 
     std::uniform_int_distribution<uint32_t> seq_dist(0, 4294967295U);
-
+    const uint32_t target_tsval_offset = shared_tsval_offset;
     static const std::unordered_set<ScanType> no_retry_scan_types = {
         ScanType::FIN, ScanType::NULL_SCAN, ScanType::XMAS,
         ScanType::CWR, ScanType::URG, ScanType::PSH, ScanType::HANUMAN
@@ -2819,18 +2944,13 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         std::chrono::steady_clock::now();
     const int MIN_TIMEOUT_MS = port_timeout_min_ms;
     const int MAX_TIMEOUT_MS = port_timeout_max_ms;
-    // ── Phase-1 RTT gate ─────────────────────────────────────────────
-    // A port that hits its first no-reply timeout before any real RTT
-    // sample exists gets parked here instead of scheduled off a guess.
-    // Released the instant a real RTT arrives (Edit E), or at
-    // phase1_deadline if the target never replies at all (Edit D).
     const auto phase1_deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(MAX_TIMEOUT_MS);
     std::vector<uint16_t> gate_pending_ports;
     gate_pending_ports.reserve(ports.size());
     bool phase1_sentinel_armed = false;
 
-    const auto& service_map = read_services_from_file("/usr/share/shiv/services");
+    const auto& service_map = read_services_from_file("/usr/share/nmap/nmap-services");
     moodycamel::BlockingConcurrentQueue<PacketTask> packet_queue;
     std::atomic<size_t> local_packets_sent(0);
     const size_t total_ports_count = ports.size();
@@ -2873,6 +2993,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     if (pidx >= 0) {
                         probe_outstanding[pidx].store(true, std::memory_order_release);
                         port_states_arr[pidx].syn_sent_time = ts;
+                        real_tx_ts_us[pidx].store(ts_us, std::memory_order_release);
+                        g_confirmed_tx_count.fetch_add(1, std::memory_order_relaxed);
 
                         if (precise_eligible) {
                             uint32_t seq = is_ipv6
@@ -2886,34 +3008,52 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     }
                 }
             };
+            const size_t ring_cap    = effective_ring ? effective_ring->sq.ring_entries : count;
+            const size_t chunk_limit = std::max<size_t>(1, std::min(count, ring_cap));
 
-            uint64_t batch_bytes_sent = 0;
-            int sent_count = send_tcp_packets(send_sock,
-                std::span<PacketTask>(tasks_vec.data(), count),
-                local_ip, sender_rng, pool, win_size,
-                effective_ring,
-                batch_size, custom_ttl,custom_dscp,custom_ip_flags,
-                ip_id_mode, fixed_ip_id,
-                opts,
-                frag_out_of_order, frag_overlap, frag_overlap_bytes, frag_zof,
-                on_pre_submit, &batch_bytes_sent, debug_send, sock6, src_ip6);
-            if (bandwidth_config.enabled)
-                bws.actual_bytes_sent.fetch_add(batch_bytes_sent, std::memory_order_relaxed);
-            if (sent_count < 0) {
-                std::string msg = "Failed to send packet batch\n";
-                if (captured_output_buf) {
-                    *captured_output_buf += msg;
-                } else {
-                    std::lock_guard<std::mutex> lock(cout_mutex);
-                    std::cerr << msg;
+            for (size_t off = 0; off < count && !terminate_flag; off += chunk_limit) {
+                const size_t chunk_count = std::min(chunk_limit, count - off);
+
+                uint64_t chunk_bytes_sent = 0;
+                int sent_count = send_tcp_packets(send_sock,
+                    std::span<PacketTask>(tasks_vec.data() + off, chunk_count),
+                    local_ip, sender_rng, pool, win_size,
+                    effective_ring,
+                    chunk_count, custom_ttl,custom_dscp,custom_ip_flags,
+                    ip_id_mode, fixed_ip_id,
+                    opts,
+                    frag_out_of_order, frag_overlap, frag_overlap_bytes, frag_zof,
+                    on_pre_submit, &chunk_bytes_sent, debug_send, sock6, src_ip6,
+                    &txloss);
+
+                if (bandwidth_config.enabled)
+                    bws.actual_bytes_sent.fetch_add(chunk_bytes_sent, std::memory_order_relaxed);
+
+                if (sent_count < 0) {
+                    std::string msg = "Failed to send packet sub-batch (off=" +
+                        std::to_string(off) + ", size=" + std::to_string(chunk_count) + ")\n";
+                    if (captured_output_buf) {
+                        *captured_output_buf += msg;
+                    } else {
+                        std::lock_guard<std::mutex> lock(cout_mutex);
+                        std::cerr << msg;
+                    }
+                } else if (sent_count > 0) {
+                    local_packets_sent.fetch_add(sent_count, std::memory_order_relaxed);
                 }
-            } else if (sent_count > 0) {
-                local_packets_sent.fetch_add(sent_count, std::memory_order_relaxed);
             }
             if (shutdown_requested) break;
         }
     };
     std::thread sender_thread(sender_thread_func);
+    auto shutdown_sender_thread = [&]() {
+        if (sender_thread.joinable()) {
+            PacketTask poison_pill;
+            poison_pill.is_poison = true;
+            packet_queue.enqueue(std::move(poison_pill));
+            sender_thread.join();
+        }
+    };
 
     std::string scan_name_str;
     switch (scan_type) {
@@ -2931,18 +3071,19 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         rs.rate_window_start = std::chrono::steady_clock::now();
         if (rate_config.enabled) {
         if (rate_config.dynamic_mode) {                              
-		bool no_retries_yet = (g_ports_in_retry_global.load(std::memory_order_relaxed) == 0);
+		bool no_retries_yet = (retry_budget.ports_in_retry.load(std::memory_order_relaxed) == 0);
 		if (rate_config.gate_by_retry && no_retries_yet) {
 		    rs.rate_window_target = UINT32_MAX;   
 		} else {
-		    double ratio  = g_congestion_ratio.load(std::memory_order_relaxed);
+                    double ratio = std::clamp(
+		        retry_budget.congestion_ratio.load(std::memory_order_relaxed), 0.0, 1.0);
 		    if (ratio <= 0.0) {
-			rs.rate_window_target = UINT32_MAX; 
+			rs.rate_window_target = UINT32_MAX;
 		    } else {
 			double curved = std::pow(ratio, g_cong_tune.curve_exp);
 			uint32_t span = rate_config.max_packets - rate_config.min_packets;
-			rs.rate_window_target = rate_config.max_packets -
-			    static_cast<uint32_t>(curved * span);
+			uint32_t cut  = std::min<uint32_t>(span, static_cast<uint32_t>(curved * span));
+			rs.rate_window_target = rate_config.max_packets - cut;
 		    }
 		}
 	    } else if (rate_config.min_packets < rate_config.max_packets) {
@@ -3012,7 +3153,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         uint32_t seq          = use_token
                                 ? compute_token(static_cast<uint16_t>(port))
                                 : (seq_num > 0 ? seq_num : seq_dist(rng));
-        uint32_t tsval        = 1234567;
+        uint32_t tsval_offset = target_tsval_offset;
         int initial_timeout   = global_rtt_tracker.get_timeout_for_retry(0);
         initial_timeout = std::max(port_timeout_min_ms, std::min(initial_timeout, port_timeout_max_ms));
         port_to_idx[port]       = static_cast<int32_t>(next_idx);
@@ -3030,7 +3171,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         ps.retries_cap            = g_cong_tune.min_retries;
         ps.timeout_ms             = initial_timeout;
         ps.syn_sent_time          = now;
-        ps.sent_tsval             = tsval;
+        ps.tsval_offset           = tsval_offset;
+        ps.sent_tsval             = generate_tcp_tsval() + tsval_offset;
         ps.ewma_rtt               = static_cast<double>(initial_timeout);
         ps.reported_state         = PortState::PortReportedState::None;
         ps.initial_send_deferred  = true;
@@ -3325,7 +3467,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     auto last_timeout_check = std::chrono::steady_clock::now();
 
     std::atomic<size_t> active_count(active_ports.size());
-    g_active_ports_global.fetch_add(active_ports.size(), std::memory_order_relaxed);   // NEW
+    retry_budget.active_ports.fetch_add(active_ports.size(), std::memory_order_relaxed); 
     std::atomic<size_t> ports_in_retry{0};
     bool needs_submit = false;
     constexpr int64_t IDLE_NO_DEADLINE_WAIT_NS = 250 * 1000 * 1000; 
@@ -3338,8 +3480,17 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         return DEADLINE_COALESCE_NS;         // nothing in flight
     };
     auto next_jitter_drain_time = std::chrono::steady_clock::now();
+    std::vector<RawPacket> pkt_batch_storage(2048);
+    RawPacket* pkt_batch = pkt_batch_storage.data();
+    std::vector<RawPacket> mixed_storage(32);
+    RawPacket* mixed = mixed_storage.data();
+    std::vector<RawPacket> icmp_pkts_storage(8);
+    RawPacket* icmp_pkts = icmp_pkts_storage.data();
+    std::vector<RawPacket> icmpv6_pkts_storage(8);
+    RawPacket* icmpv6_pkts = icmpv6_pkts_storage.data();
     while (active_count.load(std::memory_order_relaxed) > 0 && !terminate_flag) {
-        RawPacket pkt_batch[32];
+        size_t got = 0;
+        do {
 
         if (g_send) {
             if (g_send->errq_ring_v4_valid)
@@ -3348,16 +3499,16 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                                    g_send->errq_v4_cmsg_buf, sizeof(g_send->errq_v4_cmsg_buf[0]),
                                    g_send->errq_v4_data_buf, sizeof(g_send->errq_v4_data_buf[0]),
                                    g_send->errq_v4_iov, g_send->errq_v4_msg, g_send->errq_v4_addr,
-                                   tx_seq_map_mutex, id_to_pidx_v4, tx_ts_table, tx_ts_precise, port_generation);
+                                   tx_seq_map_mutex, id_to_pidx_v4, tx_ts_table, tx_ts_precise, port_generation, confirmed_tx_count);
             if (sock6 >= 0 && g_send->errq_ring_v6_valid)
                 drain_tx_errqueue(sock6, &g_send->errq_ring_v6, g_send->errq_v6_mtx,
                                    g_send->errq_v6_pending,
                                    g_send->errq_v6_cmsg_buf, sizeof(g_send->errq_v6_cmsg_buf[0]),
                                    g_send->errq_v6_data_buf, sizeof(g_send->errq_v6_data_buf[0]),
                                    g_send->errq_v6_iov, g_send->errq_v6_msg, g_send->errq_v6_addr,
-                                   tx_seq_map_mutex, id_to_pidx_v6, tx_ts_table, tx_ts_precise, port_generation);
+                                   tx_seq_map_mutex, id_to_pidx_v6, tx_ts_table, tx_ts_precise, port_generation, confirmed_tx_count);
         }
-        size_t got = my_queue->try_dequeue_bulk(pkt_batch, 32);
+        got = my_queue->try_dequeue_bulk(pkt_batch, 2048);
         while (got == 0 && active_count.load(std::memory_order_relaxed) > 0 && !terminate_flag) {
             int64_t wait_ns = IDLE_NO_DEADLINE_WAIT_NS;
             if (!deadline_heap.empty()) {
@@ -3386,9 +3537,19 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             got = my_queue->try_dequeue_bulk(pkt_batch, 32);
             break;  // re-check active_count / process whatever we got, same as before
         }
+        size_t icmp_got = 0;
+        size_t icmpv6_got = 0;
 
         for (size_t pi = 0; pi < got; ++pi) {
             RawPacket& rp   = pkt_batch[pi];
+            if (rp.pkt_type == RawPacket::PktType::ICMP) {
+                if (icmp_got < 8) icmp_pkts[icmp_got++] = std::move(rp);
+                continue;
+            }
+            if (rp.pkt_type == RawPacket::PktType::ICMPV6) {
+                if (icmpv6_got < 8) icmpv6_pkts[icmpv6_got++] = std::move(rp);
+                continue;
+            }
             int        bytes = rp.len;
             const char* buffer = reinterpret_cast<const char*>(rp.data);
 
@@ -3497,6 +3658,13 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                                our_sport, tcph->th_flags,
                                matched_attempt, ttl_for_debug, false);
                 }
+                {
+                    bool expected = false;
+                    if (replied_this_attempt[didx].compare_exchange_strong(expected, true,
+                            std::memory_order_acq_rel)) {
+                        g_confirmed_reply_count.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
 
                 int64_t kernel_rx_us_val = rp.kernel_rx_us;
                 int64_t tx_us_val        = 0;
@@ -3521,6 +3689,20 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     pstate_ref.retry_count, rtt_here, pstate_ref);
                 packet_details_map[dest_port]    = details;
                 result.packet_details[dest_port] = details;
+                {
+                    const uint8_t nf = details.tcp_flags;
+                    const int new_rank = ((nf & (TH_SYN | TH_ACK)) == (TH_SYN | TH_ACK) && !(nf & TH_RST)) ? 2
+                                       : (nf & TH_RST) ? 1 : 0;
+                    auto od = result.osdetect_details.find(dest_port);
+                    bool store = (od == result.osdetect_details.end());
+                    if (!store) {
+                        const uint8_t of = od->second.tcp_flags;
+                        const int old_rank = ((of & (TH_SYN | TH_ACK)) == (TH_SYN | TH_ACK) && !(of & TH_RST)) ? 2
+                                           : (of & TH_RST) ? 1 : 0;
+                        store = new_rank > old_rank;
+                    }
+                    if (store) result.osdetect_details[dest_port] = details;
+                }
                 if (result.received_ttl == 0 && details.ttl != 0)
                     result.received_ttl = details.ttl;
 
@@ -3542,14 +3724,14 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                                                    g_send->errq_v4_cmsg_buf, sizeof(g_send->errq_v4_cmsg_buf[0]),
                                                    g_send->errq_v4_data_buf, sizeof(g_send->errq_v4_data_buf[0]),
                                                    g_send->errq_v4_iov, g_send->errq_v4_msg, g_send->errq_v4_addr,
-                                                   tx_seq_map_mutex, id_to_pidx_v4, tx_ts_table, tx_ts_precise, port_generation);
+                                                   tx_seq_map_mutex, id_to_pidx_v4, tx_ts_table, tx_ts_precise, port_generation, confirmed_tx_count);
                             } else if (is_ipv6_pkt && sock6 >= 0 && g_send->errq_ring_v6_valid) {
                                 drain_tx_errqueue(sock6, &g_send->errq_ring_v6, g_send->errq_v6_mtx,
                                                    g_send->errq_v6_pending,
                                                    g_send->errq_v6_cmsg_buf, sizeof(g_send->errq_v6_cmsg_buf[0]),
                                                    g_send->errq_v6_data_buf, sizeof(g_send->errq_v6_data_buf[0]),
                                                    g_send->errq_v6_iov, g_send->errq_v6_msg, g_send->errq_v6_addr,
-                                                   tx_seq_map_mutex, id_to_pidx_v6, tx_ts_table, tx_ts_precise, port_generation);
+                                                   tx_seq_map_mutex, id_to_pidx_v6, tx_ts_table, tx_ts_precise, port_generation, confirmed_tx_count);
                             }
                         }
                         if (tx_ts_precise[didx].load(std::memory_order_acquire)) {
@@ -3610,13 +3792,13 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     if (state_resolved && state.final_state_determined &&
                         !port_final[didx].exchange(true, std::memory_order_acq_rel)) {
                         active_count.fetch_sub(1, std::memory_order_relaxed);
-                        g_active_ports_global.fetch_sub(1, std::memory_order_relaxed);
+                        retry_budget.active_ports.fetch_sub(1, std::memory_order_relaxed);
                         tx_ts_table[didx].store(0, std::memory_order_release);
                         probe_outstanding[didx].store(false, std::memory_order_release);
                         if (state.counted_in_retry) {
                             state.counted_in_retry = false;
                             ports_in_retry.fetch_sub(1, std::memory_order_relaxed);
-                            g_ports_in_retry_global.fetch_sub(1, std::memory_order_relaxed);  
+                            retry_budget.ports_in_retry.fetch_sub(1, std::memory_order_relaxed);  
                         }
                         StrackFinalState sfs =
                             state.reported_state == PortState::PortReportedState::Open   ? StrackFinalState::Open   :
@@ -3631,20 +3813,23 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         }
 
         if (got == 0) {
-            RawPacket mixed[32];
             const size_t mixed_got = my_queue->try_dequeue_bulk(mixed, 32);
-            RawPacket icmp_pkts[8];
-            size_t icmp_got = 0;
             for (size_t mi = 0; mi < mixed_got; ++mi) {
                 if (mixed[mi].pkt_type == RawPacket::PktType::ICMP && icmp_got < 8) {
                     icmp_pkts[icmp_got++] = std::move(mixed[mi]);
                 } else if (mixed[mi].pkt_type == RawPacket::PktType::ICMPV6) {
-                
+                    if (icmpv6_got < 8) {
+                        icmpv6_pkts[icmpv6_got++] = std::move(mixed[mi]);
+                    } else {
+                        my_queue->enqueue(std::move(mixed[mi]));
+                    }
                 } else {
                     my_queue->enqueue(std::move(mixed[mi]));
                 }
             }
+        }
 
+        {
             for (size_t ip = 0; ip < icmp_got; ++ip) {
                 const RawPacket& rp        = icmp_pkts[ip];
                 const char*      icmp_buf  = reinterpret_cast<const char*>(rp.data);
@@ -3679,6 +3864,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         std::lock_guard<std::mutex> lk(cout_mutex);
                         std::cerr << msg;
                     }
+                    shutdown_sender_thread();
                     return result;
                 }
 
@@ -3690,7 +3876,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     IcmpFilterReason wr = (code == 0)
                         ? IcmpFilterReason::TtlExpired
                         : IcmpFilterReason::FragReassemblyTimeout;
-                    result.icmp_warnings.emplace_back(wr, std::string(wm));
+                    result.icmp_warnings.emplace_back(wr, std::string(wm), outer_iph->ip_src);
                     continue;
                 }
 
@@ -3699,7 +3885,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     result.icmp_warnings.emplace_back(
                         IcmpFilterReason::BadSpi,
                         std::string("Bad SPI (Security Parameters Index)"
-                                    " (ICMP type 40 code 0)"));
+                                    " (ICMP type 40 code 0)"),
+                        outer_iph->ip_src);
                     continue;
                 }
 
@@ -3729,6 +3916,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                                 std::cerr << msg;
                             }
                         }
+                        shutdown_sender_thread();
                         return result;
                     }
                     default: break;
@@ -3738,7 +3926,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 if (code == 4) {
                     result.icmp_warnings.emplace_back(
                         IcmpFilterReason::FragNeeded,
-                        std::string("Fragmentation Needed, DF set (ICMP type 3 code 4)"));
+                        std::string("Fragmentation Needed, DF set (ICMP type 3 code 4)"),
+                        outer_iph->ip_src);
                     continue;
                 }
 
@@ -3814,6 +4003,13 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                                " icmp_code=" + std::to_string(code),
                                inner_src_port, 0, icmp_matched_attempt, outer_iph->ip_ttl, true);
                 }
+                {
+                    bool expected = false;
+                    if (replied_this_attempt[bidx].compare_exchange_strong(expected, true,
+                            std::memory_order_acq_rel)) {
+                        g_confirmed_reply_count.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
 
                 IcmpFilterReason reason   = IcmpFilterReason::None;
                 const char*      code_str = "";
@@ -3837,18 +4033,18 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 }
 
                 result.filtered_ports.push_back(blocked_port);
-                result.icmp_filter_reasons[blocked_port] = reason;
+                result.icmp_filter_reasons[blocked_port] = { reason, outer_iph->ip_src };
                 state.reported_state         = PortState::PortReportedState::Filtered;
                 state.final_state_determined = true;
                 port_final[bidx].store(true, std::memory_order_release);
                 active_count.fetch_sub(1, std::memory_order_relaxed);
-                g_active_ports_global.fetch_sub(1, std::memory_order_relaxed); 
+                retry_budget.active_ports.fetch_sub(1, std::memory_order_relaxed); 
                 tx_ts_table[bidx].store(0, std::memory_order_release);
                 probe_outstanding[bidx].store(false, std::memory_order_release);
                 if (state.counted_in_retry) {
                     state.counted_in_retry = false;
                     ports_in_retry.fetch_sub(1, std::memory_order_relaxed);
-                    g_ports_in_retry_global.fetch_sub(1, std::memory_order_relaxed);  
+                    retry_budget.ports_in_retry.fetch_sub(1, std::memory_order_relaxed);  
                 }
                 strack_log(blocked_port, StrackFinalState::Filtered,
                            state.attempt_for_src_port(inner_src_port), inner_src_port,
@@ -3864,6 +4060,188 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 }
             }
         }
+        {
+            for (size_t i6 = 0; i6 < icmpv6_got; ++i6) {
+                const RawPacket& rp6   = icmpv6_pkts[i6];
+                const uint8_t*   i6buf = rp6.data;
+                const ssize_t    i6nb  = static_cast<ssize_t>(rp6.len);
+
+                constexpr int ICMP6_HDR_LEN = 8;
+                if (i6nb < ICMP6_HDR_LEN) continue;
+
+                const uint8_t i6_type = i6buf[0];
+                const uint8_t i6_code = i6buf[1];
+
+                struct in_addr i6_replier{};
+
+                if (i6_type == 1 && i6_code == 0) {
+                    std::string msg = "[ICMPv6 FATAL] Type 1 Code 0: No Route to Destination"
+                                       " — aborting scan of " + std::string(dest_ip) + "\n";
+                    if (tl_port_output_buf) {
+                        *tl_port_output_buf += msg;
+                    } else {
+                        std::lock_guard<std::mutex> lk(cout_mutex);
+                        std::cerr << msg;
+                    }
+                    shutdown_sender_thread();
+                    return result;
+                }
+
+                if (i6_type == 2) {
+                    result.icmp_warnings.emplace_back(
+                        IcmpFilterReason::FragNeeded,
+                        std::string("Packet Too Big (ICMPv6 type 2 code 0)"),
+                        i6_replier);
+                    continue;
+                }
+
+                if (i6_type == 3 && (i6_code == 0 || i6_code == 1)) {
+                    const char* w6 = (i6_code == 0)
+                        ? "Hop Limit Exceeded in Transit (ICMPv6 type 3 code 0)"
+                        : "Fragment Reassembly Time Exceeded (ICMPv6 type 3 code 1)";
+                    IcmpFilterReason wr6 = (i6_code == 0)
+                        ? IcmpFilterReason::TtlExpired
+                        : IcmpFilterReason::FragReassemblyTimeout;
+                    result.icmp_warnings.emplace_back(wr6, std::string(w6), i6_replier);
+                    continue;
+                }
+
+                if (i6_type != 1) continue;
+                if (i6_code != 1 && i6_code != 5 && i6_code != 6) continue;
+                if (!target_is_ipv6) continue;
+
+                if (i6nb < ICMP6_HDR_LEN +
+                        static_cast<int>(sizeof(struct ip6_hdr)) + 8) continue;
+
+                const struct ip6_hdr* inner6 =
+                    reinterpret_cast<const struct ip6_hdr*>(i6buf + ICMP6_HDR_LEN);
+                if (inner6->ip6_nxt != IPPROTO_TCP) continue;
+                if (std::memcmp(&inner6->ip6_dst, &dest6.sin6_addr,
+                                sizeof(struct in6_addr)) != 0) continue;
+
+                const uint8_t* t6 = i6buf + ICMP6_HDR_LEN + sizeof(struct ip6_hdr);
+                uint16_t raw16 = 0;
+                uint32_t raw32 = 0;
+                std::memcpy(&raw16, t6, sizeof(raw16));
+                const uint16_t inner6_src_port = ntohs(raw16);
+                std::memcpy(&raw16, t6 + 2, sizeof(raw16));
+                const uint16_t blocked6_port = ntohs(raw16);
+                std::memcpy(&raw32, t6 + 4, sizeof(raw32));
+                const uint32_t inner6_seq = ntohl(raw32);
+
+                if (blocked6_port == 0) continue;
+
+                const int32_t b6idx = port_to_idx[blocked6_port];
+                if (b6idx < 0) {
+                    if (debug_demux) {
+                        demux_counts.unknown_port++;
+                        demux_log("DROP unknown-port (icmpv6)", blocked6_port,
+                                   "not part of this scan, icmpv6_code=" +
+                                   std::to_string(i6_code),
+                                   inner6_src_port, 0, -1, 0, true);
+                    }
+                    continue;
+                }
+                PortState& state6 = port_states_arr[b6idx];
+                if (!state6.accepts_src_port(inner6_src_port)) {
+                    if (debug_demux) {
+                        demux_counts.bad_src_port++;
+                        demux_log("DROP bad-src-port (icmpv6)", blocked6_port,
+                                   "embedded src_port=" + std::to_string(inner6_src_port) +
+                                   " was never used to probe this port, icmpv6_code=" +
+                                   std::to_string(i6_code),
+                                   inner6_src_port, 0,
+                                   state6.attempt_for_src_port(inner6_src_port), 0, true);
+                    }
+                    continue;
+                }
+                if (use_token && inner6_seq != state6.seq) {
+                    if (debug_demux) {
+                        demux_counts.bad_token++;
+                        demux_log("DROP bad-token (icmpv6)", blocked6_port,
+                                   "embedded seq=" + std::to_string(inner6_seq) +
+                                   " expected=" + std::to_string(state6.seq) +
+                                   " (spoofed or stale ICMPv6), icmpv6_code=" +
+                                   std::to_string(i6_code),
+                                   inner6_src_port, 0,
+                                   state6.attempt_for_src_port(inner6_src_port), 0, true);
+                    }
+                    continue;
+                }
+                if (port_final[b6idx].load(std::memory_order_acquire)) continue;
+
+                if (!global_rtt_tracker.should_mark_filtered(state6.retry_count,
+                                                             state6.retries_cap)) continue;
+                if (state6.reported_state != PortState::PortReportedState::None) continue;
+
+                if (debug_demux) {
+                    demux_counts.matched++;
+                    int icmp6_matched_attempt = state6.attempt_for_src_port(inner6_src_port);
+                    demux_log("MATCH (icmpv6-filtered)", blocked6_port,
+                               "idx=" + std::to_string(b6idx) +
+                               " attempt=" + std::to_string(icmp6_matched_attempt) +
+                               " icmpv6_code=" + std::to_string(i6_code),
+                               inner6_src_port, 0, icmp6_matched_attempt, 0, true);
+                }
+                {
+                    bool expected6 = false;
+                    if (replied_this_attempt[b6idx].compare_exchange_strong(expected6, true,
+                            std::memory_order_acq_rel)) {
+                        g_confirmed_reply_count.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+
+                IcmpFilterReason reason6   = IcmpFilterReason::None;
+                const char*      code6_str = "";
+                switch (i6_code) {
+                    case 1:
+                        reason6   = IcmpFilterReason::CommAdminProhibited;
+                        code6_str = "ICMPv6 type 1 code 1: comm-admin-prohibited"
+                                    " (ip6tables REJECT / firewall policy)";
+                        break;
+                    case 5:
+                        reason6   = IcmpFilterReason::HostAdminProhibited;
+                        code6_str = "ICMPv6 type 1 code 5: source address failed"
+                                    " ingress/egress policy";
+                        break;
+                    case 6:
+                        reason6   = IcmpFilterReason::NetAdminProhibited;
+                        code6_str = "ICMPv6 type 1 code 6: reject route to destination"
+                                    " (ACL/router policy blocks subnet)";
+                        break;
+                    default: break;
+                }
+
+                result.filtered_ports.push_back(blocked6_port);
+                result.icmp_filter_reasons[blocked6_port] = { reason6, i6_replier };
+                state6.reported_state         = PortState::PortReportedState::Filtered;
+                state6.final_state_determined = true;
+                port_final[b6idx].store(true, std::memory_order_release);
+                active_count.fetch_sub(1, std::memory_order_relaxed);
+                retry_budget.active_ports.fetch_sub(1, std::memory_order_relaxed);
+                tx_ts_table[b6idx].store(0, std::memory_order_release);
+                probe_outstanding[b6idx].store(false, std::memory_order_release);
+                if (state6.counted_in_retry) {
+                    state6.counted_in_retry = false;
+                    ports_in_retry.fetch_sub(1, std::memory_order_relaxed);
+                    retry_budget.ports_in_retry.fetch_sub(1, std::memory_order_relaxed);
+                }
+                strack_log(blocked6_port, StrackFinalState::Filtered,
+                           state6.attempt_for_src_port(inner6_src_port), inner6_src_port,
+                           state6.rtt_measured ? state6.ewma_rtt : -1.0, true, state6);
+
+                if (print_individual_closed_filtered) {
+                    if (tl_port_output_buf) {
+                        *tl_port_output_buf +=
+                            std::string("│   ├─ 🔴 Port ") +
+                            std::to_string(blocked6_port) +
+                            "/tcp  filtered  [" + code6_str + "]\n";
+                    }
+                }
+            }
+        }
+        } while (got == 2048 && !terminate_flag &&
+                 active_count.load(std::memory_order_relaxed) > 0);
 
         {
             auto now = std::chrono::steady_clock::now();
@@ -3902,6 +4280,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
 
                 if (state.initial_send_deferred) {
                     state.initial_send_deferred = false;
+                    state.sent_tsval = generate_tcp_tsval() + state.tsval_offset;
                     state.syn_sent_time = now;  
                     state.start_time    = now;
 
@@ -3936,17 +4315,19 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     }
 
                     deadline_heap.push({now + std::chrono::milliseconds(state.timeout_ms), port});
-                    continue;   // this pop is fully handled; don't fall into
-                                // the retry_send_deferred / retry logic below
+                    continue; 
                 }
 
                 if (state.retry_send_deferred) {
                     state.retry_send_deferred = false;
-                    state.syn_sent_time = now;   // real send time, for accurate RTT
+                    state.sent_tsval = generate_tcp_tsval() + state.tsval_offset;
+                    state.syn_sent_time = now;
                     tx_ts_table[pidx].store(0, std::memory_order_release);
+                    tx_ts_precise[pidx].store(false, std::memory_order_release);
+                    real_tx_ts_us[pidx].store(0, std::memory_order_release);
+                    replied_this_attempt[pidx].store(false, std::memory_order_release);
                     probe_outstanding[pidx].store(false, std::memory_order_release);
                     port_generation[pidx].fetch_add(1, std::memory_order_relaxed);
-
                     sockaddr_in single_dest = dest;
                     single_dest.sin_port = htons(port);
                     sockaddr_in6 single_dest6 = dest6;
@@ -3983,10 +4364,25 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     deadline_heap.push({now + std::chrono::milliseconds(next_to), port});
 
                 } else if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)) {
-                 
+
+                    {
+                        uint64_t real_us = real_tx_ts_us[pidx].load(std::memory_order_acquire);
+                        int chk_timeout_ms = global_rtt_tracker.get_timeout_for_retry(state.retry_count);
+                        chk_timeout_ms = std::max(MIN_TIMEOUT_MS, std::min(chk_timeout_ms, MAX_TIMEOUT_MS));
+                        if (real_us == 0) {
+                            deadline_heap.push({now + std::chrono::milliseconds(5), port});
+                            continue;
+                        }
+                        auto real_tx_tp = std::chrono::steady_clock::time_point(
+                            std::chrono::microseconds(static_cast<int64_t>(real_us)));
+                        auto real_deadline = real_tx_tp + std::chrono::milliseconds(chk_timeout_ms);
+                        if (real_deadline > now) {
+                            deadline_heap.push({real_deadline, port});
+                            continue;
+                        }
+                    }
+
                     // Phase-1 gate: only the very first retry decision for a port
-                    // (retry_count == 0) is gated. Once a port has retried at
-                    // least once, later rounds proceed exactly as before.
                     if (state.retry_count == 0 &&
                         !global_rtt_tracker.has_measurement.load(std::memory_order_relaxed) &&
                         now < phase1_deadline) {
@@ -4031,54 +4427,40 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     }
 
                     state.retry_count++;
-                    port_generation[pidx].fetch_add(1, std::memory_order_relaxed);
                     state.start_time    = now;
                     state.syn_sent_time = now;
-                    state.sent_tsval    = 1234567;
+                    state.sent_tsval    = generate_tcp_tsval() + state.tsval_offset;
 
                     if (state.retry_count == 1) {
-                        state.retries_cap = g_dynamic_max_retries.load(std::memory_order_relaxed);
+                        state.retries_cap = retry_budget.dynamic_max_retries.load(std::memory_order_relaxed);
                     }
                     if (state.retry_count < 6 && sport_range_cfg.stage_is_range[state.retry_count]) {
-                        state.src_port = fast_uniform_port(rng,
+                        state.src_port = pick_unique_ephemeral_port(rng,
                             sport_range_cfg.stage_min[state.retry_count],
-                            sport_range_cfg.stage_max[state.retry_count]);
+                            sport_range_cfg.stage_max[state.retry_count],
+                            state);
                     } else if (state.retry_count < 6 && gsport_cfg.stage_is_set[state.retry_count]) {
                         state.src_port = gsport_cfg.stage_port[state.retry_count];
-                    } else if (state.retry_count >= 1 && state.retry_count <= 5) {
-                        state.src_port = RETRY_WEB_SPORTS[state.retry_count];   // constant web-like port per stage
                     } else {
-                        state.src_port = fast_uniform_port(rng, 32768, 60999);  // safety fallback, shouldn't hit
+                        state.src_port = pick_unique_ephemeral_port(rng, 32768, 60999, state);
                     }
                     state.record_src_port(state.src_port, state.retry_count);
                     size_t pir;
                     if (state.retry_count == 1) {
                         pir = ports_in_retry.fetch_add(1, std::memory_order_relaxed) + 1;
-                        g_ports_in_retry_global.fetch_add(1, std::memory_order_relaxed);   // NEW
+                        retry_budget.ports_in_retry.fetch_add(1, std::memory_order_relaxed);
                         state.counted_in_retry = true;
                     } else {
                         pir = ports_in_retry.load(std::memory_order_relaxed);
                     }
-                    // NEW
 		    uint64_t timeout_us = static_cast<uint64_t>(
 		        global_rtt_tracker.get_timeout_for_retry(state.retry_count)) * 1000ULL;
-		    size_t global_active = g_active_ports_global.load(std::memory_order_relaxed);
-		    double filtered_ratio = static_cast<double>(g_ports_in_retry_global.load(std::memory_order_relaxed)) /
+		    size_t global_active = retry_budget.active_ports.load(std::memory_order_relaxed);
+		    double filtered_ratio = static_cast<double>(retry_budget.ports_in_retry.load(std::memory_order_relaxed)) /
 		        static_cast<double>(global_active > 0 ? global_active : 1);
 		        
-		    double prev_g = g_congestion_ratio.load(std::memory_order_relaxed);
-		    double alpha  = (filtered_ratio > prev_g) ? g_cong_tune.alpha_up : g_cong_tune.alpha_down;
-		    double new_g  = alpha * filtered_ratio + (1 - alpha) * prev_g;
-		    g_congestion_ratio.store(new_g, std::memory_order_relaxed);
-		    // corrected — direct relationship, not inverted
-		    {
-		        double ratio_c = std::pow(new_g, g_cong_tune.curve_exp);
-		        int span = g_cong_tune.max_retries - g_cong_tune.min_retries;
-		        int dyn  = g_cong_tune.min_retries +
-			          static_cast<int>(std::lround(ratio_c * span)); 
-		        dyn = std::clamp(dyn, g_cong_tune.min_retries, g_cong_tune.max_retries);
-		        g_dynamic_max_retries.store(dyn, std::memory_order_relaxed);
-		    }
+		    filtered_ratio = std::min(filtered_ratio, 1.0);
+		    retry_budget.update_congestion(filtered_ratio);
 
 		    const uint64_t MIN_DELAY_US = g_cong_tune.retry_delay_min_us;
 		    const uint64_t MAX_DELAY_US = g_cong_tune.retry_delay_max_us;
@@ -4116,11 +4498,11 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     state.final_state_determined = true;
                     port_final[pidx].store(true, std::memory_order_release);
                     active_count.fetch_sub(1, std::memory_order_relaxed);
-                    g_active_ports_global.fetch_sub(1, std::memory_order_relaxed);   // NEW
+                    retry_budget.active_ports.fetch_sub(1, std::memory_order_relaxed);   
                     if (state.counted_in_retry) {
                         state.counted_in_retry = false;
                         ports_in_retry.fetch_sub(1, std::memory_order_relaxed);
-                        g_ports_in_retry_global.fetch_sub(1, std::memory_order_relaxed);  
+                        retry_budget.ports_in_retry.fetch_sub(1, std::memory_order_relaxed);  
                     }
                 }
             }
@@ -4155,7 +4537,47 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     ? global_rtt_tracker.current_rtt_ms.load()
                     : 0;
 
+    for (int spin = 0; spin < 5 && g_send; ++spin) {
+        if (g_send->errq_ring_v4_valid)
+            drain_tx_errqueue(send_sock, &g_send->errq_ring_v4, g_send->errq_v4_mtx,
+                               g_send->errq_v4_pending,
+                               g_send->errq_v4_cmsg_buf, sizeof(g_send->errq_v4_cmsg_buf[0]),
+                               g_send->errq_v4_data_buf, sizeof(g_send->errq_v4_data_buf[0]),
+                               g_send->errq_v4_iov, g_send->errq_v4_msg, g_send->errq_v4_addr,
+                               tx_seq_map_mutex, id_to_pidx_v4, tx_ts_table, tx_ts_precise, port_generation, confirmed_tx_count);
+        if (sock6 >= 0 && g_send->errq_ring_v6_valid)
+            drain_tx_errqueue(sock6, &g_send->errq_ring_v6, g_send->errq_v6_mtx,
+                               g_send->errq_v6_pending,
+                               g_send->errq_v6_cmsg_buf, sizeof(g_send->errq_v6_cmsg_buf[0]),
+                               g_send->errq_v6_data_buf, sizeof(g_send->errq_v6_data_buf[0]),
+                               g_send->errq_v6_iov, g_send->errq_v6_msg, g_send->errq_v6_addr,
+                               tx_seq_map_mutex, id_to_pidx_v6, tx_ts_table, tx_ts_precise, port_generation, confirmed_tx_count);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
     result.packets_sent = local_packets_sent.load(std::memory_order_relaxed);
+    if (debug_send) {
+        std::lock_guard<std::mutex> lk(tx_seq_map_mutex);
+        std::cerr << "[DBG-FLUSH] unresolved v4=" << id_to_pidx_v4.size()
+                  << " v6=" << id_to_pidx_v6.size() << "\n";
+    }
+    result.loss_buffer_pool   = txloss.buffer_pool.load(std::memory_order_relaxed);
+    result.loss_build_fail    = txloss.build_fail.load(std::memory_order_relaxed);
+    result.loss_kernel_reject = txloss.kernel_reject.load(std::memory_order_relaxed);
+    result.loss_drain_timeout = txloss.drain_timeout.load(std::memory_order_relaxed);
+    result.loss_no_socket     = txloss.no_socket.load(std::memory_order_relaxed);
+    result.loss_aborted       = txloss.aborted.load(std::memory_order_relaxed);
+    if (g_recv) {
+        auto rx_delta = [](uint64_t now, uint64_t base) -> uint64_t {
+            return now > base ? now - base : 0;   // counters only ever climb
+        };
+        result.rx_kernel_ovfl  = rx_delta(g_recv->rx_kernel_ovfl_v4.load(std::memory_order_relaxed),    rx_ovfl_v4_base)
+                                + rx_delta(g_recv->rx_kernel_ovfl_v6.load(std::memory_order_relaxed),    rx_ovfl_v6_base)
+                                + rx_delta(g_recv->rx_kernel_ovfl_icmp.load(std::memory_order_relaxed),  rx_ovfl_icmp_base)
+                                + rx_delta(g_recv->rx_kernel_ovfl_icmp6.load(std::memory_order_relaxed), rx_ovfl_icmp6_base);
+        result.rx_cq_overflow  = rx_delta(g_recv->rx_cq_overflow.load(std::memory_order_relaxed),  rx_cqovf_base);
+        result.rx_truncated    = rx_delta(g_recv->rx_truncated.load(std::memory_order_relaxed),    rx_trunc_base);
+        result.rx_slot_starved = rx_delta(g_recv->rx_slot_starved.load(std::memory_order_relaxed), rx_starve_base);
+    }
     if (debug_demux) {
         result.demux_counts += demux_counts;
         result.demux_debug_entries.insert(result.demux_debug_entries.end(),
@@ -4223,179 +4645,179 @@ void display_packet_details(const PacketDetails& d, bool debug_enabled) {
                             : rst_set             ? color::red
                             :                       color::yellow;
 
-    std::lock_guard<std::mutex> lock(cout_mutex);
-    std::cout << "\n";
-    std::cout << color::cyan << "╔══════════════════════════════════════════════════════\n";
-    std::cout << color::cyan << "║ 📦 Packet Details for Port " << d.port << "/tcp"
+    std::ostringstream oss;
+    oss << "\n";
+    oss << color::cyan << "╔══════════════════════════════════════════════════════\n";
+    oss << color::cyan << "║ 📦 Packet Details for Port " << d.port << "/tcp"
               << color::reset << "\n";
-    std::cout << color::cyan << "╚══════════════════════════════════════════════════════\n"
+    oss << color::cyan << "╚══════════════════════════════════════════════════════\n"
               << color::reset;
 
     // ── Section 1: Endpoint Info ───────────────────────────────────────────
-    std::cout << color::cyan << "🌐 Endpoints\n" << color::reset;
-    std::cout << "Src IP:Port  : " << color::yellow << d.src_ip << ":" << d.src_port << color::reset << "\n";
-    std::cout << "Dst IP:Port  : " << color::yellow << d.dst_ip << ":" << d.dst_port << color::reset << "\n";
+    oss << color::cyan << "🌐 Endpoints\n" << color::reset;
+    oss << "Src IP:Port  : " << color::yellow << d.src_ip << ":" << d.src_port << color::reset << "\n";
+    oss << "Dst IP:Port  : " << color::yellow << d.dst_ip << ":" << d.dst_port << color::reset << "\n";
 
     // ── Section 2: IP Header ───────────────────────────────────────────────
-    std::cout << color::cyan << "🔵 IP Header\n" << color::reset;
-    std::cout << "IP ID        : " << color::yellow << d.ip_id         << color::reset << "\n";
-    std::cout << "Total Length : " << color::yellow << d.ip_total_length << " B" << color::reset << "\n";
-    std::cout << "Header Len   : " << color::yellow << static_cast<int>(d.ip_header_len) << " B" << color::reset << "\n";
-    std::cout << "TTL          : " << color::yellow << static_cast<int>(d.ttl) << color::reset << "\n";
-    std::cout << "Protocol     : " << color::yellow << static_cast<int>(d.ip_protocol) << color::reset << "\n";
-    std::cout << "TOS          : " << color::yellow << hex8(d.ip_tos)  << color::reset << "\n";
-    std::cout << "DF Flag      : " << set_notset(d.df_flag)            << "\n";
-    std::cout << "MF Flag      : " << set_notset(d.ip_mf_flag)         << "\n";
-    std::cout << "Frag Offset  : " << color::yellow << (d.ip_frag_off_raw & 0x1FFF) << color::reset << "\n";
-    std::cout << "Checksum     : " << color::yellow << hex16(d.ip_checksum) << color::reset
+    oss << color::cyan << "🔵 IP Header\n" << color::reset;
+    oss << "IP ID        : " << color::yellow << d.ip_id         << color::reset << "\n";
+    oss << "Total Length : " << color::yellow << d.ip_total_length << " B" << color::reset << "\n";
+    oss << "Header Len   : " << color::yellow << static_cast<int>(d.ip_header_len) << " B" << color::reset << "\n";
+    oss << "TTL          : " << color::yellow << static_cast<int>(d.ttl) << color::reset << "\n";
+    oss << "Protocol     : " << color::yellow << static_cast<int>(d.ip_protocol) << color::reset << "\n";
+    oss << "TOS          : " << color::yellow << hex8(d.ip_tos)  << color::reset << "\n";
+    oss << "DF Flag      : " << set_notset(d.df_flag)            << "\n";
+    oss << "MF Flag      : " << set_notset(d.ip_mf_flag)         << "\n";
+    oss << "Frag Offset  : " << color::yellow << (d.ip_frag_off_raw & 0x1FFF) << color::reset << "\n";
+    oss << "Checksum     : " << color::yellow << hex16(d.ip_checksum) << color::reset
               << "  valid=" << yn(d.ip_checksum_valid) << "\n";
-    std::cout << "Hop Distance : " << color::yellow << d.hop_distance_est << " hops" << color::reset << "\n";
+    oss << "Hop Distance : " << color::yellow << d.hop_distance_est << " hops" << color::reset << "\n";
 
     // ── Section 3: TCP Header ──────────────────────────────────────────────
-    std::cout << color::cyan << "🟢 TCP Header\n" << color::reset;
-    std::cout << "Src Port     : " << color::yellow << d.src_port      << color::reset << "\n";
-    std::cout << "Flags        : " << color::yellow << tcp_flags_str(d.tcp_flags)
+    oss << color::cyan << "🟢 TCP Header\n" << color::reset;
+    oss << "Src Port     : " << color::yellow << d.src_port      << color::reset << "\n";
+    oss << "Flags        : " << color::yellow << tcp_flags_str(d.tcp_flags)
               << " (" << hex8(d.tcp_flags) << ")" << color::reset << "\n";
-    std::cout << "Seq Num      : " << color::yellow << d.seq_num       << color::reset << "\n";
-    std::cout << "Ack Num      : " << color::yellow << d.ack_num       << color::reset << "\n";
-    std::cout << "Window       : " << color::yellow << d.window_size   << color::reset << "\n";
-    std::cout << "Header Len   : " << color::yellow << static_cast<int>(d.tcp_header_len) << " B" << color::reset << "\n";
-    std::cout << "Data Offset  : " << color::yellow << static_cast<int>(d.tcp_data_offset) << color::reset << "\n";
-    std::cout << "URG Ptr      : " << color::yellow << d.tcp_urg_ptr   << color::reset << "\n";
-    std::cout << "Checksum     : " << color::yellow << hex16(d.checksum) << color::reset
+    oss << "Seq Num      : " << color::yellow << d.seq_num       << color::reset << "\n";
+    oss << "Ack Num      : " << color::yellow << d.ack_num       << color::reset << "\n";
+    oss << "Window       : " << color::yellow << d.window_size   << color::reset << "\n";
+    oss << "Header Len   : " << color::yellow << static_cast<int>(d.tcp_header_len) << " B" << color::reset << "\n";
+    oss << "Data Offset  : " << color::yellow << static_cast<int>(d.tcp_data_offset) << color::reset << "\n";
+    oss << "URG Ptr      : " << color::yellow << d.tcp_urg_ptr   << color::reset << "\n";
+    oss << "Checksum     : " << color::yellow << hex16(d.checksum) << color::reset
               << "  valid=" << yn(d.tcp_checksum_valid) << "\n";
 
     // ── Section 4: TCP Options ─────────────────────────────────────────────
-    std::cout << color::cyan << "⚙️  TCP Options\n" << color::reset;
-    std::cout << "Layout       : " << color::yellow
+    oss << color::cyan << "⚙️  TCP Options\n" << color::reset;
+    oss << "Layout       : " << color::yellow
               << (d.tcp_option_layout.empty() ? "(none)" : d.tcp_option_layout)
               << color::reset << "\n";
-    std::cout << "MSS          : "
+    oss << "MSS          : "
               << (d.has_mss ? color::yellow + std::to_string(d.mss_value) + color::reset
                             : color::dim + std::string("N/A") + color::reset) << "\n";
-    std::cout << "Window Scale : "
+    oss << "Window Scale : "
               << (d.has_window_scale
                     ? color::yellow + std::to_string(static_cast<int>(d.window_scale)) + color::reset
                     : color::dim + std::string("N/A") + color::reset) << "\n";
-    std::cout << "SACK-OK      : " << yn(d.sack_permitted) << "\n";
-    std::cout << "SACK Blocks  : " << yn(d.has_sack_blocks);
+    oss << "SACK-OK      : " << yn(d.sack_permitted) << "\n";
+    oss << "SACK Blocks  : " << yn(d.has_sack_blocks);
     if (d.has_sack_blocks && !d.sack_blocks.empty()) {
-        std::cout << "  [";
+        oss << "  [";
         for (size_t i = 0; i < d.sack_blocks.size(); ++i) {
-            std::cout << d.sack_blocks[i].first << "-" << d.sack_blocks[i].second;
-            if (i + 1 < d.sack_blocks.size()) std::cout << ", ";
+            oss << d.sack_blocks[i].first << "-" << d.sack_blocks[i].second;
+            if (i + 1 < d.sack_blocks.size()) oss << ", ";
         }
-        std::cout << "]";
+        oss << "]";
     }
-    std::cout << "\n";
-    std::cout << "Timestamp    : " << yn(d.has_timestamp)
+    oss << "\n";
+    oss << "Timestamp    : " << yn(d.has_timestamp)
               << "  TSval=" << color::yellow << d.tsval << color::reset
               << "  TSecr=" << color::yellow << d.tsecr << color::reset << "\n";
-    std::cout << "TFO          : " << yn(d.has_tfo)
+    oss << "TFO          : " << yn(d.has_tfo)
               << (d.has_tfo ? ("  data=" + color::yellow + d.tfo_data + color::reset) : "") << "\n";
-    std::cout << "NOPs         : " << yn(d.has_nops) << "  count=" << d.nop_count << "\n";
-    std::cout << "EOL          : " << yn(d.has_eol)
+    oss << "NOPs         : " << yn(d.has_nops) << "  count=" << d.nop_count << "\n";
+    oss << "EOL          : " << yn(d.has_eol)
               << (d.has_eol ? "  offset=" + std::to_string(d.eol_offset) : "") << "\n";
-    std::cout << "Unknown Opts : " << yn(d.has_unknown_options);
+    oss << "Unknown Opts : " << yn(d.has_unknown_options);
     if (d.has_unknown_options) {
-        std::cout << "  kinds=[";
+        oss << "  kinds=[";
         for (size_t i = 0; i < d.unknown_option_kinds.size(); ++i) {
-            std::cout << static_cast<int>(d.unknown_option_kinds[i]);
-            if (i + 1 < d.unknown_option_kinds.size()) std::cout << ",";
+            oss << static_cast<int>(d.unknown_option_kinds[i]);
+            if (i + 1 < d.unknown_option_kinds.size()) oss << ",";
         }
-        std::cout << "]";
+        oss << "]";
     }
-    std::cout << "\n";
+    oss << "\n";
 
     // ── Section 5: Payload ─────────────────────────────────────────────────
-    std::cout << color::cyan << "📄 Payload\n" << color::reset;
-    std::cout << "Length       : " << color::yellow << d.payload_len << " B" << color::reset << "\n";
-    std::cout << "Has Payload  : " << yn(d.has_payload) << "\n";
-    std::cout << "Preview      : ";
+    oss << color::cyan << "📄 Payload\n" << color::reset;
+    oss << "Length       : " << color::yellow << d.payload_len << " B" << color::reset << "\n";
+    oss << "Has Payload  : " << yn(d.has_payload) << "\n";
+    oss << "Preview      : ";
     if (d.payload.empty()) {
-        std::cout << color::dim << "(empty)" << color::reset;
+        oss << color::dim << "(empty)" << color::reset;
     } else {
-        std::cout << color::yellow << d.payload.substr(0, 64)
+        oss << color::yellow << d.payload.substr(0, 64)
                   << (d.payload.size() > 64 ? "..." : "") << color::reset;
     }
-    std::cout << "\n";
-    std::cout << "Raw Hex (first 16 B): ";
+    oss << "\n";
+    oss << "Raw Hex (first 16 B): ";
     {
         size_t show = std::min(d.tcp_payload_raw.size(), size_t(16));
         for (size_t i = 0; i < show; ++i) {
-            std::cout << color::yellow;
+            oss << color::yellow;
             char hx[3]; std::snprintf(hx, sizeof(hx), "%02X", d.tcp_payload_raw[i]);
-            std::cout << hx << (i+1 < show ? " " : "") << color::reset;
+            oss << hx << (i+1 < show ? " " : "") << color::reset;
         }
-        if (d.tcp_payload_raw.size() > 16) std::cout << " ...";
-        std::cout << "\n";
+        if (d.tcp_payload_raw.size() > 16) oss << " ...";
+        oss << "\n";
     }
 
     // ── Section 6: Timing ─────────────────────────────────────────────────
-    std::cout << color::cyan << "⏱️  Timing\n" << color::reset;
-    std::cout << "Capture Epoch   : " << color::yellow << d.capture_epoch_us << " µs" << color::reset << "\n";
-    std::cout << "Kernel RX TS    : " << color::yellow << d.kernel_rx_ts_us  << " µs" << color::reset << "\n";
-    std::cout << "User RX TS      : " << color::yellow << d.user_rx_ts_us    << " µs" << color::reset << "\n";
-    std::cout << "TX TS           : " << color::yellow << d.tx_ts_us         << " µs" << color::reset << "\n";
-    std::cout << "RTT             : " << color::yellow << std::fixed << std::setprecision(3) << d.rtt_ms   << " ms" << color::reset << "\n";
-    std::cout << "RTT EWMA        : " << color::yellow << std::fixed << std::setprecision(3) << d.rtt_ewma_ms << " ms" << color::reset << "\n";
-    std::cout << "RTT Jitter      : " << color::yellow << std::fixed << std::setprecision(3) << d.rtt_jitter_ms << " ms" << color::reset << "\n";
-    std::cout << "RTT Outlier     : " << yn(d.rtt_outlier) << "\n";
-    std::cout << "TTL Outlier     : " << yn(d.ttl_outlier) << "\n";
+    oss << color::cyan << "⏱️  Timing\n" << color::reset;
+    oss << "Capture Epoch   : " << color::yellow << d.capture_epoch_us << " µs" << color::reset << "\n";
+    oss << "Kernel RX TS    : " << color::yellow << d.kernel_rx_ts_us  << " µs" << color::reset << "\n";
+    oss << "User RX TS      : " << color::yellow << d.user_rx_ts_us    << " µs" << color::reset << "\n";
+    oss << "TX TS           : " << color::yellow << d.tx_ts_us         << " µs" << color::reset << "\n";
+    oss << "RTT             : " << color::yellow << std::fixed << std::setprecision(3) << d.rtt_ms   << " ms" << color::reset << "\n";
+    oss << "RTT EWMA        : " << color::yellow << std::fixed << std::setprecision(3) << d.rtt_ewma_ms << " ms" << color::reset << "\n";
+    oss << "RTT Jitter      : " << color::yellow << std::fixed << std::setprecision(3) << d.rtt_jitter_ms << " ms" << color::reset << "\n";
+    oss << "RTT Outlier     : " << yn(d.rtt_outlier) << "\n";
+    oss << "TTL Outlier     : " << yn(d.ttl_outlier) << "\n";
 
     // ── Section 7: Probe Context ───────────────────────────────────────────
-    std::cout << color::cyan << "🔬 Sent Probe\n" << color::reset;
-    std::cout << "Retry Index  : " << color::yellow << d.retry_index << color::reset << "\n";
-    std::cout << "Flags        : " << color::yellow << tcp_flags_str(d.sent_flags)
+    oss << color::cyan << "🔬 Sent Probe\n" << color::reset;
+    oss << "Retry Index  : " << color::yellow << d.retry_index << color::reset << "\n";
+    oss << "Flags        : " << color::yellow << tcp_flags_str(d.sent_flags)
               << " (" << hex8(d.sent_flags) << ")" << color::reset << "\n";
-    std::cout << "TTL          : " << color::yellow << static_cast<int>(d.sent_ttl) << color::reset << "\n";
-    std::cout << "Window Scale : " << color::yellow << static_cast<int>(d.sent_ws)  << color::reset << "\n";
-    std::cout << "TSval        : " << color::yellow << d.sent_tsval       << color::reset << "\n";
-    std::cout << "MSS          : " << color::yellow << d.sent_mss         << color::reset << "\n";
-    std::cout << "Seq          : " << color::yellow << d.sent_seq         << color::reset << "\n";
-    std::cout << "Ack          : " << color::yellow << d.sent_ack         << color::reset << "\n";
-    std::cout << "Window Size  : " << color::yellow << d.sent_window_size << color::reset << "\n";
-    std::cout << "DSCP         : " << color::yellow << static_cast<int>(d.sent_dscp)   << color::reset << "\n";
-    std::cout << "IP TOS       : " << color::yellow << hex8(d.sent_ip_tos) << color::reset << "\n";
-    std::cout << "DF           : " << yn(d.sent_df)           << "\n";
-    std::cout << "SACK-OK      : " << yn(d.sent_sack_permitted) << "\n";
+    oss << "TTL          : " << color::yellow << static_cast<int>(d.sent_ttl) << color::reset << "\n";
+    oss << "Window Scale : " << color::yellow << static_cast<int>(d.sent_ws)  << color::reset << "\n";
+    oss << "TSval        : " << color::yellow << d.sent_tsval       << color::reset << "\n";
+    oss << "MSS          : " << color::yellow << d.sent_mss         << color::reset << "\n";
+    oss << "Seq          : " << color::yellow << d.sent_seq         << color::reset << "\n";
+    oss << "Ack          : " << color::yellow << d.sent_ack         << color::reset << "\n";
+    oss << "Window Size  : " << color::yellow << d.sent_window_size << color::reset << "\n";
+    oss << "DSCP         : " << color::yellow << static_cast<int>(d.sent_dscp)   << color::reset << "\n";
+    oss << "IP TOS       : " << color::yellow << hex8(d.sent_ip_tos) << color::reset << "\n";
+    oss << "DF           : " << yn(d.sent_df)           << "\n";
+    oss << "SACK-OK      : " << yn(d.sent_sack_permitted) << "\n";
 
     // ── Section 8: Classification ──────────────────────────────────────────
-    std::cout << color::cyan << "🏷️  Classification\n" << color::reset;
-    std::cout << "Flow Hash    : " << color::yellow << hex32(d.flow_hash) << color::reset << "\n";
-    std::cout << "Probe ID     : " << color::yellow << d.probe_id         << color::reset << "\n";
-    std::cout << "Resp Index   : " << color::yellow << d.response_index   << color::reset << "\n";
-    std::cout << "Duplicate    : " << yn(d.duplicate_response)           << "\n";
-    std::cout << "Retransmit?  : " << yn(d.retransmission_suspect)       << "\n";
-    std::cout << "Reason       : " << color::yellow
+    oss << color::cyan << "🏷️  Classification\n" << color::reset;
+    oss << "Flow Hash    : " << color::yellow << hex32(d.flow_hash) << color::reset << "\n";
+    oss << "Probe ID     : " << color::yellow << d.probe_id         << color::reset << "\n";
+    oss << "Resp Index   : " << color::yellow << d.response_index   << color::reset << "\n";
+    oss << "Duplicate    : " << yn(d.duplicate_response)           << "\n";
+    oss << "Retransmit?  : " << yn(d.retransmission_suspect)       << "\n";
+    oss << "Reason       : " << color::yellow
               << (d.classification_reason.empty() ? "(none)" : d.classification_reason)
               << color::reset << "\n";
-    std::cout << "Anomaly Score: " << color::yellow << d.anomaly_score     << color::reset << "\n";
-    std::cout << "Confidence   : " << color::yellow << std::fixed << std::setprecision(2)
+    oss << "Anomaly Score: " << color::yellow << d.anomaly_score     << color::reset << "\n";
+    oss << "Confidence   : " << color::yellow << std::fixed << std::setprecision(2)
               << d.anomaly_confidence << color::reset << "\n";
-    std::cout << "Tags         : ";
+    oss << "Tags         : ";
     if (d.signature_tags.empty()) {
-        std::cout << color::dim << "(none)" << color::reset;
+        oss << color::dim << "(none)" << color::reset;
     } else {
         for (size_t i = 0; i < d.signature_tags.size(); ++i) {
-            std::cout << color::yellow << d.signature_tags[i] << color::reset;
-            if (i + 1 < d.signature_tags.size()) std::cout << ", ";
+            oss << color::yellow << d.signature_tags[i] << color::reset;
+            if (i + 1 < d.signature_tags.size()) oss << ", ";
         }
     }
-    std::cout << "\n";
+    oss << "\n";
 
     // ── Section 9: Raw Packet Hex Dump ─────────────────────────────────────
-    std::cout << color::cyan << "🧮 Raw Packet (first 64 B)\n" << color::reset;
+    oss << color::cyan << "🧮 Raw Packet (first 64 B)\n" << color::reset;
     {
         size_t show = std::min(d.raw_packet.size(), size_t(64));
         for (size_t i = 0; i < show; ++i) {
-            if (i % 16 == 0) std::cout << "│   ";
+            if (i % 16 == 0) oss << "│   ";
             char hx[3]; std::snprintf(hx, sizeof(hx), "%02X", d.raw_packet[i]);
-            std::cout << color::dim << hx << color::reset;
-            std::cout << (((i+1) % 16 == 0 || i+1 == show) ? "\n" : " ");
+            oss << color::dim << hx << color::reset;
+            oss << (((i+1) % 16 == 0 || i+1 == show) ? "\n" : " ");
         }
         if (d.raw_packet.size() > 64)
-            std::cout << "│   ... (" << d.raw_packet.size() << " B total)\n";
+            oss << "│   ... (" << d.raw_packet.size() << " B total)\n";
     }
 
     {
@@ -4420,11 +4842,11 @@ void display_packet_details(const PacketDetails& d, bool debug_enabled) {
                              std::snprintf(b, sizeof(b), "0x%02X", d.tcp_flags);
                              return std::string(b); }();
 
-        std::cout << color::cyan << "├─ 🧮 Raw Packet (flag context)" << color::reset << "\n";
-        std::cout << "│   ";
+        oss << color::cyan << "├─ 🧮 Raw Packet (flag context)" << color::reset << "\n";
+        oss << "│   ";
 
         if (flag_byte_idx == SIZE_MAX || flag_byte_idx >= d.raw_packet.size()) {
-            std::cout << color::dim << "(unavailable)" << color::reset << "\n";
+            oss << color::dim << "(unavailable)" << color::reset << "\n";
         } else {
             const size_t window_before = 4;
             const size_t window_after  = 4;
@@ -4438,23 +4860,25 @@ void display_packet_details(const PacketDetails& d, bool debug_enabled) {
                 std::snprintf(hx, sizeof(hx), "%02X", d.raw_packet[i]);
 
                 if (i == flag_byte_idx) {
-                    std::cout << color::bold << flag_color << "[" << hx << "]" << color::reset;
+                    oss << color::bold << flag_color << "[" << hx << "]" << color::reset;
                 } else {
-                    std::cout << color::white << hx << color::reset;
+                    oss << color::white << hx << color::reset;
                 }
 
-                if (i + 1 < end) std::cout << " ";
+                if (i + 1 < end) oss << " ";
             }
 
-            std::cout << "  " << flag_color << color::bold
+            oss << "  " << flag_color << color::bold
                       << "← " << flag_label << color::reset << "\n";
         }
     }
 
-    std::cout << color::cyan << "📈 Summary" << color::reset << "\n";
-    std::cout << "    State: " << state_color << state_text << color::reset
+    oss << color::cyan << "📈 Summary" << color::reset << "\n";
+    oss << "    State: " << state_color << state_text << color::reset
               << " (" << color::yellow << __builtin_popcount(d.tcp_flags) << color::reset << " flags active)\n\n";
 
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << oss.str();
 }
 
 void display_sent_packet_details(const SentPacketDetails& d, bool debug_enabled) {
@@ -4476,46 +4900,46 @@ void display_sent_packet_details(const SentPacketDetails& d, bool debug_enabled)
         return s;
     };
 
-    std::lock_guard<std::mutex> lock(cout_mutex);
-    std::cout << "\n";
-    std::cout << color::cyan << "╔══════════════════════════════════════════════════════\n";
-    std::cout << color::cyan << "║ 🚀 Sent Packet — " << d.dst_ip << ":" << d.dst_port
+    std::ostringstream oss;
+    oss << "\n";
+    oss << color::cyan << "╔══════════════════════════════════════════════════════\n";
+    oss << color::cyan << "║ 🚀 Sent Packet — " << d.dst_ip << ":" << d.dst_port
               << " (src " << d.src_port << ")" << color::reset << "\n";
-    std::cout << color::cyan << "╚══════════════════════════════════════════════════════\n" << color::reset;
+    oss << color::cyan << "╚══════════════════════════════════════════════════════\n" << color::reset;
 
     if (d.is_ipv6) {
-        std::cout << color::cyan << "🔵 IPv6 Header\n" << color::reset;
-        std::cout << "Payload Len  : " << color::yellow << d.ip_total_length << " B" << color::reset << "\n";
-        std::cout << "Header Len   : " << color::yellow << (int)d.ip_header_len << " B"
+        oss << color::cyan << "🔵 IPv6 Header\n" << color::reset;
+        oss << "Payload Len  : " << color::yellow << d.ip_total_length << " B" << color::reset << "\n";
+        oss << "Header Len   : " << color::yellow << (int)d.ip_header_len << " B"
                   << " (incl. ext headers)" << color::reset << "\n";
-        std::cout << "Hop Limit    : " << color::yellow << (int)d.ttl << color::reset << "\n";
-        std::cout << "Traffic Class: " << color::yellow << hex16(d.traffic_class) << color::reset << "\n";
-        std::cout << "Flow Label   : " << color::yellow << hex16(static_cast<uint16_t>(d.flow_label))
+        oss << "Hop Limit    : " << color::yellow << (int)d.ttl << color::reset << "\n";
+        oss << "Traffic Class: " << color::yellow << hex16(d.traffic_class) << color::reset << "\n";
+        oss << "Flow Label   : " << color::yellow << hex16(static_cast<uint16_t>(d.flow_label))
                   << " (0x" << std::hex << d.flow_label << std::dec << ")" << color::reset << "\n";
-        std::cout << "Next Header  : " << color::yellow << (int)d.next_header << color::reset << "\n";
+        oss << "Next Header  : " << color::yellow << (int)d.next_header << color::reset << "\n";
     } else {
-        std::cout << color::cyan << "🔵 IP Header\n" << color::reset;
-        std::cout << "IP ID        : " << color::yellow << d.ip_id << color::reset << "\n";
-        std::cout << "Total Length : " << color::yellow << d.ip_total_length << " B" << color::reset << "\n";
-        std::cout << "Header Len   : " << color::yellow << (int)d.ip_header_len << " B" << color::reset << "\n";
-        std::cout << "TTL          : " << color::yellow << (int)d.ttl << color::reset << "\n";
-        std::cout << "TOS          : " << color::yellow << hex16(d.ip_tos) << color::reset << "\n";
-        std::cout << "DF/MF        : " << yn(d.df_flag) << " / " << yn(d.mf_flag)
+        oss << color::cyan << "🔵 IP Header\n" << color::reset;
+        oss << "IP ID        : " << color::yellow << d.ip_id << color::reset << "\n";
+        oss << "Total Length : " << color::yellow << d.ip_total_length << " B" << color::reset << "\n";
+        oss << "Header Len   : " << color::yellow << (int)d.ip_header_len << " B" << color::reset << "\n";
+        oss << "TTL          : " << color::yellow << (int)d.ttl << color::reset << "\n";
+        oss << "TOS          : " << color::yellow << hex16(d.ip_tos) << color::reset << "\n";
+        oss << "DF/MF        : " << yn(d.df_flag) << " / " << yn(d.mf_flag)
                   << "  frag_off=" << d.ip_frag_off_raw << "\n";
-        std::cout << "IP Checksum  : " << color::yellow << hex16(d.ip_checksum) << color::reset << "\n";
+        oss << "IP Checksum  : " << color::yellow << hex16(d.ip_checksum) << color::reset << "\n";
     }
 
-    std::cout << color::cyan << "🟢 TCP Header\n" << color::reset;
-    std::cout << "Flags        : " << color::yellow << tcp_flags_str(d.tcp_flags) << color::reset << "\n";
-    std::cout << "Seq/Ack      : " << color::yellow << d.seq_num << " / " << d.ack_num << color::reset << "\n";
-    std::cout << "Window       : " << color::yellow << d.window_size << color::reset << "\n";
-    std::cout << "Header Len   : " << color::yellow << (int)d.tcp_header_len << " B"
+    oss << color::cyan << "🟢 TCP Header\n" << color::reset;
+    oss << "Flags        : " << color::yellow << tcp_flags_str(d.tcp_flags) << color::reset << "\n";
+    oss << "Seq/Ack      : " << color::yellow << d.seq_num << " / " << d.ack_num << color::reset << "\n";
+    oss << "Window       : " << color::yellow << d.window_size << color::reset << "\n";
+    oss << "Header Len   : " << color::yellow << (int)d.tcp_header_len << " B"
               << " (options=" << d.options_len << " B)" << color::reset << "\n";
-    std::cout << "Checksum     : " << color::yellow << hex16(d.checksum) << color::reset
+    oss << "Checksum     : " << color::yellow << hex16(d.checksum) << color::reset
               << "  mode=" << color::yellow << d.checksum_mode << color::reset << "\n";
 
-    std::cout << color::cyan << "⚙️  TCP Options\n" << color::reset;
-    std::cout << "MSS=" << yn(d.has_mss) << "(" << d.mss_value << ")"
+    oss << color::cyan << "⚙️  TCP Options\n" << color::reset;
+    oss << "MSS=" << yn(d.has_mss) << "(" << d.mss_value << ")"
               << "  WS=" << yn(d.has_window_scale) << "(" << (int)d.window_scale << ")"
               << "  SACK=" << yn(d.sack_permitted)
               << "  TS=" << yn(d.has_timestamp)
@@ -4523,25 +4947,28 @@ void display_sent_packet_details(const SentPacketDetails& d, bool debug_enabled)
               << "  MPTCP=" << yn(d.has_mptcp)
               << "  TCP-AO=" << yn(d.has_tcp_ao) << "\n";
 
-    std::cout << color::cyan << "📄 Payload / Sizing\n" << color::reset;
-    std::cout << "Payload Len  : " << color::yellow << d.payload_len << " B" << color::reset << "\n";
-    std::cout << "Total Pkt    : " << color::yellow << d.total_packet_len << " B" << color::reset << "\n";
-    if (!d.payload_preview.empty()) {
-        std::cout << "Preview Hex  : ";
-        for (auto b : d.payload_preview) {
-            char hx[3]; std::snprintf(hx, sizeof(hx), "%02X", b);
-            std::cout << color::yellow << hx << color::reset << " ";
+    oss << color::cyan << "📄 Payload / Sizing\n" << color::reset;
+    oss << "Payload Len  : " << color::yellow << d.payload_len << " B" << color::reset << "\n";
+    oss << "Total Pkt    : " << color::yellow << d.total_packet_len << " B" << color::reset << "\n";
+        if (d.payload_len > 0) {
+        oss << "Preview Hex  : ";
+        for (size_t i = 0; i < std::min<size_t>(d.payload_len, 16); ++i) {
+            char hx[3]; std::snprintf(hx, sizeof(hx), "%02X", d.payload_preview[i]);
+            oss << color::yellow << hx << color::reset << " ";
         }
-        std::cout << "\n";
+        oss << "\n";
     }
 
-    std::cout << color::cyan << "🧩 Fragmentation / Flags\n" << color::reset;
-    std::cout << "Fragmented   : " << yn(d.fragmented)
-              << (d.fragmented ? "  step=" + std::to_string(d.frag_step) : "") << "\n";
-    std::cout << "Malformed    : " << yn(d.intentional_malformed) << "\n";
+    oss << color::cyan << "🧩 Fragmentation / Flags\n" << color::reset;
+    oss << "Fragmented   : " << yn(d.fragmented)
+              << (d.fragmented ? "  (frag_step=" + std::to_string(d.frag_step) + ")" : "") << "\n";
+    oss << "Malformed    : " << yn(d.intentional_malformed) << "\n";
     if (d.packet_length_adjusted)
-        std::cout << "--packet-length target=" << d.packet_length_target
+        oss << "--packet-length target=" << d.packet_length_target
                   << "  actual=" << d.total_packet_len << "\n";
+
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << oss.str();
 }
 
 void flush_sent_packet_debug() {
@@ -4579,18 +5006,18 @@ void flush_sent_packet_debug() {
         case ScanType::SYN: {
             if ((tcph->th_flags & (TH_SYN | TH_ACK)) == (TH_SYN | TH_ACK) && !state.connection_established) {
                 state.ack_seq = ntohl(tcph->th_seq) + 1;
-
+                state.sent_tsval = generate_tcp_tsval() + state.tsval_offset;
                 if (!fast_scan) {
                     if (dest6_ptr) {
                         sockaddr_in6 single_dest6 = *dest6_ptr;
                         single_dest6.sin6_port = htons(dest_port);
                         packet_queue.enqueue(PacketTask(
-                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale,
+                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale,
                             mss_value, timestamp_val, timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,
                             use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                         ));
                         packet_queue.enqueue(PacketTask(
-                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, mss_value, timestamp_val,
+                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, mss_value, timestamp_val,
                             timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,
                             use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                         ));
@@ -4598,12 +5025,12 @@ void flush_sent_packet_debug() {
                     sockaddr_in single_dest = dest;
                     single_dest.sin_port = htons(dest_port);
                     packet_queue.enqueue(PacketTask(
-                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, 
+                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, 
                         mss_value, timestamp_val, timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,
                         use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                     ));
                     packet_queue.enqueue(PacketTask(
-                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, mss_value, timestamp_val, 
+                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, mss_value, timestamp_val, 
                         timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,
                         use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                     ));
@@ -4794,18 +5221,18 @@ void flush_sent_packet_debug() {
                 !state.connection_established) {
                 
                 state.ack_seq = ntohl(tcph->th_seq) + 1;
-
+                state.sent_tsval = generate_tcp_tsval() + state.tsval_offset;
                 if (!fast_scan) {
                     if (dest6_ptr) {
                         sockaddr_in6 single_dest6 = *dest6_ptr;
                         single_dest6.sin6_port = htons(dest_port);
                         packet_queue.enqueue(PacketTask(
-                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale,
+                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale,
                             mss_value, timestamp_val, timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,
                             use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                         ));
                         packet_queue.enqueue(PacketTask(
-                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, mss_value, timestamp_val,
+                            single_dest6, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, mss_value, timestamp_val,
                             timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,
                             use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                         ));
@@ -4813,12 +5240,12 @@ void flush_sent_packet_debug() {
                     sockaddr_in single_dest = dest;
                     single_dest.sin_port = htons(dest_port);
                     packet_queue.enqueue(PacketTask(
-                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, 
+                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, 
                         mss_value, timestamp_val, timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,
                         use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                     ));
                     packet_queue.enqueue(PacketTask(
-                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, mss_value, timestamp_val, 
+                        single_dest, state.src_port, state.seq + 1, state.ack_seq, TH_FIN | TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, mss_value, timestamp_val, 
                         timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,use_badsum, custom_badsum_value,use_partial_badsum, partial_badsum_type,
                         use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                     ));
@@ -4940,12 +5367,13 @@ void flush_sent_packet_debug() {
     }
     if (state.connection_established && state.fin_sent && !state.fin_ack_received) {
         if (tcph->th_flags & TH_FIN) {
+            state.sent_tsval = generate_tcp_tsval() + state.tsval_offset;
             uint32_t data_len = bytes - (iph ? (iph->ip_hl * 4) : 0) - (tcph->th_off * 4);
             if (dest6_ptr) {
                 sockaddr_in6 single_dest6 = *dest6_ptr;
                 single_dest6.sin6_port = htons(dest_port);
                 packet_queue.enqueue(PacketTask(
-                    single_dest6, state.src_port, state.seq + 2, ntohl(tcph->th_seq) + data_len + 1, TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, mss_value,
+                    single_dest6, state.src_port, state.seq + 2, ntohl(tcph->th_seq) + data_len + 1, TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, mss_value,
                     timestamp_val, timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,use_badsum, custom_badsum_value,
                     use_partial_badsum, partial_badsum_type,use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                 ));
@@ -4953,7 +5381,7 @@ void flush_sent_packet_debug() {
             sockaddr_in single_dest = dest;
             single_dest.sin_port = htons(dest_port);
             packet_queue.enqueue(PacketTask(
-                single_dest, state.src_port, state.seq + 2, ntohl(tcph->th_seq) + data_len + 1, TH_ACK, std::string(), current_time, 0, scan_type, 1234567, 0, true, window_scale, mss_value, 
+                single_dest, state.src_port, state.seq + 2, ntohl(tcph->th_seq) + data_len + 1, TH_ACK, std::string(), current_time, 0, scan_type, state.sent_tsval, 0, true, window_scale, mss_value, 
                 timestamp_val, timestamp_ecr_custom, nops_count, sack_permitted, custom_data, data_length, use_custom_data, generate_random_data,use_badsum, custom_badsum_value,
                 use_partial_badsum, partial_badsum_type,use_tfo_cookie, tfo_cookie_as_hex, tfo_cookie_random,tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
             ));
@@ -5144,7 +5572,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
         std::cerr << "[GlobalRecv] TCP socket failed: " << strerror(errno) << "\n";
         return nullptr;
     }
-    track_raw_socket(ctx->tcp_sock);   // NEW
+    track_raw_socket(ctx->tcp_sock);  
     int rcvbuf = user_rcvbuf_size > 0 ? user_rcvbuf_size : 64 * 1024 * 1024;
     if (setsockopt(ctx->tcp_sock, SOL_SOCKET, SO_RCVBUFFORCE, &rcvbuf, sizeof(rcvbuf)) < 0)
         setsockopt(ctx->tcp_sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
@@ -5253,20 +5681,21 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
                 close(ctx->tcp6_sock);
                 ctx->tcp6_sock = -1;
             }
-            if (ctx->tcp6_sock >= 0) track_raw_socket(ctx->tcp6_sock);   // NEW
+            if (ctx->tcp6_sock >= 0) track_raw_socket(ctx->tcp6_sock);  
         }
     }
     ctx->icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (ctx->icmp_sock >= 0) {
         int icmp_fl = fcntl(ctx->icmp_sock, F_GETFL, 0);
         if (icmp_fl >= 0) fcntl(ctx->icmp_sock, F_SETFL, icmp_fl | O_NONBLOCK);
-        track_raw_socket(ctx->icmp_sock);   // NEW
+        track_raw_socket(ctx->icmp_sock); 
 
         int icmp_rcvbuf = 8 * 1024 * 1024;
         if (setsockopt(ctx->icmp_sock, SOL_SOCKET, SO_RCVBUFFORCE,
                        &icmp_rcvbuf, sizeof(icmp_rcvbuf)) < 0)
             setsockopt(ctx->icmp_sock, SOL_SOCKET, SO_RCVBUF,
                        &icmp_rcvbuf, sizeof(icmp_rcvbuf));
+        setsockopt(ctx->icmp_sock, SOL_SOCKET, SO_RXQ_OVFL, &rxq_ovfl, sizeof(rxq_ovfl));
         struct sock_filter icmp_filter[] = {
             // A = pkt[0]; A &= 0x0f; A <<= 2; X = A  (IP hdr length in bytes)
             { BPF_LD  | BPF_B   | BPF_ABS,  0, 0, 0    },
@@ -5310,6 +5739,8 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
             ctx->icmp_msgs[s].msg_namelen = sizeof(ctx->icmp_src_addrs[s]);
             ctx->icmp_msgs[s].msg_iov     = &ctx->icmp_iovs[s];
             ctx->icmp_msgs[s].msg_iovlen  = 1;
+            ctx->icmp_msgs[s].msg_control    = ctx->icmp_cmsg_bufs[s].data();
+            ctx->icmp_msgs[s].msg_controllen = ctx->icmp_cmsg_bufs[s].size();
         }
     } else {
         std::cerr << "[GlobalRecv] ICMP socket failed: " << strerror(errno)
@@ -5321,13 +5752,14 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
         if (ctx->icmpv6_sock >= 0) {
             int icmp6_fl = fcntl(ctx->icmpv6_sock, F_GETFL, 0);
             if (icmp6_fl >= 0) fcntl(ctx->icmpv6_sock, F_SETFL, icmp6_fl | O_NONBLOCK);
-            track_raw_socket(ctx->icmpv6_sock);   // NEW
+            track_raw_socket(ctx->icmpv6_sock);  
 
             int icmp6_rcvbuf = 8 * 1024 * 1024;
             if (setsockopt(ctx->icmpv6_sock, SOL_SOCKET, SO_RCVBUFFORCE,
                            &icmp6_rcvbuf, sizeof(icmp6_rcvbuf)) < 0)
                 setsockopt(ctx->icmpv6_sock, SOL_SOCKET, SO_RCVBUF,
                            &icmp6_rcvbuf, sizeof(icmp6_rcvbuf));
+            setsockopt(ctx->icmpv6_sock, SOL_SOCKET, SO_RXQ_OVFL, &rxq_ovfl, sizeof(rxq_ovfl));
 
             struct sock_filter icmp6_filter[] = {
                 // A = pkt[0] (ICMPv6 type — no IP header present to skip)
@@ -5358,6 +5790,8 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
                 ctx->icmpv6_msgs[s].msg_namelen = sizeof(ctx->icmpv6_src_addrs[s]);
                 ctx->icmpv6_msgs[s].msg_iov     = &ctx->icmpv6_iovs[s];
                 ctx->icmpv6_msgs[s].msg_iovlen  = 1;
+                ctx->icmpv6_msgs[s].msg_control    = ctx->icmpv6_cmsg_bufs[s].data();
+                ctx->icmpv6_msgs[s].msg_controllen = ctx->icmpv6_cmsg_bufs[s].size();
             }
         } else {
             std::cerr << "[GlobalRecv] ICMPv6 socket failed: " << strerror(errno)
@@ -5426,12 +5860,13 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
     }
 
     // ── slot buffers ───────────────────────────────────────────────────────
-    constexpr size_t SLOT_SIZE = 4096;
+    constexpr size_t SLOT_SIZE = 16384;
     const size_t     N_SLOTS   = depth - 1 < 8 ? 8 : depth - 1 - GlobalRecvCtx::N_ICMP_SLOTS;
     ctx->buf_storage = std::make_unique<uint8_t[]>(N_SLOTS * SLOT_SIZE);
     std::memset(ctx->buf_storage.get(), 0, N_SLOTS * SLOT_SIZE);
     ctx->bufs = ctx->buf_storage.get();
     ctx->slots.resize(N_SLOTS);
+    ctx->slot_armed.assign(N_SLOTS, 0);
 
     for (size_t s = 0; s < N_SLOTS; ++s) {
         ctx->slots[s].src_len            = sizeof(ctx->slots[s].src_addr);
@@ -5452,6 +5887,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
         std::memset(ctx->buf6_storage.get(), 0, N_SLOTS6 * SLOT_SIZE);
         ctx->bufs6 = ctx->buf6_storage.get();
         ctx->slots6.resize(N_SLOTS6);
+        ctx->slot6_armed.assign(N_SLOTS6, 0);
 
         for (size_t s = 0; s < N_SLOTS6; ++s) {
             ctx->slots6[s].src_len            = sizeof(ctx->slots6[s].src_addr);
@@ -5496,6 +5932,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
             io_uring_prep_recvmsg(sqe, ctx->tcp_sock, &ctx->slots[s].msg, 0);
         }
         io_uring_sqe_set_data64(sqe, static_cast<uint64_t>(s));
+        ctx->slot_armed[s] = 1;
     }
 
     for (size_t s = 0; s < N_SLOTS6; ++s) {
@@ -5509,6 +5946,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
         }
         io_uring_sqe_set_data64(sqe,
             GlobalRecvCtx::TCP6_SLOT_FLAG | static_cast<uint64_t>(s));
+        ctx->slot6_armed[s] = 1;
     }
     if (ctx->icmp_sock >= 0) {
         for (size_t s = 0; s < GlobalRecvCtx::N_ICMP_SLOTS; ++s) {
@@ -5527,6 +5965,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
             }
             io_uring_sqe_set_data64(sqe,
                 GlobalRecvCtx::ICMP_SLOT_FLAG | static_cast<uint64_t>(s));
+            ctx->icmp_armed[s] = 1;
         }
     }
     if (ctx->icmpv6_sock >= 0) {
@@ -5546,6 +5985,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
             }
             io_uring_sqe_set_data64(sqe,
                 GlobalRecvCtx::ICMPV6_SLOT_FLAG | static_cast<uint64_t>(s));
+            ctx->icmpv6_armed[s] = 1;
         }
     }
     // ── end ICMPv6 SQE arming ───────────────────────────────────────────────
@@ -5557,7 +5997,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
 }
 
 void recv_reader_thread_func(GlobalRecvCtx* ctx) {
-    constexpr size_t SLOT_SIZE = 4096;
+    constexpr size_t SLOT_SIZE = 16384;
     struct io_uring&        ring      = ctx->ring;
     std::vector<SlotMeta>&  slots     = ctx->slots;
     uint8_t*                recv_bufs = ctx->bufs;
@@ -5565,8 +6005,9 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
     std::vector<size_t> pending_rearm;
     std::unordered_set<size_t> pending_rearm_set; 
     uint64_t lost_slot_warnings  = 0;
-    uint64_t dbg_oversized_drops = 0;
+    uint64_t dbg_oversized_truncated = 0;
     uint64_t dbg_rxq_ovfl_total  = 0;
+    uint64_t dbg_rxq_ovfl_last_reported = 0;
     uint64_t dbg_cq_overflow_last = 0;
     uint64_t dbg_loop_iters      = 0;
     uint64_t dbg_slow_iters      = 0;
@@ -5584,7 +6025,15 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
         for (size_t pi = 0; pi < pending_rearm.size(); ) {
             size_t slot_idx = pending_rearm[pi];
             struct io_uring_sqe* rsqe = io_uring_get_sqe(&ring);
-            if (!rsqe) { ++pi; continue; }
+	    if (!rsqe) {
+	        static uint64_t rearm_stall_count = 0;
+	        if (++rearm_stall_count % 100 == 1) {   // throttle — this can fire a lot under load
+		    std::lock_guard<std::mutex> lock(cout_mutex);
+		    std::cerr << "[DBG-RX7] recv ring SQ full — slot " << slot_idx
+		              << " rearm deferred (stall #" << rearm_stall_count << ")\n";
+	        }
+	        ++pi; continue;
+	    }
 
             if (slot_idx < slots.size()) {
                 // TCP slot
@@ -5602,6 +6051,7 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                     io_uring_prep_recvmsg(rsqe, ctx->tcp_sock, &sm.msg, 0);
                 }
                 io_uring_sqe_set_data64(rsqe, static_cast<uint64_t>(slot_idx));
+                ctx->slot_armed[slot_idx] = 1;
             } else if (slot_idx < tcp6_base) {
                 // ICMP slot
                 size_t icmp_slot = slot_idx - icmp_base;
@@ -5628,6 +6078,7 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                 io_uring_sqe_set_data64(rsqe,
                     GlobalRecvCtx::ICMP_SLOT_FLAG |
                     static_cast<uint64_t>(icmp_slot));
+                ctx->icmp_armed[icmp_slot] = 1;
             } else if (slot_idx < icmpv6_base) {
                 // TCP6 slot
                 size_t slot6_idx = slot_idx - tcp6_base;
@@ -5652,8 +6103,8 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                 }
                 io_uring_sqe_set_data64(rsqe,
                     GlobalRecvCtx::TCP6_SLOT_FLAG | static_cast<uint64_t>(slot6_idx));
+                ctx->slot6_armed[slot6_idx] = 1;
             } else {
-                // ICMPv6 slot
                 size_t icmpv6_slot = slot_idx - icmpv6_base;
                 if (icmpv6_slot >= GlobalRecvCtx::N_ICMPV6_SLOTS) {
                     pending_rearm_set.erase(pending_rearm[pi]);
@@ -5676,8 +6127,8 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                 io_uring_sqe_set_data64(rsqe,
                     GlobalRecvCtx::ICMPV6_SLOT_FLAG |
                     static_cast<uint64_t>(icmpv6_slot));
+                ctx->icmpv6_armed[icmpv6_slot] = 1;
             }
-            // Swap-erase: O(1) removal, order doesn't matter for rearm queue.
             pending_rearm_set.erase(slot_idx);
             pending_rearm[pi] = pending_rearm.back();
             pending_rearm.pop_back();
@@ -5713,23 +6164,32 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
             for (unsigned pi = 0; pi < n_peeked; ++pi)
                 batch[n++] = { io_uring_cqe_get_data64(peeked[pi]), peeked[pi]->res };
 
-            io_uring_cq_advance(&ring, n_peeked);   // one advance per peek chunk
+            io_uring_cq_advance(&ring, n_peeked);   
 
-            if (n_peeked < want) break;   // ring drained, no point looping again
+            if (n_peeked < want) break;   
         }
 
         for (size_t ci = 0; ci < n; ++ci) {
             const uint64_t ud    = batch[ci].user_data;
             const int      bytes = batch[ci].bytes;
             if (ud & GlobalRecvCtx::WAKE_ACK_FLAG) continue;
-
-            // ── ICMP dispatch ──────────────────────────────────────────────
             if (ud & GlobalRecvCtx::ICMP_SLOT_FLAG) {
                 const size_t icmp_slot = static_cast<size_t>(
                     ud & ~GlobalRecvCtx::ICMP_SLOT_FLAG);
-
-                // SECURITY: bounds-check before any array access.
                 if (icmp_slot < GlobalRecvCtx::N_ICMP_SLOTS) {
+                    ctx->icmp_armed[icmp_slot] = 0;
+                    if (bytes > 0) {
+                        for (struct cmsghdr* c = CMSG_FIRSTHDR(&ctx->icmp_msgs[icmp_slot]);
+                             c; c = CMSG_NXTHDR(&ctx->icmp_msgs[icmp_slot], c)) {
+                            if (c->cmsg_level != SOL_SOCKET) continue;
+                            if (c->cmsg_type == SO_RXQ_OVFL) {
+                                uint32_t ovfl_i4 = 0;
+                                std::memcpy(&ovfl_i4, CMSG_DATA(c), sizeof(ovfl_i4));
+                                if (ovfl_i4 > 0)
+                                    ctx->rx_kernel_ovfl_icmp.store(ovfl_i4, std::memory_order_relaxed);
+                            }
+                        }
+                    }
                     do {
                         if (bytes <= 0) break;
 
@@ -5789,31 +6249,39 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                             io_uring_sqe_set_data64(rsqe,
                                 GlobalRecvCtx::ICMP_SLOT_FLAG |
                                 static_cast<uint64_t>(icmp_slot));
+                            ctx->icmp_armed[icmp_slot] = 1;
                         } else {
-                            // SECURITY: defer rather than lose the slot.
                             size_t icmp_sentinel = slots.size() + icmp_slot;
                             if (pending_rearm_set.insert(icmp_sentinel).second)
                                 pending_rearm.push_back(icmp_sentinel);
                         }
                     }
                 }
-                // Corrupt icmp_slot: skip without re-arming (nothing to re-arm).
                 continue;
             }
-
-            // ── ICMPv6 dispatch ──────────────────────────────────────────────
             if (ud & GlobalRecvCtx::ICMPV6_SLOT_FLAG) {
                 const size_t icmpv6_slot = static_cast<size_t>(
                     ud & ~GlobalRecvCtx::ICMPV6_SLOT_FLAG);
-
-                // SECURITY: bounds-check before any array access.
                 if (icmpv6_slot < GlobalRecvCtx::N_ICMPV6_SLOTS) {
+                    ctx->icmpv6_armed[icmpv6_slot] = 0;
+                    if (bytes > 0) {
+                        for (struct cmsghdr* c = CMSG_FIRSTHDR(&ctx->icmpv6_msgs[icmpv6_slot]);
+                             c; c = CMSG_NXTHDR(&ctx->icmpv6_msgs[icmpv6_slot], c)) {
+                            if (c->cmsg_level != SOL_SOCKET) continue;
+                            if (c->cmsg_type == SO_RXQ_OVFL) {
+                                uint32_t ovfl_i6 = 0;
+                                std::memcpy(&ovfl_i6, CMSG_DATA(c), sizeof(ovfl_i6));
+                                if (ovfl_i6 > 0)
+                                    ctx->rx_kernel_ovfl_icmp6.store(ovfl_i6, std::memory_order_relaxed);
+                            }
+                        }
+                    }
                     do {
                         if (bytes <= 0) break;
 
                         const uint8_t* pkt  = ctx->icmpv6_bufs[icmpv6_slot].data();
                         const int      plen = bytes;
-                        constexpr int ICMP6_HDR_LEN = 8;   // type,code,cksum,4 bytes of type-specific data
+                        constexpr int ICMP6_HDR_LEN = 8; 
                         if (plen < ICMP6_HDR_LEN + static_cast<int>(sizeof(struct ip6_hdr)) + 8) break;
 
                         const struct ip6_hdr* inner_ip6h =
@@ -5855,9 +6323,8 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                             io_uring_sqe_set_data64(rsqe,
                                 GlobalRecvCtx::ICMPV6_SLOT_FLAG |
                                 static_cast<uint64_t>(icmpv6_slot));
+                            ctx->icmpv6_armed[icmpv6_slot] = 1;
                         } else {
-                            // SECURITY: defer rather than lose the slot. Sentinel
-                            // range: [slots.size()+N_ICMP_SLOTS+slots6.size(), ...)
                             size_t icmpv6_sentinel = slots.size() + GlobalRecvCtx::N_ICMP_SLOTS
                                                     + ctx->slots6.size() + icmpv6_slot;
                             if (pending_rearm_set.insert(icmpv6_sentinel).second)
@@ -5867,14 +6334,11 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                 }
                 continue;
             }
-
-            // ── TCP6 dispatch ─────────────────────────────────────────────
             if (ud & GlobalRecvCtx::TCP6_SLOT_FLAG) {
                 const size_t slot6_idx  = static_cast<size_t>(ud & ~GlobalRecvCtx::TCP6_SLOT_FLAG);
                 const int    tcp6_bytes = bytes;
-
-                // SECURITY: bounds-check before any array access.
                 if (slot6_idx >= ctx->slots6.size()) continue;
+                ctx->slot6_armed[slot6_idx] = 0;
                 SlotMeta6& sm6 = ctx->slots6[slot6_idx];
 
                 if (tcp6_bytes == -ENETDOWN || tcp6_bytes == -ENETUNREACH ||
@@ -5887,18 +6351,26 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                     break;
                 }
 
-                if (tcp6_bytes > 0 && tcp6_bytes <= static_cast<int>(RawPacket::MAX_LEN)) {
+                if (tcp6_bytes > 0) {
+                    const bool tcp6_was_oversized =
+                        tcp6_bytes > static_cast<int>(RawPacket::MAX_LEN);
+                    const int  tcp6_use_bytes = tcp6_was_oversized
+                        ? static_cast<int>(RawPacket::MAX_LEN) : tcp6_bytes;
+                    if (tcp6_was_oversized) {
+                        ++dbg_oversized_truncated;
+                        ctx->rx_truncated.fetch_add(1, std::memory_order_relaxed);
+                    }
                     const char* buffer6 = reinterpret_cast<const char*>(
                         ctx->bufs6 + slot6_idx * SLOT_SIZE);
 
-                    if (tcp6_bytes >= static_cast<int>(sizeof(struct tcphdr))) {
+                    if (tcp6_use_bytes >= static_cast<int>(sizeof(struct tcphdr))) {
                         IPv6Key key = make_ipv6_key(sm6.src_addr.sin6_addr);
                         auto* q = ctx->queue_for6(key);
                         if (q) {
                             RawPacket pkt;
                             pkt.pkt_type = RawPacket::PktType::TCP6;
-                            pkt.len      = tcp6_bytes;
-                            std::memcpy(pkt.data, buffer6, tcp6_bytes);
+                            pkt.len      = tcp6_use_bytes;
+                            std::memcpy(pkt.data, buffer6, tcp6_use_bytes);
 
                             int64_t kernel_rx_us = 0;
                             for (struct cmsghdr* c = CMSG_FIRSTHDR(&sm6.msg);
@@ -5910,6 +6382,11 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                                     kernel_rx_us =
                                         static_cast<int64_t>(tv->tv_sec) * 1'000'000LL +
                                         static_cast<int64_t>(tv->tv_usec);
+                                } else if (c->cmsg_type == SO_RXQ_OVFL) {
+                                    uint32_t ovfl6 = 0;
+                                    std::memcpy(&ovfl6, CMSG_DATA(c), sizeof(ovfl6));
+                                    if (ovfl6 > 0)
+                                        ctx->rx_kernel_ovfl_v6.store(ovfl6, std::memory_order_relaxed);
                                 }
                             }
                             pkt.kernel_rx_us = kernel_rx_us;
@@ -5917,8 +6394,6 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                             woken_ips6.insert(key);
                         }
                     }
-                } else if (tcp6_bytes > static_cast<int>(RawPacket::MAX_LEN)) {
-                    ++dbg_oversized_drops;
                 }
 
                 sm6.src_len            = sizeof(sm6.src_addr);
@@ -5938,6 +6413,7 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                         }
                         io_uring_sqe_set_data64(rsqe,
                             GlobalRecvCtx::TCP6_SLOT_FLAG | static_cast<uint64_t>(slot6_idx));
+                        ctx->slot6_armed[slot6_idx] = 1;
                     } else {
                         size_t tcp6_sentinel = slots.size() + GlobalRecvCtx::N_ICMP_SLOTS + slot6_idx;
                         if (pending_rearm_set.insert(tcp6_sentinel).second)
@@ -5953,6 +6429,7 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
 
             // SECURITY: bounds-check user_data before any dereference.
             if (slot_idx >= slots.size()) continue;
+            ctx->slot_armed[slot_idx] = 0;
             SlotMeta& sm = slots[slot_idx];
 
             if (tcp_bytes == -ENETDOWN || tcp_bytes == -ENETUNREACH ||
@@ -5965,25 +6442,38 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                 break;
             }
 
-            if (tcp_bytes > 0 &&
-                tcp_bytes <= static_cast<int>(RawPacket::MAX_LEN)) {
+            if (tcp_bytes > 0) {
+                const bool tcp_was_oversized =
+                    tcp_bytes > static_cast<int>(RawPacket::MAX_LEN);
+                const int  tcp_use_bytes = tcp_was_oversized
+                    ? static_cast<int>(RawPacket::MAX_LEN) : tcp_bytes;
+                if (tcp_was_oversized) {
+                    ++dbg_oversized_truncated;
+                    ctx->rx_truncated.fetch_add(1, std::memory_order_relaxed);
+                    if (dbg_oversized_truncated <= 10 || dbg_oversized_truncated % 1000 == 0) {
+                        std::lock_guard<std::mutex> lock(cout_mutex);
+                        std::cerr << "[DBG-RX8] oversized packet truncated: " << tcp_bytes
+                                  << " bytes > MAX_LEN=" << RawPacket::MAX_LEN
+                                  << " (total truncated=" << dbg_oversized_truncated << ")\n";
+                    }
+                }
                 const char* buffer = reinterpret_cast<const char*>(
                     recv_bufs + slot_idx * SLOT_SIZE);
                 const struct ip* iph = reinterpret_cast<const struct ip*>(buffer);
                 int iphdrlen = iph->ip_hl * 4;
 
                 if (iphdrlen >= static_cast<int>(sizeof(struct ip)) &&
-                    iphdrlen <= tcp_bytes &&
+                    iphdrlen <= tcp_use_bytes &&
                     iph->ip_p == IPPROTO_TCP &&
-                    tcp_bytes >= iphdrlen +
+                    tcp_use_bytes >= iphdrlen +
                         static_cast<int>(sizeof(struct tcphdr)))
                 {
                     auto* q = ctx->queue_for(iph->ip_src.s_addr);
                     if (q) {
                         RawPacket pkt;
                         pkt.pkt_type = RawPacket::PktType::TCP;
-                        pkt.len      = tcp_bytes;
-                        std::memcpy(pkt.data, buffer, tcp_bytes);
+                        pkt.len      = tcp_use_bytes;
+                        std::memcpy(pkt.data, buffer, tcp_use_bytes);
 
                         int64_t kernel_rx_us = 0;
                         for (struct cmsghdr* c = CMSG_FIRSTHDR(&sm.msg);
@@ -6000,14 +6490,16 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                             } else if (c->cmsg_type == SO_RXQ_OVFL) {
                                 uint32_t ovfl = 0;
                                 std::memcpy(&ovfl, CMSG_DATA(c), sizeof(ovfl));
+                                // Cumulative since socket creation — store,
+                                // never accumulate.  receive_response() diffs it.
                                 if (ovfl > 0) {
-                                    uint64_t prev = dbg_rxq_ovfl_total;
                                     dbg_rxq_ovfl_total = ovfl;
-                                    if (ovfl != prev) {
-                                        std::lock_guard<std::mutex> lk(cout_mutex);
-                                        std::cerr << "[recv_reader] SO_RXQ_OVFL: "
-                                                  << ovfl
-                                                  << " kernel drops on TCP socket\n";
+                                    ctx->rx_kernel_ovfl_v4.store(ovfl, std::memory_order_relaxed);
+                                    if (ovfl != dbg_rxq_ovfl_last_reported) {
+                                        dbg_rxq_ovfl_last_reported = ovfl;
+                                        std::lock_guard<std::mutex> lock(cout_mutex);
+                                        std::cerr << "[DBG-RX9] kernel dropped " << ovfl
+                                                  << " packet(s) — recv buffer overflow\n";
                                     }
                                 }
                             }
@@ -6017,8 +6509,6 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                         woken_ips.insert(iph->ip_src.s_addr);
                     }
                 }
-            } else if (tcp_bytes > static_cast<int>(RawPacket::MAX_LEN)) {
-                ++dbg_oversized_drops;
             } else if (tcp_bytes < 0 &&
                        tcp_bytes != -EAGAIN &&
                        tcp_bytes != -EWOULDBLOCK &&
@@ -6046,10 +6536,12 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                         io_uring_prep_recvmsg(rsqe, ctx->tcp_sock, &sm.msg, 0);
                     }
                     io_uring_sqe_set_data64(rsqe, static_cast<uint64_t>(slot_idx));
+                    ctx->slot_armed[slot_idx] = 1;
                 } else {
                     if (pending_rearm_set.insert(slot_idx).second)
                         pending_rearm.push_back(slot_idx);
                     ++lost_slot_warnings;
+                    ctx->rx_slot_starved.fetch_add(1, std::memory_order_relaxed);
                     if (lost_slot_warnings <= 10 ||
                         lost_slot_warnings % 1000 == 0) {
                         std::lock_guard<std::mutex> lock(cout_mutex);
@@ -6113,15 +6605,18 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
         if (ring.cq.koverflow) {
             uint64_t cur = *ring.cq.koverflow;
             if (cur != dbg_cq_overflow_last) {
+                ctx->rx_cq_overflow.store(cur, std::memory_order_relaxed);
                 dbg_cq_overflow_last = cur;
                 std::lock_guard<std::mutex> lock(cout_mutex);
                 std::cerr << "[recv_reader] CQ overflow (" << cur
-                          << " lost) — re-arming all slots\n";
+                          << " lost) — re-arming idle slots\n";
                 for (size_t s = 0; s < slots.size(); ++s) {
+                    if (ctx->slot_armed[s]) continue;
                     if (pending_rearm_set.insert(s).second)
                         pending_rearm.push_back(s);
                 }
                 for (size_t s = 0; s < GlobalRecvCtx::N_ICMP_SLOTS; ++s) {
+                    if (ctx->icmp_armed[s]) continue;
                     size_t sentinel = slots.size() + s;
                     if (pending_rearm_set.insert(sentinel).second)
                         pending_rearm.push_back(sentinel);
@@ -6131,11 +6626,13 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                 const size_t tcp6_ovfl_base   = slots.size() + GlobalRecvCtx::N_ICMP_SLOTS;
                 const size_t icmpv6_ovfl_base = tcp6_ovfl_base + ctx->slots6.size();
                 for (size_t s = 0; s < ctx->slots6.size(); ++s) {
+                    if (ctx->slot6_armed[s]) continue;
                     size_t sentinel = tcp6_ovfl_base + s;
                     if (pending_rearm_set.insert(sentinel).second)
                         pending_rearm.push_back(sentinel);
                 }
                 for (size_t s = 0; s < GlobalRecvCtx::N_ICMPV6_SLOTS; ++s) {
+                    if (ctx->icmpv6_armed[s]) continue;
                     size_t sentinel = icmpv6_ovfl_base + s;
                     if (pending_rearm_set.insert(sentinel).second)
                         pending_rearm.push_back(sentinel);
@@ -6306,7 +6803,12 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
     } idle_ring_guard{&idle_ring, idle_ring_ok, g_recv, dest_ip_key,
                        dest_ip_key6_valid, dest_ip_key6};
     
-    RTTTracker shared_rtt_tracker(initial_rtt_ms);   // one tracker per target, shared across every batch below
+    RTTTracker shared_rtt_tracker(initial_rtt_ms);
+    // Per-target retry budget — see RetryBudgetState in scan.hpp. Constructed
+    // fresh for every target (same lifetime as shared_rtt_tracker above) so
+    // no target's congestion signal can leak into another target's retry cap.
+    RetryBudgetState retry_budget;
+    const uint32_t shared_tsval_offset = static_cast<uint32_t>(rng());
     uint64_t pending_dispatch_delay_us = 0;   // computed for batch i, consumed by batch i's receive_response() call
     for (const auto& range : batches) {
         if (terminate_flag) break;
@@ -6319,7 +6821,7 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
         RecPross batch_result = receive_response(ip, batch_ports, effective_src_ip, rng, pool, 
                                  send_sock, source_port, retry_source_port, seq_num, win_size, print_individual_closed_filtered, print_filtered_if_few,send_ring, fast_scan, scan_batch_size, scan_type,
                                  custom_ttl,custom_dscp,custom_ip_flags, ip_id_mode, fixed_ip_id,
-                                 opts, shared_rtt_tracker,
+                                 opts, shared_rtt_tracker, shared_tsval_offset, retry_budget,
                                    debug_rtt,debug_ttl,debug_demux,debug_strack,frag_out_of_order,frag_overlap, frag_overlap_bytes,frag_zof,sport_range_cfg,gsport_cfg,initial_rtt_ms,port_timeout_min_ms,port_timeout_max_ms,rate_config,jitter_config,batch_delay_config,
                                  g_recv,g_send, idle_ring_ok ? &idle_ring : nullptr, &rate_state,
                                  bandwidth_config, &bandwidth_state,
@@ -6343,11 +6845,25 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
         if (!batch_result.mac_address.empty() && result.mac_address.empty()) {
             result.mac_address = batch_result.mac_address;
         }
-        result.packet_details.insert(batch_result.packet_details.begin(), batch_result.packet_details.end());
+                result.packet_details.insert(batch_result.packet_details.begin(), batch_result.packet_details.end());
+                result.osdetect_details.insert(batch_result.osdetect_details.begin(), batch_result.osdetect_details.end());
+        if (result.received_ttl == 0 && batch_result.received_ttl != 0) {
+            result.received_ttl = batch_result.received_ttl;
+        }
         if (batch_result.learned_rtt_ms > result.learned_rtt_ms) {
             result.learned_rtt_ms = batch_result.learned_rtt_ms;
         }
         result.packets_sent += batch_result.packets_sent;
+        result.loss_buffer_pool   += batch_result.loss_buffer_pool;
+        result.loss_build_fail    += batch_result.loss_build_fail;
+        result.loss_kernel_reject += batch_result.loss_kernel_reject;
+        result.loss_drain_timeout += batch_result.loss_drain_timeout;
+        result.loss_no_socket     += batch_result.loss_no_socket;
+        result.loss_aborted       += batch_result.loss_aborted;
+        result.rx_kernel_ovfl     += batch_result.rx_kernel_ovfl;
+        result.rx_cq_overflow     += batch_result.rx_cq_overflow;
+        result.rx_truncated       += batch_result.rx_truncated;
+        result.rx_slot_starved    += batch_result.rx_slot_starved;
         result.rtt_debug_entries.insert(result.rtt_debug_entries.end(),
             batch_result.rtt_debug_entries.begin(), batch_result.rtt_debug_entries.end());
         result.demux_counts += batch_result.demux_counts;
@@ -6356,39 +6872,43 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
         result.strack_counts += batch_result.strack_counts;
         result.strack_entries.insert(result.strack_entries.end(),
             batch_result.strack_entries.begin(), batch_result.strack_entries.end());
-            
-        
+
+        {
+            size_t act = retry_budget.active_ports.load(std::memory_order_relaxed);
+            size_t pir = retry_budget.ports_in_retry.load(std::memory_order_relaxed);
+            retry_budget.update_congestion(
+                static_cast<double>(pir) / static_cast<double>(act > 0 ? act : 1));
+        }
+
         if (batch_delay_config.enabled && !terminate_flag) {
-	    uint64_t sleep_us = 0;
-	    if (batch_delay_config.dynamic_mode) {                       
-		if (g_ports_in_retry_global.load(std::memory_order_relaxed) == 0) {
-		    sleep_us = 0;                                      
-		} else {
-		    double ratio  = g_congestion_ratio.load(std::memory_order_relaxed);
-		    double curved = std::pow(ratio, g_cong_tune.curve_exp);
-		    sleep_us = batch_delay_config.min_us +
-		        static_cast<uint64_t>(curved *
-		            (batch_delay_config.max_us - batch_delay_config.min_us));
-		}
-	    } else if (batch_delay_config.random_mode || batch_delay_config.range_mode) {
-		std::uniform_int_distribution<uint64_t> dist(
-		    batch_delay_config.min_us, batch_delay_config.max_us);
-		sleep_us = dist(rng);
-	    } else {
-		sleep_us = batch_delay_config.delay_us;
-	    }
-	    pending_dispatch_delay_us = sleep_us;
-	}
+            uint64_t sleep_us = 0;
+            if (batch_delay_config.dynamic_mode) {
+                double ratio = retry_budget.congestion_ratio.load(std::memory_order_relaxed);
+                if (!(ratio > 0.0)) ratio = 0.0;
+                if (ratio > 1.0)    ratio = 1.0;
+                double curved = std::pow(ratio, g_cong_tune.curve_exp);
+                uint64_t lo   = batch_delay_config.min_us;
+                uint64_t hi   = std::max(batch_delay_config.max_us, lo);   // guard against underflow
+                sleep_us = lo + static_cast<uint64_t>(curved * static_cast<double>(hi - lo));
+            } else if (batch_delay_config.random_mode || batch_delay_config.range_mode) {
+                std::uniform_int_distribution<uint64_t> dist(
+                    batch_delay_config.min_us, batch_delay_config.max_us);
+                sleep_us = dist(rng);
+            } else {
+                sleep_us = batch_delay_config.delay_us;
+            }
+            pending_dispatch_delay_us = sleep_us;
+        }
     }
     
     if (result.filtered_ports.size() > 0 && result.filtered_ports.size() <= 4) {
-        const auto& service_map = read_services_from_file("services");
+        const auto& service_map = read_services_from_file("/usr/share/nmap/nmap-services");
         for (uint16_t fport : result.filtered_ports) {
             std::string fsvc = service_map.count(fport) ? service_map.at(fport) : "unknown";
             std::string icmp_note;
             auto rit = result.icmp_filter_reasons.find(fport);
             if (rit != result.icmp_filter_reasons.end()) {
-                switch (rit->second) {
+                switch (rit->second.reason) {
                     case IcmpFilterReason::NetAdminProhibited:
 		        icmp_note = "Net-admin-prohibited"
 				    " (" + color::red + "ACL/router policy blocks subnet" + color::reset + ")";
@@ -6405,14 +6925,15 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
 		        break;
                 }
             }
+            std::string fport_state = PacketTask::expects_rst_response(scan_type) ? "confused" : "filtered";
             if (is_threaded) {
                 result.output_buffer += capture_output(PrintOutputType::PORT_RESULT,
-                    "", fport, "filtered", fsvc, scan_name,
+                    "", fport, fport_state, fsvc, scan_name,
                     0, 0, 0, 0, 0, 0, "", "", 0.0,
                     icmp_note, false, true);
             } else {
                 print_output(PrintOutputType::PORT_RESULT,
-                    "", fport, "filtered", fsvc, scan_name,
+                    "", fport, fport_state, fsvc, scan_name,
                     0, 0, 0, 0, 0, 0, "", "", 0.0,
                     icmp_note, false, true);
             }
@@ -6430,7 +6951,5 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
                          result.filtered_ports.size(), 0, "", "", 0.0, "", false, true);
         }
     }
-    
 
 }
-

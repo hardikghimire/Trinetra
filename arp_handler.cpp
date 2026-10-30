@@ -77,30 +77,35 @@ void delete_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4]) {
     close(s);
 }
 
-static void retransmit_arp_requests(int sock, const char* ifname,
-                                     uint8_t* src_mac, uint8_t* src_ip,
-                                     const std::vector<uint8_t*>& unresolved_IPs,
-                                     const EthArpOptions& eth_opts) {
-    if (unresolved_IPs.empty() || !ifname || !src_mac || !src_ip) return;
+// ─────────────────────────────────────────────────────────────────────────
+// Shared packet-framing helpers. Both the initial burst (send_arp_request)
+// and every retransmit round (retransmit_arp_requests) build the exact same
+// Ethernet+ARP broadcast frame, differing only in the per-target dst_ip.
+// Pulling that out here means the framing logic — VLAN tags, custom
+// ethertype, gratuitous-ARP handling — only has to be written once, and the
+// retransmit path no longer needs its own (previously raw-sendto) copy.
+// ─────────────────────────────────────────────────────────────────────────
+namespace {
 
-    int ifindex = if_nametoindex(ifname);
-    if (!ifindex) return;
+struct ArpPacketLayout {
+    size_t eth_hdr_len;
+    size_t packet_size;
+};
 
-    sockaddr_ll sa = {};
-    sa.sll_family   = AF_PACKET;
-    sa.sll_protocol = htons(ETH_P_ARP);
-    sa.sll_ifindex  = ifindex;
-    sa.sll_halen    = ETH_ALEN;
-    memset(sa.sll_addr, 0xFF, ETH_ALEN);
+ArpPacketLayout compute_arp_layout(const EthArpOptions& eth_opts) {
+    const size_t vlan_bytes  = eth_opts.vlan_ids.size() * 4;   // 4B per 802.1Q tag
+    const size_t eth_hdr_len = 12 + vlan_bytes + 2;            // dst(6)+src(6)+tags+ethertype(2)
+    const size_t packet_size = eth_hdr_len + sizeof(arp_header) + eth_opts.padding_size;
+    return { eth_hdr_len, packet_size };
+}
 
-    const size_t vlan_bytes  = eth_opts.vlan_ids.size() * 4;
-    const size_t eth_hdr_len = 12 + vlan_bytes + 2;
-    const size_t PACKET_SIZE = eth_hdr_len + sizeof(arp_header) + eth_opts.padding_size;
-    std::vector<uint8_t> packet(PACKET_SIZE, 0);
-
-    uint8_t* eth_ptr = packet.data();
-    memset(eth_ptr, 0xFF, 6);
+// Fills in everything except arp->dst_ip (the caller sets that per-target).
+void build_arp_template(uint8_t* eth_ptr, const ArpPacketLayout& layout,
+                         uint8_t* src_mac, uint8_t* src_ip,
+                         const EthArpOptions& eth_opts) {
+    memset(eth_ptr, 0xFF, 6);   // dst_mac = broadcast
     memcpy(eth_ptr + 6, eth_opts.use_custom_src_mac ? eth_opts.custom_src_mac : src_mac, 6);
+
     size_t off = 12;
     for (uint16_t vid : eth_opts.vlan_ids) {
         uint16_t tpid = htons(0x8100);
@@ -111,23 +116,90 @@ static void retransmit_arp_requests(int sock, const char* ifname,
     uint16_t final_ethertype = htons(eth_opts.use_custom_ethertype ? eth_opts.custom_ethertype : ETH_P_ARP);
     memcpy(eth_ptr + off, &final_ethertype, 2);
 
-    auto* arp = reinterpret_cast<arp_header*>(packet.data() + eth_hdr_len);
-    arp->htype = htons(1);
-    arp->ptype = htons(ETH_P_IP);
-    arp->hlen = 6;
-    arp->plen = 4;
+    auto* arp = reinterpret_cast<arp_header*>(eth_ptr + layout.eth_hdr_len);
+    arp->htype  = htons(1);
+    arp->ptype  = htons(ETH_P_IP);
+    arp->hlen   = 6;
+    arp->plen   = 4;
     arp->opcode = htons((eth_opts.arp_mode == ArpOpMode::REPLY) ? 2 : 1);
     memcpy(arp->src_mac, src_mac, 6);
     memcpy(arp->src_ip, src_ip, 4);
-
-    for (uint8_t* target_ip : unresolved_IPs) {
-        if (!target_ip) continue;
-        if (target_ip[0] == 0 && target_ip[1] == 0 && target_ip[2] == 0 && target_ip[3] == 0) continue;
-        memcpy(arp->dst_ip, target_ip, 4);
-        sendto(sock, packet.data(), PACKET_SIZE, 0, (sockaddr*)&sa, sizeof(sa));
+    if (eth_opts.arp_mode == ArpOpMode::GRATUITOUS) {
+        memcpy(arp->dst_ip, src_ip, 4);   // gratuitous ARP announces our own IP as target
     }
 }
 
+sockaddr_ll make_broadcast_sockaddr(int ifindex) {
+    sockaddr_ll sa{};
+    sa.sll_family   = AF_PACKET;
+    sa.sll_protocol = htons(ETH_P_ARP);
+    sa.sll_ifindex  = ifindex;
+    sa.sll_halen    = ETH_ALEN;
+    memset(sa.sll_addr, 0xFF, ETH_ALEN);
+    return sa;
+}
+
+// Queues one ARP request per still-unresolved target as an io_uring SQE —
+// this replaces the old retransmit_arp_requests(), which called a blocking
+// sendto() per host on every retry round (the single biggest source of raw
+// syscalls in ARP-based host discovery). Sends are fire-and-forget: they're
+// tagged with a null user_data pointer, which receive_arp_reply's existing
+// CQE loop already recognizes and skips (`if (tagged == 0) continue;`), so
+// no new completion-handling logic is needed there.
+//
+// Returns the number of SQEs actually queued, so the caller knows how many
+// completions to wait for before it's safe to free `pkt_pool`.
+size_t retransmit_arp_requests_uring(struct io_uring* ring, int sock,
+                                      const sockaddr_ll& sa,
+                                      const ArpPacketLayout& layout,
+                                      const std::vector<uint8_t>& packet_template,
+                                      const std::vector<uint8_t*>& unresolved_IPs,
+                                      std::vector<std::unique_ptr<uint8_t[]>>& pkt_pool) {
+    if (unresolved_IPs.empty() || !ring) return 0;
+
+    size_t queued = 0;
+    for (uint8_t* target_ip : unresolved_IPs) {
+        if (!target_ip) continue;
+        if (target_ip[0] == 0 && target_ip[1] == 0 && target_ip[2] == 0 && target_ip[3] == 0) continue;
+
+        auto pkt = std::make_unique<uint8_t[]>(layout.packet_size);
+        memcpy(pkt.get(), packet_template.data(), layout.packet_size);
+        auto* arp = reinterpret_cast<arp_header*>(pkt.get() + layout.eth_hdr_len);
+        memcpy(arp->dst_ip, target_ip, 4);
+
+        struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
+        if (!sqe) {
+            io_uring_submit(ring);          // free up SQ slots, retry once
+            sqe = io_uring_get_sqe(ring);
+            if (!sqe) break;                // still full — remaining targets get picked up next round
+        }
+
+        io_uring_prep_sendto(sqe, sock, pkt.get(), layout.packet_size, 0,
+                              (sockaddr*)&sa, sizeof(sa));
+        io_uring_sqe_set_data(sqe, nullptr);
+
+        pkt_pool.push_back(std::move(pkt));  // keep alive until the caller drains this many completions
+        queued++;
+    }
+
+    if (queued > 0) io_uring_submit(ring);
+    return queued;
+}
+
+} // namespace
+
+// ─────────────────────────────────────────────────────────────────────────
+// send_arp_request — queues the *entire* target list as io_uring SQEs before
+// waiting on anything, then reaps all completions in a single bulk drain.
+//
+// The previous version submitted in chunks of 64 and fully drained each
+// chunk's completions before building the next chunk — that's fine
+// correctness-wise, but it serializes what should be one async burst into
+// many small io_uring_enter round trips (waiting on chunk N's sends to
+// finish buys nothing; nothing after this function depends on it). This
+// version keeps the same per-target validation and error handling, just
+// queues first and waits once.
+// ─────────────────────────────────────────────────────────────────────────
 bool send_arp_request(int sock, struct io_uring* ring, const char* ifname, 
                       uint8_t* src_mac, uint8_t* src_ip, 
                       const std::vector<uint8_t*>& target_IPs,
@@ -139,10 +211,7 @@ bool send_arp_request(int sock, struct io_uring* ring, const char* ifname,
     
     bool all_zero_mac = true;
     for (int i = 0; i < 6; i++) {
-        if (src_mac[i] != 0) {
-            all_zero_mac = false;
-            break;
-        }
+        if (src_mac[i] != 0) { all_zero_mac = false; break; }
     }
     if (all_zero_mac) {
         std::cerr << "send_arp_request: Invalid source MAC (all zeros)\n";
@@ -151,10 +220,7 @@ bool send_arp_request(int sock, struct io_uring* ring, const char* ifname,
     
     bool all_zero_ip = true;
     for (int i = 0; i < 4; i++) {
-        if (src_ip[i] != 0) {
-            all_zero_ip = false;
-            break;
-        }
+        if (src_ip[i] != 0) { all_zero_ip = false; break; }
     }
     if (all_zero_ip) {
         std::cerr << "send_arp_request: Invalid source IP (all zeros)\n";
@@ -166,199 +232,154 @@ bool send_arp_request(int sock, struct io_uring* ring, const char* ifname,
         std::cerr << "send_arp_request: Invalid interface name: " << ifname << "\n";
         return false;
     }
-    
-    sockaddr_ll sa = {};
-    sa.sll_family   = AF_PACKET;
-    sa.sll_protocol = htons(ETH_P_ARP);
-    sa.sll_ifindex  = ifindex;
-    sa.sll_halen    = ETH_ALEN;
-    memset(sa.sll_addr, 0xFF, ETH_ALEN);
-    
-    constexpr size_t BATCH_SIZE = 64;
-    const size_t vlan_bytes  = eth_opts.vlan_ids.size() * 4;      // items 4/5: 4B per 802.1Q tag
-    const size_t eth_hdr_len = 12 + vlan_bytes + 2;               // dst(6)+src(6)+tags+ethertype(2)
-    const size_t PACKET_SIZE = eth_hdr_len + sizeof(arp_header) + eth_opts.padding_size; // item 7
-    std::vector<uint8_t> packet_template(PACKET_SIZE, 0);
 
-    uint8_t* eth_ptr = packet_template.data();
-    memset(eth_ptr, 0xFF, 6);                                     // dst_mac = broadcast
-    memcpy(eth_ptr + 6, eth_opts.use_custom_src_mac ? eth_opts.custom_src_mac : src_mac, 6); // item 2
-    size_t off = 12;
-    for (uint16_t vid : eth_opts.vlan_ids) {                      // items 4/5
-        uint16_t tpid = htons(0x8100);
-        uint16_t tci  = htons(vid & 0x0FFF);
-        memcpy(eth_ptr + off, &tpid, 2); off += 2;
-        memcpy(eth_ptr + off, &tci,  2); off += 2;
-    }
-    uint16_t final_ethertype = htons(eth_opts.use_custom_ethertype ? eth_opts.custom_ethertype : ETH_P_ARP); // item 1
-    memcpy(eth_ptr + off, &final_ethertype, 2);
-    off += 2;   // off == eth_hdr_len now
-
-    auto* arp = reinterpret_cast<arp_header*>(packet_template.data() + eth_hdr_len);
-
-    arp->htype = htons(1);           
-    arp->ptype = htons(ETH_P_IP);    
-    arp->hlen = 6;                   
-    arp->plen = 4;                   
-    uint16_t op_code = (eth_opts.arp_mode == ArpOpMode::REPLY) ? 2 : 1;   // gratuitous still opcode 1
-    arp->opcode = htons(op_code);         
-    memcpy(arp->src_mac, src_mac, 6);
-    memcpy(arp->src_ip, src_ip, 4);
-    if (eth_opts.arp_mode == ArpOpMode::GRATUITOUS) {
-        memcpy(arp->dst_ip, src_ip, 4);   // gratuitous ARP announces our own IP as target
-    }
-    
-    int total_submitted = 0;
-    const size_t total_packets = target_IPs.size();
-    
-    for (size_t i = 0; i < total_packets; ++i) {
+    for (size_t i = 0; i < target_IPs.size(); ++i) {
         if (!target_IPs[i]) {
             std::cerr << "send_arp_request: target_IPs[" << i << "] is null\n";
             return false;
         }
     }
-    
-    std::vector<std::unique_ptr<uint8_t[]>> batch_buffers;
-    
-    for (size_t batch_start = 0; batch_start < total_packets && !terminate_flag; batch_start += BATCH_SIZE) {
-        const size_t batch_end = std::min(batch_start + BATCH_SIZE, total_packets);
-        const size_t batch_size = batch_end - batch_start;
-        batch_buffers.emplace_back(std::make_unique<uint8_t[]>(batch_size * PACKET_SIZE));
-        uint8_t* batch_buffer = batch_buffers.back().get();
-        
-	for (size_t i = 0; i < batch_size; ++i) {
-	    if (target_IPs[batch_start + i][0] == 0 && 
-		target_IPs[batch_start + i][1] == 0 && 
-		target_IPs[batch_start + i][2] == 0 && 
-		target_IPs[batch_start + i][3] == 0) {
-		std::cerr << "send_arp_request: Skipping packet with zero target IP\n";
-		continue;
-	    }
-	    
-	    uint8_t* pkt_ptr = batch_buffer + i * PACKET_SIZE;
-	    memcpy(pkt_ptr, packet_template.data(), PACKET_SIZE);
-	    arp_header* batch_arp = reinterpret_cast<arp_header*>(pkt_ptr + eth_hdr_len);
-	    memcpy(batch_arp->dst_ip, target_IPs[batch_start + i], 4);
-	    if (eth_opts.padding_size > 0 && eth_opts.random_padding) {
-	        uint8_t* pad = pkt_ptr + eth_hdr_len + sizeof(arp_header);
-	        for (uint16_t k = 0; k < eth_opts.padding_size; k++) pad[k] = static_cast<uint8_t>(rand() & 0xFF);
-	    }
-	    
-	    struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
-	    if (!sqe) {
-		std::cerr << "send_arp_request: Failed to get SQE, ring may be full\n";
-		int partial = io_uring_submit(ring);
-		if (partial > 0) {
-		    total_submitted += partial;
-		    int drained = 0;
-		    while (drained < partial) {
-			io_uring_cqe* drain_cqe;
-			if (io_uring_wait_cqe(ring, &drain_cqe) < 0) break;
-			io_uring_cqe_seen(ring, drain_cqe);
-			drained++;
-		    }
-		}
-		for (auto& buf : batch_buffers) {
-		    buf.reset();
-		}
-		return total_submitted > 0;
-	    }
-	    
-	    io_uring_prep_sendto(sqe, sock, pkt_ptr, PACKET_SIZE, 0,
-		                 (sockaddr*)&sa, sizeof(sa));
-	    io_uring_sqe_set_data(sqe, nullptr);
-	}
-        
+
+    const sockaddr_ll sa = make_broadcast_sockaddr(ifindex);
+    const ArpPacketLayout layout = compute_arp_layout(eth_opts);
+
+    std::vector<uint8_t> packet_template(layout.packet_size, 0);
+    build_arp_template(packet_template.data(), layout, src_mac, src_ip, eth_opts);
+
+    const size_t total_packets = target_IPs.size();
+
+    // One flat buffer holding every packet for this call — kept alive until
+    // the bulk drain below finishes. For realistic ARP sweep sizes (a handful
+    // of /16s at most) this is a few MB at worst; trading that for one drain
+    // pass instead of one per 64-packet chunk is the right trade here.
+    auto packets = std::make_unique<uint8_t[]>(total_packets * layout.packet_size);
+
+    int total_submitted = 0;
+
+    for (size_t i = 0; i < total_packets && !terminate_flag; ++i) {
+        if (target_IPs[i][0] == 0 && target_IPs[i][1] == 0 &&
+            target_IPs[i][2] == 0 && target_IPs[i][3] == 0) {
+            std::cerr << "send_arp_request: Skipping packet with zero target IP\n";
+            continue;
+        }
+
+        uint8_t* pkt_ptr = packets.get() + i * layout.packet_size;
+        memcpy(pkt_ptr, packet_template.data(), layout.packet_size);
+        auto* pkt_arp = reinterpret_cast<arp_header*>(pkt_ptr + layout.eth_hdr_len);
+        memcpy(pkt_arp->dst_ip, target_IPs[i], 4);
+        if (eth_opts.padding_size > 0 && eth_opts.random_padding) {
+            uint8_t* pad = pkt_ptr + layout.eth_hdr_len + sizeof(arp_header);
+            for (uint16_t k = 0; k < eth_opts.padding_size; k++) pad[k] = static_cast<uint8_t>(rand() & 0xFF);
+        }
+
+        struct io_uring_sqe* sqe = io_uring_get_sqe(ring);
+        if (!sqe) {
+            int submitted = io_uring_submit(ring);
+            if (submitted > 0) total_submitted += submitted;
+            sqe = io_uring_get_sqe(ring);
+            if (!sqe) {
+                std::cerr << "send_arp_request: SQE ring saturated, "
+                          << (total_packets - i) << " target(s) skipped this call "
+                          << "(consider a deeper ring for very large target lists)\n";
+                break;
+            }
+        }
+
+        io_uring_prep_sendto(sqe, sock, pkt_ptr, layout.packet_size, 0,
+                             (sockaddr*)&sa, sizeof(sa));
+        io_uring_sqe_set_data(sqe, nullptr);
+    }
+
+    {
         int submitted = io_uring_submit(ring);
         if (submitted < 0) {
-            std::cerr << "send_arp_request: io_uring_submit failed: " << strerror(errno) << "\n";
-            break;
+            std::cerr << "send_arp_request: io_uring_submit failed: " << strerror(-submitted) << "\n";
+        } else {
+            total_submitted += submitted;
         }
-        total_submitted += submitted;
-        
-        if (total_submitted > 0) {
-            auto start = std::chrono::steady_clock::now();
-            int processed = 0;
-            const int MAX_WAIT_MS = 2000;
-            
-            while (processed < submitted && !terminate_flag) {
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
-                if (elapsed_ms >= MAX_WAIT_MS) {
-                    std::cerr << "send_arp_request: Timeout waiting for send completions\n";
-                    break;
-                }
+    }
 
-                int remaining_ms = static_cast<int>(MAX_WAIT_MS - elapsed_ms);
-                io_uring_cqe* cqe;
-                struct __kernel_timespec ts = {
-                    .tv_sec  = remaining_ms / 1000,
-                    .tv_nsec = (remaining_ms % 1000) * 1000000
-                };
-                int ret = io_uring_wait_cqe_timeout(ring, &cqe, &ts);
-                
-                if (ret == 0) {
-                    unsigned head;
-                    unsigned batch_n = 0;
-                    io_uring_for_each_cqe(ring, head, cqe) {
-                        if (cqe->res < 0) {
-                            std::cerr << "send_arp_request: ARP send failed: " 
-                                      << strerror(-cqe->res) << "\n";
-                        }
-                        batch_n++;
-                    }
-                    io_uring_cq_advance(ring, batch_n);
-                    processed += batch_n;
-                } else if (ret == -ETIME) {
-                    // No completions available, continue waiting
-                    continue;
-                } else if (ret != -EINTR) {
-                    std::cerr << "send_arp_request: wait_cqe error: " << strerror(-ret) << "\n";
-                    break;
-                }
+    // ---- single bulk drain for the whole call, instead of one per 64-packet chunk ----
+    if (total_submitted > 0) {
+        auto start = std::chrono::steady_clock::now();
+        int processed = 0;
+        const int MAX_WAIT_MS = 2000;
+
+        while (processed < total_submitted && !terminate_flag) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+            if (elapsed_ms >= MAX_WAIT_MS) {
+                std::cerr << "send_arp_request: Timeout waiting for send completions ("
+                          << processed << "/" << total_submitted << ")\n";
+                break;
             }
+
+            int remaining_ms = static_cast<int>(MAX_WAIT_MS - elapsed_ms);
+            io_uring_cqe* cqe;
+            struct __kernel_timespec ts = {
+                .tv_sec  = remaining_ms / 1000,
+                .tv_nsec = (remaining_ms % 1000) * 1000000
+            };
+            int ret = io_uring_wait_cqe_timeout(ring, &cqe, &ts);
             
-            if (processed < submitted) {
-                std::cerr << "send_arp_request: Only processed " << processed
-                          << " of " << submitted << " completions -- "
-                          << "forcing a blocking drain before freeing the buffer\n";
-                while (processed < submitted) {
-                    io_uring_cqe* cqe;
-                    int ret = io_uring_wait_cqe(ring, &cqe);
-                    if (ret < 0) {
-                        std::cerr << "send_arp_request: forced drain wait_cqe error: "
-                                  << strerror(-ret) << "\n";
-                        break;
-                    }
+            if (ret == 0) {
+                unsigned head;
+                unsigned batch_n = 0;
+                io_uring_for_each_cqe(ring, head, cqe) {
                     if (cqe->res < 0) {
-                        std::cerr << "send_arp_request: ARP send failed: "
+                        std::cerr << "send_arp_request: ARP send failed: " 
                                   << strerror(-cqe->res) << "\n";
                     }
-                    io_uring_cqe_seen(ring, cqe);
-                    processed++;
+                    batch_n++;
                 }
+                io_uring_cq_advance(ring, batch_n);
+                processed += batch_n;
+            } else if (ret == -ETIME) {
+                continue;
+            } else if (ret != -EINTR) {
+                std::cerr << "send_arp_request: wait_cqe error: " << strerror(-ret) << "\n";
+                break;
             }
         }
-        batch_buffers.back().reset();
-    }
-    
-    batch_buffers.clear();
-    
-    // Clean up any remaining CQEs
-    if (total_submitted > 0) {
-        io_uring_cqe* cqe;
-        struct __kernel_timespec ts = {
-            .tv_sec = 0,
-            .tv_nsec = 0  // Non-blocking cleanup
-        };
-        while (io_uring_wait_cqe_timeout(ring, &cqe, &ts) == 0) {
-            io_uring_cqe_seen(ring, cqe);
+        
+        if (processed < total_submitted) {
+            std::cerr << "send_arp_request: Only processed " << processed
+                      << " of " << total_submitted << " completions -- "
+                      << "forcing a blocking drain before freeing the buffer\n";
+            while (processed < total_submitted) {
+                io_uring_cqe* cqe;
+                int ret = io_uring_wait_cqe(ring, &cqe);
+                if (ret < 0) {
+                    std::cerr << "send_arp_request: forced drain wait_cqe error: "
+                              << strerror(-ret) << "\n";
+                    break;
+                }
+                if (cqe->res < 0) {
+                    std::cerr << "send_arp_request: ARP send failed: "
+                              << strerror(-cqe->res) << "\n";
+                }
+                io_uring_cqe_seen(ring, cqe);
+                processed++;
+            }
         }
     }
     
     return total_submitted > 0;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// receive_arp_reply — unchanged resolution/round-timeout logic, except:
+//   1. the broadcast sockaddr and packet template are now built once, up
+//      front, instead of being rebuilt from scratch on every retransmit
+//      round;
+//   2. retransmits are queued through the ring (retransmit_arp_requests_uring)
+//      instead of a blocking sendto() loop;
+//   3. because retransmit sends are now async, their buffers can't be freed
+//      the moment the loop moves on — pending_retransmit_sends tracks how
+//      many send completions are still outstanding, and the final cleanup
+//      section drains exactly that many before the function (and its local
+//      buffer pool) goes out of scope.
+// ─────────────────────────────────────────────────────────────────────────
 bool receive_arp_reply(int sock, struct io_uring* ring, 
                       const std::vector<uint8_t*>& target_IPs,std::vector<uint8_t*>& macs,
                       const EthArpOptions& eth_opts, int initial_rtt_ms,
@@ -443,6 +464,22 @@ bool receive_arp_reply(int sock, struct io_uring* ring,
     if (armed == 0) return false;
     io_uring_submit(ring);
 
+    // ---- retransmit setup: build the broadcast frame once, reuse every round ----
+    int ifindex = if_nametoindex(ifname);
+    const bool can_retransmit = (ifindex != 0 && src_mac && src_ip);
+    const sockaddr_ll retransmit_sa = can_retransmit ? make_broadcast_sockaddr(ifindex) : sockaddr_ll{};
+    const ArpPacketLayout retransmit_layout = compute_arp_layout(eth_opts);
+    std::vector<uint8_t> retransmit_template;
+    if (can_retransmit) {
+        retransmit_template.assign(retransmit_layout.packet_size, 0);
+        build_arp_template(retransmit_template.data(), retransmit_layout, src_mac, src_ip, eth_opts);
+    }
+    // Holds every retransmit packet buffer queued this call; nothing here is
+    // freed until pending_retransmit_sends (below) confirms the kernel is
+    // done reading them.
+    std::vector<std::unique_ptr<uint8_t[]>> retransmit_pkt_pool;
+    size_t pending_retransmit_sends = 0;
+
     int attempts_used = 0;   // retransmit rounds consumed so far (not counting the initial send)
     auto round_start = std::chrono::steady_clock::now();
     int  round_timeout_ms = compute_round_timeout();
@@ -454,12 +491,16 @@ bool receive_arp_reply(int sock, struct io_uring* ring,
 
         if (elapsed_in_round_ms >= round_timeout_ms) {
             if (attempts_used >= max_retries) break;   // out of retries — accept whoever answered
-            std::vector<uint8_t*> unresolved_ips;
-            unresolved_ips.reserve(total_targets - total_resolved);
-            for (size_t i = 0; i < total_targets; ++i) {
-                if (!resolved[i]) unresolved_ips.push_back(target_IPs[i]);
+            if (can_retransmit) {
+                std::vector<uint8_t*> unresolved_ips;
+                unresolved_ips.reserve(total_targets - total_resolved);
+                for (size_t i = 0; i < total_targets; ++i) {
+                    if (!resolved[i]) unresolved_ips.push_back(target_IPs[i]);
+                }
+                pending_retransmit_sends += retransmit_arp_requests_uring(
+                    ring, sock, retransmit_sa, retransmit_layout, retransmit_template,
+                    unresolved_ips, retransmit_pkt_pool);
             }
-            retransmit_arp_requests(sock, ifname, src_mac, src_ip, unresolved_ips, eth_opts);
             attempts_used++;
             round_start = current_time;
             round_timeout_ms = compute_round_timeout();
@@ -482,7 +523,11 @@ bool receive_arp_reply(int sock, struct io_uring* ring,
             cqe_count++;
             uintptr_t tagged = reinterpret_cast<uintptr_t>(io_uring_cqe_get_data(cqe));
             int bytes_received = cqe->res;
-            if (tagged == 0) continue;
+            if (tagged == 0) {
+                // A retransmit send completion (fire-and-forget) — not a recv slot.
+                if (pending_retransmit_sends > 0) pending_retransmit_sends--;
+                continue;
+            }
             size_t slot_idx = static_cast<size_t>(tagged - 1);
             if (slot_idx >= pool.size()) continue;
             RecvSlot& s = pool[slot_idx];
@@ -545,6 +590,21 @@ bool receive_arp_reply(int sock, struct io_uring* ring,
             io_uring_cqe_seen(ring, cqe);
         }
     }
+
+    // ---- drain any retransmit sends still in flight before their buffers
+    //      (owned by retransmit_pkt_pool, about to go out of scope) get freed.
+    //      Bounded wait: if the kernel genuinely never completes them, we give
+    //      up rather than hang — better a leaked few-hundred-byte alloc than a
+    //      stuck scan.
+    while (pending_retransmit_sends > 0) {
+        struct io_uring_cqe* cqe = nullptr;
+        struct __kernel_timespec drain_ts = {.tv_sec = 0, .tv_nsec = 30'000'000L};
+        if (io_uring_wait_cqe_timeout(ring, &cqe, &drain_ts) != 0 || !cqe) break;
+        uintptr_t tagged = reinterpret_cast<uintptr_t>(io_uring_cqe_get_data(cqe));
+        io_uring_cqe_seen(ring, cqe);
+        if (tagged == 0) pending_retransmit_sends--;
+        // tagged != 0 here would be a stray recv completion; harmless to ignore.
+    }
+
     return total_resolved > 0;
 }
-

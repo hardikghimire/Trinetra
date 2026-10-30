@@ -1,15 +1,12 @@
 #!/bin/bash
 
-# Exit on error, undefined variables, and pipe failures
 set -euo pipefail
 
-# Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Logging functions
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
 }
@@ -22,16 +19,14 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Detect OS by checking ID and ID_LIKE
 detect_os() {
     if [ ! -f /etc/os-release ]; then
         log_error "Cannot detect OS: /etc/os-release not found"
         exit 1
     fi
-    
+
     . /etc/os-release
-    
-    # Check ID_LIKE first for derivatives, then fall back to ID
+
     if [ -n "${ID_LIKE:-}" ]; then
         if [[ "$ID_LIKE" =~ (^|[[:space:]])arch($|[[:space:]]) ]]; then
             OS="arch"
@@ -40,7 +35,6 @@ detect_os() {
             OS="debian"
             log_info "Detected ($ID_LIKE) based OS"
         else
-            # Fall back to ID if ID_LIKE doesn't match known values
             case $ID in
                 debian|ubuntu|arch)
                     OS=$ID
@@ -54,7 +48,6 @@ detect_os() {
             esac
         fi
     else
-        # No ID_LIKE, use ID directly
         case $ID in
             debian|ubuntu|arch)
                 OS=$ID
@@ -69,7 +62,6 @@ detect_os() {
     fi
 }
 
-# Check if running with sudo for certain operations
 check_sudo() {
     if [ "$EUID" -ne 0 ]; then
         log_error "This script requires sudo privileges. Please run with sudo."
@@ -77,10 +69,31 @@ check_sudo() {
     fi
 }
 
-# Install system dependencies based on OS
+check_io_uring_support() {
+    log_info "Checking kernel version..."
+
+    local kver major minor
+    kver="$(uname -r)"
+    major="$(echo "$kver" | grep -oE '^[0-9]+')"
+    minor="$(echo "$kver" | grep -oE '^[0-9]+\.[0-9]+' | cut -d. -f2)"
+
+    if [ -z "$major" ] || [ -z "$minor" ]; then
+        log_warn "Could not parse kernel version from '$kver' -- skipping kernel version check"
+        return
+    fi
+
+    if [ "$major" -gt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -ge 12 ]; }; then
+        log_info "Kernel $kver >= 6.12 -- OK"
+    else
+        log_error "Detected kernel: $kver"
+        log_error "Shiv's minimum requirement kernel version is 6.12, please update the kernel and try again"
+        exit 1
+    fi
+}
+
 install_dependencies() {
     log_info "Installing system dependencies..."
-    
+
     case $OS in
         debian|ubuntu)
             apt install -y \
@@ -93,26 +106,26 @@ install_dependencies() {
                 libcurl4-openssl-dev \
                 nlohmann-json3-dev \
                 libpugixml-dev \
-                pkg-config
+                pkg-config \
+                libpcre2-dev \
+                libssl-dev \
+                openssl \
+                stunnel4 \
+                zlib1g-dev 
             ;;
         arch)
-            # Sync package databases
             pacman -Sy --noconfirm
-            
-            # Install base-devel group (includes gcc, make, etc.)
-            # --needed flag avoids reinstalling already present packages
+
             pacman -S --needed --noconfirm base-devel cmake git curl pkg-config
-            
-            # Install individual libraries
-            pacman -S --needed --noconfirm pugixml nlohmann-json
-            # libcurl is part of curl package on Arch, already installed above
+
+            pacman -S --needed --noconfirm pugixml nlohmann-json openssl zlib stunnel
             ;;
         *)
             log_error "Unsupported OS: $OS. Only Debian/Ubuntu and Arch Linux are supported."
             exit 1
             ;;
     esac
-    
+
     if [ $? -eq 0 ]; then
         log_info "System dependencies installed successfully"
     else
@@ -121,11 +134,9 @@ install_dependencies() {
     fi
 }
 
-# Build and install liburing from source
 install_liburing() {
     log_info "Building and installing liburing from source..."
-    
-    # Clone if not exists, otherwise update
+
     if [ ! -d "liburing" ]; then
         git clone https://github.com/axboe/liburing.git
     else
@@ -134,29 +145,23 @@ install_liburing() {
         git pull
         cd ..
     fi
-    
+
     cd liburing
-    
-    # Configure with specified compilers
+
     log_info "Configuring liburing with gcc and g++..."
     ./configure --cc=gcc --cxx=g++
-    
-    # Build liburing
+
     log_info "Building liburing..."
     make -j$(nproc)
-    
-    # Build liburing.pc
+
     log_info "Building liburing.pc..."
     make liburing.pc
-    
-    # Install liburing (headers, shared/static libs, and manpage)
+
     log_info "Installing liburing..."
     make install
-    
-    # Verify installation
+
     if [ -f "/usr/include/liburing.h" ] && [ -d "/usr/include/liburing" ]; then
         log_info "liburing installed successfully"
-        # Verify liburing.pc is installed
         if [ -f "/usr/lib/pkgconfig/liburing.pc" ] || [ -f "/usr/local/lib/pkgconfig/liburing.pc" ]; then
             log_info "liburing.pc installed successfully"
         fi
@@ -164,15 +169,13 @@ install_liburing() {
         log_error "liburing installation verification failed"
         exit 1
     fi
-    
+
     cd ..
 }
 
-# Install concurrentqueue
 install_concurrentqueue() {
     log_info "Installing concurrentqueue..."
-    
-    # Clone if not exists, otherwise update
+
     if [ ! -d "concurrentqueue" ]; then
         git clone https://github.com/cameron314/concurrentqueue.git
     else
@@ -181,17 +184,14 @@ install_concurrentqueue() {
         git pull
         cd ..
     fi
-    
-    # Copy header to both locations
+
     cp concurrentqueue/concurrentqueue.h /usr/include/
     cp concurrentqueue/concurrentqueue.h /usr/local/include/
     cp concurrentqueue/blockingconcurrentqueue.h /usr/include/
     cp concurrentqueue/blockingconcurrentqueue.h /usr/local/include/
     cp concurrentqueue/lightweightsemaphore.h /usr/include/
     cp concurrentqueue/lightweightsemaphore.h /usr/local/include/
-    
-    
-    # Verify installation
+
     if [ -f "/usr/include/concurrentqueue.h" ] && [ -f "/usr/local/include/concurrentqueue.h" ]; then
         log_info "concurrentqueue installed successfully"
     else
@@ -200,16 +200,13 @@ install_concurrentqueue() {
     fi
 }
 
-# Setup data files
 setup_data_files() {
     log_info "Setting up data files in /usr/share/shiv/"
-    
-    # Create directory
+
     mkdir -p /usr/share/shiv
     local root_files=(
         mac-vendors.txt
         ports.txt
-        services
         signatures.conf
         shiv_split.conf
     )
@@ -231,8 +228,7 @@ setup_data_files() {
         hetzner.txt
         fastly.txt
     )
-    
-    # Check if source files exist before attempting anything
+
     local missing_files=()
     for file in "${root_files[@]}"; do
         if [ ! -f "$file" ]; then
@@ -244,16 +240,13 @@ setup_data_files() {
             missing_files+=("ranges/$file")
         fi
     done
-    
+
     if [ ${#missing_files[@]} -gt 0 ]; then
         log_error "Missing source files: ${missing_files[*]}"
         log_error "Please ensure these files are in the current directory"
         exit 1
     fi
-    
-    # Copy each file individually so a single failed copy doesn't abort the
-    # whole batch (and doesn't get masked by `set -e`) -- every file gets its
-    # own attempt and its own pass/fail record.
+
     local copy_failed=()
     for file in "${root_files[@]}"; do
         if cp "$file" "/usr/share/shiv/$file"; then
@@ -271,17 +264,13 @@ setup_data_files() {
             copy_failed+=("$file")
         fi
     done
-    
+
     if [ ${#copy_failed[@]} -gt 0 ]; then
         log_error "cp reported failure for: ${copy_failed[*]}"
     fi
-    
-    # Set proper permissions
+
     chmod 644 /usr/share/shiv/*.txt /usr/share/shiv/services /usr/share/shiv/shiv_split.conf 2>/dev/null || true
-    
-    # Verify every file we expected to copy actually landed in the
-    # destination directory -- checked independently of the cp exit status
-    # above, so this also catches files a bulk/partial cp silently skipped.
+
     local missing_from_dest=()
     for file in "${root_files[@]}" "${range_files[@]}"; do
         if [ -f "/usr/share/shiv/$file" ]; then
@@ -291,27 +280,24 @@ setup_data_files() {
             missing_from_dest+=("$file")
         fi
     done
-    
+
     if [ ${#missing_from_dest[@]} -gt 0 ]; then
         log_error "The following files are missing from /usr/share/shiv/: ${missing_from_dest[*]}"
         exit 1
     fi
-    
+
     log_info "Data files installed to /usr/share/shiv/"
 }
 
-# Build the project
 build_project() {
     log_info "Building project..."
-    
-    # Clean previous builds
+
     if [ -f "Makefile" ]; then
         make clean || true
     fi
-    
-    # Build with all available cores
+
     make -j$(nproc)
-    
+
     if [ $? -eq 0 ]; then
         log_info "Build completed successfully"
     else
@@ -320,12 +306,11 @@ build_project() {
     fi
 }
 
-# Install the project
 install_project() {
     log_info "Installing project..."
-    
+
     make install
-    
+
     if [ $? -eq 0 ]; then
         log_info "Installation completed successfully"
     else
@@ -334,15 +319,12 @@ install_project() {
     fi
 }
 
-# Verify final installation
 verify_installation() {
     log_info "Verifying final installation..."
-    
-    # Check for installed components
+
     local checks=0
     local passed=0
-    
-    # Check liburing
+
     if [ -f "/usr/include/liburing.h" ]; then
         log_info "✓ liburing headers found"
         ((passed++))
@@ -350,8 +332,7 @@ verify_installation() {
         log_warn "✗ liburing headers not found"
     fi
     ((checks++))
-    
-    # Check concurrentqueue
+
     if [ -f "/usr/include/concurrentqueue.h" ]; then
         log_info "✓ concurrentqueue found"
         ((passed++))
@@ -359,8 +340,15 @@ verify_installation() {
         log_warn "✗ concurrentqueue not found"
     fi
     ((checks++))
-    
-    # Check data files
+
+    if command -v stunnel >/dev/null 2>&1 || command -v stunnel4 >/dev/null 2>&1; then
+        log_info "✓ stunnel found"
+        ((passed++))
+    else
+        log_warn "✗ stunnel not found"
+    fi
+    ((checks++))
+
     if [ -f "/usr/share/shiv/mac-vendors.txt" ] && [ -f "/usr/share/shiv/ports.txt" ] && [ -f "/usr/share/shiv/services" ] && [ -f "/usr/share/shiv/signatures.conf" ] ; then
         log_info "✓ Data files found in /usr/share/shiv/"
         ((passed++))
@@ -368,25 +356,22 @@ verify_installation() {
         log_warn "✗ Some data files missing in /usr/share/shiv/"
     fi
     ((checks++))
-    
+
     log_info "Verification complete: $passed/$checks checks passed"
 }
 
-# Main execution
 main() {
     log_info "Starting setup process..."
-    
-    # Detect OS first
+
     detect_os
-    
-    # Check for sudo
+
+    check_io_uring_support
+
     check_sudo
-    
-    # Get script directory
+
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     cd "$SCRIPT_DIR"
-    
-    # Run setup steps
+
     install_dependencies
     install_liburing
     install_concurrentqueue
@@ -394,12 +379,11 @@ main() {
     build_project
     install_project
     verify_installation
-    
+
     log_info "========================================="
     log_info "Setup completed successfully!"
     log_info "Project is now installed and ready to use"
     log_info "========================================="
 }
 
-# Run main function
 main "$@"

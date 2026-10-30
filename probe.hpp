@@ -9,7 +9,7 @@
 #include <cassert>
 #include <memory>
 #include <unordered_set>
-#include <unordered_map>  
+#include <unordered_map>
 #include <mutex>
 #include <atomic>
 
@@ -22,18 +22,14 @@ using u8  = uint8_t;
 using u16 = uint16_t;
 using u32 = uint32_t;
 
-/* ── Tuneable limits ── */
-static constexpr int DEFAULT_SERVICEWAITMS       = 5000;
-static constexpr int DEFAULT_TCPWRAPPEDMS        = 2000;
-static constexpr int DEFAULT_CONNECT_TIMEOUT     = 5000;
-static constexpr int DEFAULT_CONNECT_SSL_TIMEOUT = 8000;
-static constexpr int MAXFALLBACKS                = 20;
-static constexpr int MAX_VERSION_INTENSITY = 9;
-static constexpr int SERVICE_FIELD_LEN = 80;
-static constexpr int SERVICE_EXTRA_LEN = 256;
-static constexpr int SERVICE_TYPE_LEN  = 32;
-static constexpr int MAX_PROBE_RESPONSE_BYTES = 4096;
-static constexpr int PROBE_LINE_BUF = 16384;
+/* ── Tuneable limits (every constant here is referenced) ── */
+static constexpr int DEFAULT_SERVICEWAITMS  = 5000;   // default per-probe totalwaitms
+static constexpr int DEFAULT_TCPWRAPPEDMS   = 3000;   // default tcpwrappedms (nmap default)
+static constexpr int MAXFALLBACKS           = 20;
+static constexpr int MAX_VERSION_INTENSITY  = 9;
+static constexpr int SERVICE_FIELD_LEN      = 80;
+static constexpr int SERVICE_EXTRA_LEN      = 256;
+static constexpr int SERVICE_TYPE_LEN       = 32;
 
 /* ── Tunnel type ── */
 enum class ServiceTunnel : uint8_t {
@@ -41,25 +37,20 @@ enum class ServiceTunnel : uint8_t {
     SSL  = 1,
 };
 
-/* ── Probe-state machine ── */
+/* ── Final state of a match run. matchResponse() is a one-shot matcher, so only
+ *    terminal states exist (there is no incremental probe state machine). ── */
 enum class ProbeState : uint8_t {
-    INITIAL,
-    NULLPROBE,
-    MATCHINGPROBES,
-    NONMATCHINGPROBES,
     FINISHED_HARDMATCHED,
     FINISHED_SOFTMATCHED,
     FINISHED_NOMATCH,
-    FINISHED_TCPWRAPPED,
     FINISHED_EXCLUDED,
-    INCOMPLETE,
+    FINISHED_TCPWRAPPED,   // peer closed the connection immediately without sending anything
 };
 
 /* ── Result of a single regex match attempt ── */
 struct MatchDetails {
     bool        isSoft      = false;
-    const char *serviceName = nullptr;  /* charpool lifetime */
-    int         lineno      = -1;
+    const char *serviceName = nullptr;   /* owned by the ServiceProbeMatch */
     const char *product    = nullptr;
     const char *version    = nullptr;
     const char *info       = nullptr;
@@ -78,7 +69,9 @@ struct ExcludedPorts {
     std::vector<u16> sctp_ports;
 
     bool contains(u16 port, int proto) const;
-    /* Parse "T:9100-9107,U:161" style spec */
+    /* Parse "T:9100-9107,U:161,T:80,443" style specs. A T:/U:/S: prefix applies to
+     * every following item until the next prefix; items without any prefix apply
+     * to all protocols. */
     void parse(const std::string &spec);
 };
 
@@ -89,49 +82,54 @@ class ServiceProbeMatch {
 public:
     ServiceProbeMatch();
     ~ServiceProbeMatch();
+    ServiceProbeMatch(const ServiceProbeMatch &) = delete;
+    ServiceProbeMatch &operator=(const ServiceProbeMatch &) = delete;
+
     void init(const char *matchtext, int lineno);
+
+    /* Thread-safe. The returned pointer (and every string inside it) lives in
+     * per-thread scratch memory: it is valid only until the next testMatch() call
+     * on the SAME thread, so consume or copy it immediately. */
     const MatchDetails *testMatch(const u8 *buf, int buflen);
 
-    const char *getName()   const { return servicename_; }
-    int         getLineNo() const { return deflineno_; }
-    bool        isSoft()    const { return isSoft_; }
+    const char *getName() const { return servicename_; }
+    bool        isSoft()  const { return isSoft_; }
 
 private:
     /* ── identity ── */
     int         deflineno_   = -1;
     bool        initialized_ = false;
-    const char *servicename_ = nullptr;   /* owned by string pool */
+    char       *servicename_ = nullptr;   /* owned (malloc) */
     char       *matchstr_    = nullptr;   /* raw regex text, owned */
     bool        isSoft_      = false;
     std::string prefix_literal_;
     bool        has_prefix_filter_ = false;
 
     /* ── PCRE2 objects ── */
-    pcre2_code          *regex_  = nullptr;
+    pcre2_code          *regex_  = nullptr;      /* interpreter copy; never JIT-compiled */
     bool                 flag_i_ = false;
     bool                 flag_s_ = false;
-    std::atomic<bool> compiled_ {false};
-    std::mutex        compile_mu_;
-    void ensureCompiled();                    /* defined in probe.cpp, called from testMatch() */
+    std::atomic<bool>    compiled_       {false};
+    std::atomic<bool>    compile_failed_ {false};
+    std::mutex           compile_mu_;
+    bool ensureCompiled();                       /* false => regex is invalid, never matches */
 
-    bool              jit_ready_     = false;
-    std::atomic<bool> jit_attempted_ {false}; /* fast, lock-free "already decided" check */
-    std::atomic<int>  hit_count_     {0};     /* how many times this match has been tested */
-    std::mutex        jit_compile_mu_;        /* only ever taken on the rare compile path */
-    void ensureJitCompiled();                 /* defined in probe.cpp, called from testMatch() */
+    /* PCRE2 forbids JIT-compiling a pattern that other threads may be matching
+     * with, so the JIT version is a SEPARATE compiled copy that is published
+     * atomically once ready. Threads use whichever copy they load; the
+     * interpreter copy always stays valid. */
+    std::atomic<pcre2_code *> jit_regex_     {nullptr};
+    std::atomic<bool>         jit_attempted_ {false};
+    std::atomic<int>          hit_count_     {0};
+    std::mutex                jit_compile_mu_;
+    void maybeJitCompile();
+
+    /* One scratch area PER THREAD (shared by all templates), so memory does not
+     * grow with probe-file size and nothing mutable is shared between threads. */
     struct MatchScratch {
-        pcre2_match_data    *mdata        = nullptr;
-        pcre2_match_context *mctx         = nullptr;
-        pcre2_jit_stack     *jit_stack    = nullptr;
-        bool                  jit_attached = false;
-        /* CONCURRENCY FIX: these used to be per-instance members on
-         * ServiceProbeMatch, which is shared across all worker threads via
-         * ServiceProbe::matches_. Two threads calling testMatch() on the same
-         * match template at the same time would race on this state and could
-         * silently return a corrupted MatchDetails. They now live inside
-         * MatchScratch, which getScratch() keys per-thread (thread_local
-         * scratch_map keyed by `this`), so each thread gets its own copy and
-         * there is no shared mutable state left in the hot match path. */
+        pcre2_match_data    *mdata     = nullptr;
+        pcre2_match_context *mctx      = nullptr;
+        pcre2_jit_stack     *jit_stack = nullptr;
         MatchDetails md_return_{};
         char i_product   [SERVICE_FIELD_LEN]   = {};
         char i_version   [SERVICE_FIELD_LEN]   = {};
@@ -144,7 +142,7 @@ private:
         char i_cpe_o     [SERVICE_FIELD_LEN]   = {};
         ~MatchScratch();
     };
-    MatchScratch &getScratch();             
+    static MatchScratch &getScratch();
 
     /* ── Version templates (owned strings) ── */
     char *tmpl_product_    = nullptr;
@@ -153,7 +151,7 @@ private:
     char *tmpl_hostname_   = nullptr;
     char *tmpl_ostype_     = nullptr;
     char *tmpl_devicetype_ = nullptr;
-    std::vector<char *> tmpl_cpe_;  /* multiple cpe:/ entries allowed */
+    std::vector<char *> tmpl_cpe_;
 
     bool nextTemplate(const char **matchtext,
                       char modestr[4], char **tmplt, char flags[4],
@@ -178,6 +176,8 @@ class ServiceProbe {
 public:
     ServiceProbe();
     ~ServiceProbe();
+    ServiceProbe(const ServiceProbe &) = delete;
+    ServiceProbe &operator=(const ServiceProbe &) = delete;
 
     /* Accessors */
     const char *getName()         const { return probename_; }
@@ -185,10 +185,9 @@ public:
     bool        isNullProbe()     const { return probestringlen_ == 0; }
     int         getRarity()       const { return rarity_; }
     int         getTotalWaitMs()  const { return totalwaitms_; }
+    void        setTotalWaitMs(int ms)  { totalwaitms_ = ms; }
     int         getTcpWrappedMs() const { return tcpwrappedms_; }
-    bool        isNotForPayload() const { return notForPayload_; }
-    void setTotalWaitMs(int ms)  { totalwaitms_ = ms; }
-    void setTcpWrappedMs(int ms) { tcpwrappedms_ = ms; }
+    void        setTcpWrappedMs(int ms) { tcpwrappedms_ = ms; }
 
     const u8 *getProbeString(int *len) const {
         *len = probestringlen_;
@@ -198,29 +197,32 @@ public:
     /* Parsing (called from file parser) */
     void setProbeDetails(char *pd, int lineno);
     void setProbeString(const u8 *ps, int len);
-    void setProbeProtocol(int proto)  { probeprotocol_ = proto; }
     void setProbablePorts(ServiceTunnel tunnel, const char *portstr, int lineno);
     void setRarity(const char *val, int lineno);
     void addMatch(const char *matchline, int lineno);
     bool portIsProbable(ServiceTunnel tunnel, u16 portno) const;
     bool portIsSSL(u16 portno) const;
     bool serviceIsPossible(const char *sname) const;
-    const MatchDetails *testMatch(const u8 *buf, int buflen, int n = 0);
+    /* Returns the first matching template, or nullptr. Same lifetime rule as
+     * ServiceProbeMatch::testMatch(). */
+    const MatchDetails *testMatch(const u8 *buf, int buflen);
+
     char          *fallbackStr                  = nullptr;
     ServiceProbe  *fallbacks[MAXFALLBACKS + 1]  = {};
 
-    std::vector<u16>::const_iterator probablePortsBegin() const { return probableports_.begin(); }
-    std::vector<u16>::const_iterator probablePortsEnd()   const { return probableports_.end();   }
+    std::vector<u16>::const_iterator probablePortsBegin()    const { return probableports_.begin(); }
+    std::vector<u16>::const_iterator probablePortsEnd()      const { return probableports_.end();   }
+    std::vector<u16>::const_iterator probableSslPortsBegin() const { return probablesslports_.begin(); }
+    std::vector<u16>::const_iterator probableSslPortsEnd()   const { return probablesslports_.end();   }
 
 private:
-    const char *probename_       = nullptr;
-    const u8   *probestring_     = nullptr;
+    char       *probename_       = nullptr;
+    u8         *probestring_     = nullptr;
     int         probestringlen_  = 0;
     int         probeprotocol_   = -1;
     int         rarity_          = 5;
     int         totalwaitms_     = DEFAULT_SERVICEWAITMS;
     int         tcpwrappedms_    = DEFAULT_TCPWRAPPEDMS;
-    bool        notForPayload_   = false;
 
     std::vector<u16> probableports_;     /* plain TCP/UDP ports */
     std::vector<u16> probablesslports_;  /* SSL-wrapped ports   */
@@ -238,43 +240,51 @@ class AllProbes {
 public:
     AllProbes();
     ~AllProbes();
+    AllProbes(const AllProbes &) = delete;
+    AllProbes &operator=(const AllProbes &) = delete;
 
-    /* Load and parse nmap-service-probes file */
+    /* Load and parse nmap-service-probes file (throws std::runtime_error) */
     void loadFromFile(const char *filename);
     void compileFallbacks();
 
-    /* Lookup */
     ServiceProbe *getProbeByName(const char *name, int proto) const;
     bool          isExcluded(u16 port, int proto) const;
+
+    /* Probes that list `port` for this proto/tunnel, in probe-file order. Never null. */
+    const std::vector<ServiceProbe *> &probesForPort(int proto, ServiceTunnel tunnel, u16 port) const;
+
     std::vector<ServiceProbe *> probes;   /* all non-null probes */
     ServiceProbe               *nullProbe = nullptr;
     ExcludedPorts excludedPorts;
     bool          excluded_seen = false;
 
-    std::unordered_map<uint32_t, std::vector<ServiceProbe*>> portIndex_;
+private:
+    /* plain-port index and ssl-port index are separate: a probe listed only under
+     * sslports must be found for tunnel==SSL and only then. */
+    std::unordered_map<uint32_t, std::vector<ServiceProbe *>> portIndex_;
     void buildPortIndex();
-    static uint32_t portIndexKey(int proto, u16 port) {
-        return (static_cast<uint32_t>(proto) << 16) | port;
+    static uint32_t portIndexKey(int proto, ServiceTunnel tunnel, u16 port) {
+        return (static_cast<uint32_t>(proto) << 17) |
+               (static_cast<uint32_t>(tunnel == ServiceTunnel::SSL ? 1 : 0) << 16) | port;
     }
 };
 
 /* ════════════════════════════════════════════════════════
-   ServiceNFO — state for one open port under scan
+   ServiceNFO — result accumulator for one port under match
    ════════════════════════════════════════════════════════ */
 class ServiceNFO {
 public:
-    explicit ServiceNFO(AllProbes *ap);
+    ServiceNFO() = default;
     ~ServiceNFO();
+    ServiceNFO(const ServiceNFO &) = delete;
+    ServiceNFO &operator=(const ServiceNFO &) = delete;
 
-    /* ── Identity ── */
     u16  portno = 0;
-    int  proto  = IPPROTO_TCP;   /* IPPROTO_TCP / UDP / SCTP */
+    int  proto  = IPPROTO_TCP;
+    int  version_intensity = 7;   /* recorded in the fingerprint header only */
 
-    /* ── Tunnel / SSL ── */
-    ServiceTunnel tunnel           = ServiceTunnel::NONE;
-    bool          tcpwrap_possible = true;
+    ServiceTunnel tunnel = ServiceTunnel::NONE;
 
-    /* ── Match results ── */
     const char *probe_matched  = nullptr;  /* service name, or nullptr */
     bool        softMatchFound = false;
 
@@ -289,30 +299,16 @@ public:
     char cpe_o_matched     [SERVICE_FIELD_LEN] = {};
     char probe_matched_stripped[SERVICE_FIELD_LEN] = {};
 
-    /* ── Probe machine ── */
-    ProbeState probe_state = ProbeState::INITIAL;
+    ProbeState probe_state = ProbeState::FINISHED_NOMATCH;
 
-    ServiceProbe *currentProbe();
-    ServiceProbe *nextProbe(bool newresp);
-    void          resetProbes(bool freeFP);
+    void clearMatchFields();
+    void resetFingerprint();
 
-    /* ── Response accumulator ── */
-    void appendResponse(const u8 *data, int len);
-    u8  *getResponse(int *lenout);
-    void clearResponse();
-
-    /* ── Service fingerprint (unmatched services) ── */
+    /* Service fingerprint (unmatched services) */
     void        addToFingerprint(const char *probeName, const u8 *resp, int resplen);
     const char *getFingerprint(int *flen = nullptr);
 
-    AllProbes *AP = nullptr;
-
 private:
-    std::vector<ServiceProbe *>::iterator current_probe_;
-
-    u8   *currentresp_    = nullptr;
-    int   currentresplen_ = 0;
-
     char *servicefp_      = nullptr;
     int   servicefplen_   = 0;
     int   servicefpalloc_ = 0;
@@ -338,36 +334,35 @@ struct ScanResult {
     std::string   devicetype;
     std::string   cpe_a, cpe_h, cpe_o;
     std::string   fingerprint;
-
-    std::string summary() const;
 };
 
 /* ════════════════════════════════════════════════════════
-   ProbeEngine — ties everything together without sockets
+   ProbeEngine — matches one captured response against the probe database
    ════════════════════════════════════════════════════════ */
+/* Optional facts about how the response was captured. */
+struct MatchContext {
+    const char *probe_name = nullptr;          /* probe whose payload produced the response (tried first) */
+    bool        closed_without_data = false;   /* peer closed (EOF) and sent nothing */
+    long        elapsed_ms = -1;               /* connect-to-close time of that attempt; -1 = unknown */
+};
+
 class ProbeEngine {
 public:
-    explicit ProbeEngine(AllProbes *ap, int version_intensity = 0);
-    bool feedResponse(ServiceNFO *svc, const u8 *data, int datalen);
-    bool handleEOF(ServiceNFO *svc, bool hadData, long elapsedMs);
+    explicit ProbeEngine(AllProbes *ap, int version_intensity = 4);
 
-    /* Returns true if there are more probes to try. */
-    bool hasMoreProbes(ServiceNFO *svc) const;
-
-    /* Build the final ScanResult from a finished ServiceNFO. */
-    ScanResult buildResult(ServiceNFO *svc) const;
     ScanResult matchResponse(u16 port, int proto, ServiceTunnel tunnel,
                              const u8 *data, int datalen,
-                             const std::string &probeName = "");
+                             const MatchContext &ctx = MatchContext{});
 
-    int versionIntensity() const { return version_intensity_; }
+    void setIgnoreExclude(bool v) { ignore_exclude_ = v; }
 
 private:
     AllProbes *ap_;
     int        version_intensity_;
+    bool       ignore_exclude_ = false;
 
-    bool processMatch(const MatchDetails *md, ServiceNFO *svc,
-                      const char *probeName, const char *fallbackName);
+    ScanResult buildResult(ServiceNFO *svc) const;
+    bool processMatch(const MatchDetails *md, ServiceNFO *svc);
     bool scanThroughTunnel(ServiceNFO *svc);
 };
 
@@ -388,6 +383,14 @@ struct VersionDetectOptions {
     std::string tls_key;
     std::string tls_sni;
     std::string host_override;      // --sv-host: force the Host:/SNI value
+    std::string request_path = "/"; // path used by --http/--https and the fallback chain
+
+    // Reactor tuning (0 / empty = built-in defaults)
+    size_t      max_response_bytes  = 0;    // per-capture cap
+    std::string tls_ciphers_tls12;
+    std::string tls_ciphersuites_tls13;
+    int         min_connect_ms      = 0;    // floor of the adaptive connect timeout
+    unsigned    reactor_threads     = 0;    // only effective before the first scan
 };
 
 /* ── Free helpers ── */

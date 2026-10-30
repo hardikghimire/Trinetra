@@ -23,9 +23,9 @@ namespace color {
 
 void print_rtt_debug(const std::vector<std::pair<int,double>>& entries) {
     if (entries.empty()) return;
-    std::lock_guard<std::mutex> lock(cout_mutex);
 
-    std::cout << color::dim << "RTT debug\n" << color::reset;
+    std::ostringstream oss;
+    oss << color::dim << "RTT debug\n" << color::reset;
 
     const size_t INLINE_THRESHOLD = 10;
 
@@ -33,7 +33,7 @@ void print_rtt_debug(const std::vector<std::pair<int,double>>& entries) {
         for (size_t i = 0; i < entries.size(); ++i) {
             int rtt_int = static_cast<int>(entries[i].second);
             if (entries[i].second > 0 && rtt_int == 0) rtt_int = 1;
-            std::cout << "  port " << entries[i].first << "/tcp"
+            oss << "  port " << entries[i].first << "/tcp"
                       << "  ewma=" << std::fixed << std::setprecision(3)
                       << entries[i].second << "ms  int=" << rtt_int << "ms\n";
         }
@@ -61,7 +61,7 @@ void print_rtt_debug(const std::vector<std::pair<int,double>>& entries) {
         int max_int = static_cast<int>(max_rtt); if (max_rtt > 0 && max_int == 0) max_int = 1;
         int avg_int = static_cast<int>(avg_closest); if (avg_closest > 0 && avg_int == 0) avg_int = 1;
 
-        std::cout << std::left
+        oss << std::left
                   << std::setw(12) << "  Sampled"  << ": " << entries.size() << " ports\n"
                   << std::setw(12) << "  Min ewma" << ": port " << min_port << "/tcp  "
                   << std::fixed << std::setprecision(3) << min_rtt << "ms  (int=" << min_int << "ms)\n"
@@ -70,6 +70,9 @@ void print_rtt_debug(const std::vector<std::pair<int,double>>& entries) {
                   << std::setw(12) << "  Max ewma" << ": port " << max_port << "/tcp  "
                   << max_rtt << "ms  (int=" << max_int << "ms)\n";
     }
+
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << oss.str();
 }
 
 static std::string demux_render_flags(uint8_t flags) {
@@ -87,13 +90,14 @@ void print_demux_debug(const std::string& target_ip,
                         const DemuxDebugCounters& counts,
                         const std::vector<uint16_t>& open_ports) {
     if (entries.empty()) return;
-    std::lock_guard<std::mutex> lock(cout_mutex);
+
+    std::ostringstream oss;
 
     uint64_t total_dropped = counts.unknown_port + counts.bad_src_port +
                               counts.bad_token + counts.stale_rst;
 
-    std::cout << "\n" << color::dim << "Demux debug" << color::reset << "   : \n";
-    std::cout << "    " << color::bold << "summary" << color::reset
+    oss << "\n" << color::dim << "Demux debug" << color::reset << "   : \n";
+    oss << "    " << color::bold << "summary" << color::reset
                << " target=" << target_ip
                << color::green << " matched=" << counts.matched << color::reset
                << color::dim  << " dropped=" << total_dropped << color::reset
@@ -116,7 +120,7 @@ void print_demux_debug(const std::string& target_ip,
 
     for (const auto* ep : match_open) {
         const auto& e = *ep;
-        std::cout << "    " << color::green << std::left << std::setw(7) << "open" << color::reset
+        oss << "    " << color::green << std::left << std::setw(7) << "open" << color::reset
                    << " " << std::setw(10) << (std::to_string(e.port) + "/tcp")
                    << ": attempt=" << e.attempt
                    << " src_port=" << e.src_port
@@ -130,7 +134,7 @@ void print_demux_debug(const std::string& target_ip,
         if (match_other.size() <= INLINE_THRESHOLD) {
             for (const auto* ep : match_other) {
                 const auto& e = *ep;
-                std::cout << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
+                oss << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
                            << " " << std::setw(10) << (std::to_string(e.port) + "/tcp")
                            << ": attempt=" << e.attempt
                            << " src_port=" << e.src_port
@@ -149,7 +153,7 @@ void print_demux_debug(const std::string& target_ip,
             for (const auto* ep : match_other) {
                 groups[pack_key(ep->attempt, ep->flags, ep->ttl, ep->is_icmp)].push_back(ep->port);
             }
-            std::cout << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
+            oss << "    " << color::red << std::left << std::setw(7) << "closed" << color::reset
                        << " " << match_other.size() << " ports matched, "
                        << groups.size() << " distinct pattern(s):\n";
             for (auto& [key, ports] : groups) {
@@ -158,7 +162,7 @@ void print_demux_debug(const std::string& target_ip,
                 uint8_t  ttl     = static_cast<uint8_t>((key >> 8)  & 0xFF);
                 bool     is_icmp = (key & 1u) != 0;
                 std::sort(ports.begin(), ports.end());
-                std::cout << "        x" << std::setw(4) << ports.size()
+                oss << "        x" << std::setw(4) << ports.size()
                            << " attempt=" << attempt
                            << " flags=" << demux_render_flags(flags)
                            << " ttl=" << static_cast<int>(ttl)
@@ -169,7 +173,7 @@ void print_demux_debug(const std::string& target_ip,
     }
 
     if (!drops.empty()) {
-        std::cout << "    " << color::yellow << "dropped" << color::reset
+        oss << "    " << color::yellow << "dropped" << color::reset
                    << " " << drops.size() << " packet(s):\n";
         const size_t DROP_LIST_CAP = 30;
         size_t shown = 0;
@@ -177,7 +181,7 @@ void print_demux_debug(const std::string& target_ip,
         for (const auto* ep : drops) {
             const auto& e = *ep;
             if (shown < DROP_LIST_CAP) {
-                std::cout << "        " << color::dim << e.tag << color::reset
+                oss << "        " << color::dim << e.tag << color::reset
                            << " port=" << e.port
                            << " attempt=" << e.attempt
                            << " src_port=" << e.src_port
@@ -190,16 +194,20 @@ void print_demux_debug(const std::string& target_ip,
             }
         }
         for (auto& [tag, cnt] : overflow_by_tag) {
-            std::cout << "        ... +" << cnt << " more " << tag << "\n";
+            oss << "        ... +" << cnt << " more " << tag << "\n";
         }
     }
+
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << oss.str();
 }
 
 void print_strack_debug(const std::string& target_ip,
                          const std::vector<StrackEntry>& entries,
                          const StrackCounters& counts) {
     if (entries.empty() && counts.unresolved == 0) return;
-    std::lock_guard<std::mutex> lock(cout_mutex);
+
+    std::ostringstream oss;
 
     auto state_str = [](StrackFinalState s) -> const char* {
         return s == StrackFinalState::Open   ? "open"   :
@@ -218,24 +226,24 @@ void print_strack_debug(const std::string& target_ip,
         else                                                ++filtered0;
     }
 
-    std::cout << "\nState-transition debug : " << color::green << target_ip << color::reset << "\n";
+    oss << "\nState-transition debug : " << color::green << target_ip << color::reset << "\n";
 
-    std::cout << "    " << std::left << std::setw(20) << "Resolved (probe 1)"
+    oss << "    " << std::left << std::setw(20) << "Resolved (probe 1)"
                << ": " << counts.resolved_attempt[0] << " port(s)";
     if (counts.resolved_attempt[0] > 0)
-        std::cout << "  (" << open0 << " open, " << closed0 << " closed, " << filtered0 << " filtered)";
-    std::cout << "\n";
+        oss << "  (" << open0 << " open, " << closed0 << " closed, " << filtered0 << " filtered)";
+    oss << "\n";
 
     for (int i = 1; i <= 5; ++i) {
-        std::cout << "    " << std::left << std::setw(20) << ("Resolved (retry " + std::to_string(i) + ")")
+        oss << "    " << std::left << std::setw(20) << ("Resolved (retry " + std::to_string(i) + ")")
                    << ": " << counts.resolved_attempt[i] << " port(s)\n";
     }
 
-    std::cout << "    " << std::left << std::setw(20) << "Never responded"
+    oss << "    " << std::left << std::setw(20) << "Never responded"
                << ": " << counts.unresolved << " port(s) (filtered, all attempts exhausted)\n";
 
     uint64_t total_retries_sent = counts.total_packets_sent - counts.total_ports_tracked;
-    std::cout << "    " << std::left << std::setw(20) << "Packet breakdown"
+    oss << "    " << std::left << std::setw(20) << "Packet breakdown"
                << ": " << counts.total_ports_tracked << " initial, "
                << total_retries_sent << " retries ("
                << counts.total_packets_sent << " total)\n";
@@ -247,28 +255,31 @@ void print_strack_debug(const std::string& target_ip,
     if (!needs_detail.empty()) {
         std::sort(needs_detail.begin(), needs_detail.end(),
                   [](const StrackEntry* a, const StrackEntry* b) { return a->port < b->port; });
-        std::cout << "\n    Retry detail (" << needs_detail.size() << " port(s)):\n";
+        oss << "\n    Retry detail (" << needs_detail.size() << " port(s)):\n";
         for (const auto* ep : needs_detail) {
             const auto& e = *ep;
             bool no_response = (e.resolved_attempt < 0);
             const std::string& line_color = no_response ? color::yellow : state_color(e.final_state);
 
-            std::cout << "        " << line_color << std::left << std::setw(9)
+            oss << "        " << line_color << std::left << std::setw(9)
                        << state_str(e.final_state) << color::reset
                        << std::setw(10) << (std::to_string(e.port) + "/tcp") << " ";
             for (uint8_t i = 0; i < e.attempt_src_port_count; ++i) {
-                std::cout << e.attempt_src_ports[i];
-                if (i + 1 < e.attempt_src_port_count) std::cout << " -> ";
+                oss << e.attempt_src_ports[i];
+                if (i + 1 < e.attempt_src_port_count) oss << " -> ";
             }
             if (!no_response) {
-                std::cout << "  (resolved attempt " << e.resolved_attempt;
+                oss << "  (resolved attempt " << e.resolved_attempt;
                 if (e.rtt_ms >= 0.0)
-                    std::cout << ", " << std::fixed << std::setprecision(1) << e.rtt_ms << "ms";
-                std::cout << ")";
+                    oss << ", " << std::fixed << std::setprecision(1) << e.rtt_ms << "ms";
+                oss << ")";
             } else {
-                std::cout << line_color << "  (no response)" << color::reset;
+                oss << line_color << "  (no response)" << color::reset;
             }
-            std::cout << (e.is_icmp ? " [icmp]" : "") << "\n";
+            oss << (e.is_icmp ? " [icmp]" : "") << "\n";
         }
     }
+
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << oss.str();
 }

@@ -23755,6 +23755,7 @@ EC2368	IntelliVoice Co.,Ltd.
 EC237B	zte corporation
 EC24B8	Texas Instruments
 EC26CA	TP-LINK TECHNOLOGIES CO.,LTD.
+04c807  Xiaomi Communications Co Ltd
 EC26CA  TP-LINK TECHNOLOGIES CO.,LTD.
 EC26FB	TECC CO.,LTD.
 EC2AF0	Ypsomed AG
@@ -23777,6 +23778,7 @@ EC42F0	ADL Embedded Solutions, Inc.
 EC438B	Yaptv
 EC43E6	AWCER Ltd.
 EC43F6	ZyXEL Communications Corporation
+d41b81  CHONGQING FUGUI ELECTRONICS CO.,LTD
 EC4476	Cisco Systems, Inc
 EC4644	TTK SAS
 EC4670	Meinberg Funkuhren GmbH & Co. KG
