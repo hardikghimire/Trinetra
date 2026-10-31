@@ -893,6 +893,11 @@ struct RecPross {
     uint64_t rx_cq_overflow  = 0;      // io_uring CQ overflow on the recv ring
     uint64_t rx_truncated    = 0; 
     uint64_t rx_slot_starved = 0;      // no free slot, re-arm deferred
+    uint64_t rx_queue_drop        = 0;  // per-target queue full (socket-wide delta)
+    uint64_t rx_enqueued          = 0;  // packets queued to targets (socket-wide delta)
+    uint64_t rx_ignored           = 0;  // frames for no known target (socket-wide delta)
+    uint64_t rx_drain_budget_hits = 0;  // consumer hit the 2 ms drain budget (this target)
+    uint64_t rx_queue_hwm         = 0;  // highest sampled queue depth (this target)
     uint8_t received_ttl = 0;
     std::vector<std::pair<int, double>> rtt_debug_entries;
     std::vector<DemuxDebugEntry> demux_debug_entries;
@@ -1216,13 +1221,14 @@ inline IPv6Key make_ipv6_key(const struct in6_addr& a) {
 }
 
 struct RawPacket {
-    static constexpr size_t MAX_LEN = 16384;
+    static constexpr size_t MAX_LEN = 2048;
     enum class PktType : uint8_t { TCP = 0, ICMP = 1, TCP6 = 2, ICMPV6 = 3 } pkt_type = PktType::TCP;
 
     uint8_t  data[MAX_LEN];
     int      len = 0;
-    int64_t  kernel_rx_us = 0;   // from SO_TIMESTAMP cmsg, 0 if absent
+    int64_t  kernel_rx_us = 0;   
 };
+static_assert(RawPacket::MAX_LEN >= 1500, "RawPacket must hold a full ICMP slot buffer (1500 B)");
 
 struct GlobalRecvCtx {
     int                      tcp_sock    = -1;
@@ -1290,6 +1296,10 @@ struct GlobalRecvCtx {
     std::atomic<uint64_t> rx_cq_overflow {0};  // io_uring CQ overflow
     std::atomic<uint64_t> rx_truncated   {0};
     std::atomic<uint64_t> rx_slot_starved{0};  // no free slot on re-arm
+    static constexpr size_t TARGET_QUEUE_CAP = 2048;
+    std::atomic<uint64_t> rx_enqueued   {0};  // packets handed to a target queue
+    std::atomic<uint64_t> rx_queue_drop {0};  // target queue full → packet dropped
+    std::atomic<uint64_t> rx_ignored    {0};  // TCP frame with no matching target (noise)
 
     moodycamel::ConcurrentQueue<RawPacket>* queue_for(uint32_t src_addr) {
         auto it = target_queues.find(src_addr);
@@ -1423,32 +1433,31 @@ struct RTTTracker {
     }
 };
 
-RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint32_t local_ip, 
-                      std::mt19937 &rng, PacketBufferPool &pool, int send_sock, 
+RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint32_t local_ip,
+                      std::mt19937 &rng, PacketBufferPool &pool, int send_sock,
                       uint16_t source_port, uint16_t retry_source_port, uint32_t seq_num, uint16_t win_size,
-                      bool print_individual_closed_filtered, bool print_filtered_if_few, 
+                      bool print_individual_closed_filtered, bool print_filtered_if_few,
                       struct io_uring *send_ring, bool fast_scan, size_t batch_size,
-                      ScanType scan_type, uint8_t custom_ttl, uint8_t custom_dscp, 
+                      ScanType scan_type, uint8_t custom_ttl, uint8_t custom_dscp,
                       uint16_t custom_ip_flags, IpIdMode ip_id_mode, uint16_t fixed_ip_id,
                       const TcpBuildOptions& opts,
-                      RTTTracker& shared_rtt_tracker,RetryBudgetState& retry_budget,
-                      bool debug_rtt = false, bool debug_ttl = false, bool debug_demux = false, bool debug_strack = false,
-                      bool frag_out_of_order = false, bool frag_overlap = false,
-                      uint16_t frag_overlap_bytes = 0, bool frag_zof = false,
-                      const SportRangeConfig& sport_range_cfg = {},const GsportConfig& gsport_cfg = {},
-                      int initial_rtt_ms = 290, int port_timeout_min_ms = 5, int port_timeout_max_ms = 700,
-                      RateConfig rate_config = {}, JitterConfig jitter_config = {},
-                      BatchDelayConfig batch_delay_config = {},
-                      GlobalRecvCtx* g_recv = nullptr, struct io_uring* idle_ring_ptr = nullptr,
-                      RateLimiterState* rate_state = nullptr,
-                      BandwidthConfig bandwidth_config = {},
-                      BandwidthLimiterState* bandwidth_state = nullptr,
-                      uint64_t initial_dispatch_delay_us = 0, bool debug_send = false,
-                      int sock6 = -1, const uint8_t* src_ip6 = nullptr);
+                      RTTTracker& shared_rtt_tracker, uint32_t shared_tsval_offset,
+                      RetryBudgetState& retry_budget,
+                      bool debug_rtt, bool debug_ttl, bool debug_demux, bool debug_strack,
+                      bool frag_out_of_order, bool frag_overlap,
+                      uint16_t frag_overlap_bytes, bool frag_zof,
+                      const SportRangeConfig& sport_range_cfg, const GsportConfig& gsport_cfg,
+                      int initial_rtt_ms, int port_timeout_min_ms, int port_timeout_max_ms,
+                      RateConfig rate_config, JitterConfig jitter_config,
+                      BatchDelayConfig batch_delay_config,
+                      GlobalRecvCtx* g_recv, GlobalSendCtx* g_send, struct io_uring* idle_ring_ptr,
+                      RateLimiterState* rate_state,
+                      BandwidthConfig bandwidth_config, BandwidthLimiterState* bandwidth_state,
+                      uint64_t initial_dispatch_delay_us, bool debug_send,
+                      int sock6, const uint8_t* src_ip6,
+                      bool want_full_details = true);
 
-class AllProbes;   // defined in probe.h — forward decl so scan.hpp doesn't need to include it
-// Creates and initialises a GlobalRecvCtx for a set of target IPs.
-// Returns nullptr on failure.
+class AllProbes; 
 std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
     const std::vector<std::string>& target_ips,
     size_t                          rcv_uring_depth,
