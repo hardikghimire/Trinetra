@@ -22,6 +22,7 @@
 #include <linux/net_tstamp.h>
 #include <linux/errqueue.h>
 #include "arp_handler.hpp"
+#include "os_detect.hpp"
 
 
 double estimate_scan_duration_ms(size_t batch_probe_volume,
@@ -221,14 +222,13 @@ void PacketBufferPool::initialize_thread_local_buffers() {
     }
 }
 
-void print_output(PrintOutputType type,
+static void print_output_unlocked(PrintOutputType type,
                  const std::string& ip, uint16_t port, const std::string& state, const std::string& service,
                  const std::string& scan_name, uint16_t window_size, size_t port_count,
                  size_t open_count, size_t closed_count, size_t filtered_count, size_t host_count,
                  const std::string& mac_address, const std::string& vendor, double elapsed_seconds,
                  const std::string& not_shown_message, bool print_timestamp, bool show_service)
 {
-    std::lock_guard<std::mutex> lock(cout_mutex);
 
     auto format_time = []() -> std::string {
         time_t now = time(nullptr);
@@ -582,6 +582,21 @@ void print_output(PrintOutputType type,
     std::cout << std::flush;
 }
 
+
+void print_output(PrintOutputType type,
+                 const std::string& ip, uint16_t port, const std::string& state, const std::string& service,
+                 const std::string& scan_name, uint16_t window_size, size_t port_count,
+                 size_t open_count, size_t closed_count, size_t filtered_count, size_t host_count,
+                 const std::string& mac_address, const std::string& vendor, double elapsed_seconds,
+                 const std::string& not_shown_message, bool print_timestamp, bool show_service)
+{
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    print_output_unlocked(type, ip, port, state, service, scan_name, window_size,
+                          port_count, open_count, closed_count, filtered_count,
+                          host_count, mac_address, vendor, elapsed_seconds,
+                          not_shown_message, print_timestamp, show_service);
+}
+
 std::string capture_output(PrintOutputType type,
     const std::string& ip, uint16_t port,
     const std::string& state, const std::string& service,
@@ -594,15 +609,19 @@ std::string capture_output(PrintOutputType type,
 {
     std::ostringstream oss;
     {
-        std::lock_guard<std::mutex> lock(cout_mutex);
-        std::streambuf* old_buf = std::cout.rdbuf(oss.rdbuf());
-        print_output(type, ip, port, state, service, scan_name, window_size,
-                     port_count, open_count, closed_count, filtered_count,
-                     host_count, mac_address, vendor, elapsed_seconds,
-                     not_shown_message, print_timestamp, show_service);
-        std::cout.rdbuf(old_buf);
+        std::lock_guard<std::mutex> lock(cout_mutex);   // held once; the unlocked body is called below
+        struct RdbufGuard {                              // restore cout even if the call throws
+            std::streambuf* old;
+            explicit RdbufGuard(std::streambuf* b) : old(std::cout.rdbuf(b)) {}
+            ~RdbufGuard() { std::cout.rdbuf(old); }
+        } guard(oss.rdbuf());
+        print_output_unlocked(type, ip, port, state, service, scan_name, window_size,
+                              port_count, open_count, closed_count, filtered_count,
+                              host_count, mac_address, vendor, elapsed_seconds,
+                              not_shown_message, print_timestamp, show_service);
     }
     return oss.str();
+    
 }
 
 uint32_t get_local_ip(const char *remote_ip) {
@@ -2718,6 +2737,18 @@ static void drain_tx_errqueue(int sock, struct io_uring* ring, std::mutex& ring_
     }
 }
 
+namespace {
+struct RxScratch {
+    static constexpr size_t BATCH    = 2048;
+    static constexpr size_t MIXED    = 32;
+    static constexpr size_t ICMP_CAP = 64;      // was 8
+    std::unique_ptr<RawPacket[]> batch   {new RawPacket[BATCH]};
+    std::unique_ptr<RawPacket[]> mixed   {new RawPacket[MIXED]};
+    std::unique_ptr<RawPacket[]> icmp    {new RawPacket[ICMP_CAP]};
+    std::unique_ptr<RawPacket[]> icmpv6  {new RawPacket[ICMP_CAP]};
+};
+}   // namespace
+
 RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint32_t local_ip,
                       std::mt19937 &rng, PacketBufferPool &pool, int send_sock, uint16_t source_port, uint16_t retry_source_port, uint32_t seq_num, uint16_t win_size, bool print_individual_closed_filtered, bool 
                       print_filtered_if_few,
@@ -2732,7 +2763,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                       RateLimiterState* rate_state,
                       BandwidthConfig bandwidth_config, BandwidthLimiterState* bandwidth_state,
                       uint64_t initial_dispatch_delay_us, bool debug_send,
-                      int sock6, const uint8_t* src_ip6) {
+                      int sock6, const uint8_t* src_ip6, bool want_full_details) {
 
     const bool&        use_manual_tcp_checksum = opts.use_manual_tcp_checksum;
     const uint16_t&    manual_tcp_checksum     = opts.manual_tcp_checksum;
@@ -2769,7 +2800,6 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     }
     const size_t num_packets = ports.size();
     RecPross result;
-    std::unordered_map<uint16_t, PacketDetails> packet_details_map;
     if (!g_recv || !g_recv->valid) {
         std::lock_guard<std::mutex> lock(cout_mutex);
         std::cerr << "Receive context not initialised (g_recv invalid)\n";
@@ -2861,27 +2891,40 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     std::random_device _rd;
     const uint64_t sip_k0 = (static_cast<uint64_t>(_rd()) << 32) | _rd();
     const uint64_t sip_k1 = (static_cast<uint64_t>(_rd()) << 32) | _rd();
+    uint8_t tok_ip[16] = {};
+    const size_t tok_ip_len = target_is_ipv6 ? 16 : 4;
+    if (target_is_ipv6) std::memcpy(tok_ip, &dest6.sin6_addr, 16);
+    else                std::memcpy(tok_ip, &dest.sin_addr, 4);
 
     auto compute_token = [&](uint16_t port) -> uint32_t {
+        auto rotl = [](uint64_t x, int b) { return (x << b) | (x >> (64 - b)); };
         uint64_t v0 = sip_k0 ^ 0x736f6d6570736575ULL;
         uint64_t v1 = sip_k1 ^ 0x646f72616e646f6dULL;
         uint64_t v2 = sip_k0 ^ 0x6c7967656e657261ULL;
         uint64_t v3 = sip_k1 ^ 0x7465646279746573ULL;
-        uint64_t m  = static_cast<uint64_t>(port);
-        v3 ^= m;
-        v0+=v1; v1=(v1<<13)|(v1>>51); v1^=v0; v0=(v0<<32)|(v0>>32);
-        v2+=v3; v3=(v3<<16)|(v3>>48); v3^=v2;
-        v0+=v3; v3=(v3<<21)|(v3>>43); v3^=v0;
-        v2+=v1; v1=(v1<<17)|(v1>>47); v1^=v2; v2=(v2<<32)|(v2>>32);
-        v0 ^= m;
-        v2 ^= 0xff;
-        for (int i = 0; i < 3; ++i) {
-            v0+=v1; v1=(v1<<13)|(v1>>51); v1^=v0; v0=(v0<<32)|(v0>>32);
-            v2+=v3; v3=(v3<<16)|(v3>>48); v3^=v2;
-            v0+=v3; v3=(v3<<21)|(v3>>43); v3^=v0;
-            v2+=v1; v1=(v1<<17)|(v1>>47); v1^=v2; v2=(v2<<32)|(v2>>32);
+        auto sipround = [&]() {
+            v0 += v1; v1 = rotl(v1, 13); v1 ^= v0; v0 = rotl(v0, 32);
+            v2 += v3; v3 = rotl(v3, 16); v3 ^= v2;
+            v0 += v3; v3 = rotl(v3, 21); v3 ^= v0;
+            v2 += v1; v1 = rotl(v1, 17); v1 ^= v2; v2 = rotl(v2, 32);
+        };
+        uint8_t msg[18];
+        std::memcpy(msg, tok_ip, tok_ip_len);
+        msg[tok_ip_len]     = static_cast<uint8_t>(port & 0xff);
+        msg[tok_ip_len + 1] = static_cast<uint8_t>(port >> 8);
+        const size_t len = tok_ip_len + 2;            // 6 (v4) or 18 (v6)
+        size_t i = 0;
+        for (; i + 8 <= len; i += 8) {
+            uint64_t m; std::memcpy(&m, msg + i, 8);
+            v3 ^= m; sipround(); v0 ^= m;
         }
-        return static_cast<uint32_t>((v0^v1^v2^v3) & 0xFFFFFFFF);
+        uint64_t b = static_cast<uint64_t>(len) << 56;
+        for (size_t k = 0; i + k < len; ++k) b |= static_cast<uint64_t>(msg[i + k]) << (8 * k);
+        v3 ^= b; sipround(); v0 ^= b;
+        v2 ^= 0xff;
+        sipround(); sipround(); sipround();
+        const uint64_t h = v0 ^ v1 ^ v2 ^ v3;
+        return static_cast<uint32_t>(h ^ (h >> 32));
     };
     const bool use_token = (seq_num == 0);
     std::vector<std::atomic<uint64_t>> tx_ts_table(ports.size());
@@ -2909,6 +2952,9 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     const uint64_t rx_cqovf_base  = g_recv ? g_recv->rx_cq_overflow.load(std::memory_order_relaxed)  : 0;
     const uint64_t rx_trunc_base = g_recv ? g_recv->rx_truncated.load(std::memory_order_relaxed)    : 0;
     const uint64_t rx_starve_base = g_recv ? g_recv->rx_slot_starved.load(std::memory_order_relaxed) : 0;
+    const uint64_t rx_qdrop_base = g_recv ? g_recv->rx_queue_drop.load(std::memory_order_relaxed) : 0;
+    const uint64_t rx_enq_base   = g_recv ? g_recv->rx_enqueued.load(std::memory_order_relaxed)   : 0;
+    const uint64_t rx_ign_base   = g_recv ? g_recv->rx_ignored.load(std::memory_order_relaxed)    : 0;
     std::vector<std::atomic<bool>> probe_outstanding(ports.size());
     for (auto& p : probe_outstanding) p.store(false, std::memory_order_relaxed);
 
@@ -3480,16 +3526,19 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         return DEADLINE_COALESCE_NS;         // nothing in flight
     };
     auto next_jitter_drain_time = std::chrono::steady_clock::now();
-    std::vector<RawPacket> pkt_batch_storage(2048);
-    RawPacket* pkt_batch = pkt_batch_storage.data();
-    std::vector<RawPacket> mixed_storage(32);
-    RawPacket* mixed = mixed_storage.data();
-    std::vector<RawPacket> icmp_pkts_storage(8);
-    RawPacket* icmp_pkts = icmp_pkts_storage.data();
-    std::vector<RawPacket> icmpv6_pkts_storage(8);
-    RawPacket* icmpv6_pkts = icmpv6_pkts_storage.data();
+    thread_local RxScratch rx_scratch;
+    RawPacket* pkt_batch   = rx_scratch.batch.get();
+    RawPacket* mixed       = rx_scratch.mixed.get();
+    RawPacket* icmp_pkts   = rx_scratch.icmp.get();
+    RawPacket* icmpv6_pkts = rx_scratch.icmpv6.get();
+    // fixes 7/8: per-target consumer health, reported via RecPross
+    uint64_t drain_budget_hits = 0;
+    size_t   queue_hwm = 0;
+    constexpr auto DRAIN_BUDGET = std::chrono::milliseconds(2);
     while (active_count.load(std::memory_order_relaxed) > 0 && !terminate_flag) {
         size_t got = 0;
+        const auto drain_t0 = std::chrono::steady_clock::now();
+        { const size_t d = my_queue->size_approx(); if (d > queue_hwm) queue_hwm = d; }
         do {
 
         if (g_send) {
@@ -3543,11 +3592,13 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         for (size_t pi = 0; pi < got; ++pi) {
             RawPacket& rp   = pkt_batch[pi];
             if (rp.pkt_type == RawPacket::PktType::ICMP) {
-                if (icmp_got < 8) icmp_pkts[icmp_got++] = std::move(rp);
+                if (icmp_got < RxScratch::ICMP_CAP) icmp_pkts[icmp_got++] = std::move(rp);
+                else my_queue->enqueue(std::move(rp));   // seen again next pass, never lost
                 continue;
             }
             if (rp.pkt_type == RawPacket::PktType::ICMPV6) {
-                if (icmpv6_got < 8) icmpv6_pkts[icmpv6_got++] = std::move(rp);
+                if (icmpv6_got < RxScratch::ICMP_CAP) icmpv6_pkts[icmpv6_got++] = std::move(rp);
+                else my_queue->enqueue(std::move(rp));
                 continue;
             }
             int        bytes = rp.len;
@@ -3683,11 +3734,19 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::system_clock::now().time_since_epoch()).count());
 
-                PacketDetails details = extract_packet_details(
-                    iph_for_details, tcph, bytes, buffer, cap_epoch,
-                    kernel_rx_us_val, tx_us_val,
-                    pstate_ref.retry_count, rtt_here, pstate_ref);
-                packet_details_map[dest_port]    = details;
+                PacketDetails details{};
+                if (want_full_details) {
+                    details = extract_packet_details(
+                        iph_for_details, tcph, bytes, buffer, cap_epoch,
+                        kernel_rx_us_val, tx_us_val,
+                        pstate_ref.retry_count, rtt_here, pstate_ref);
+                } else if (iph_for_details &&
+                           bytes >= static_cast<int>(sizeof(struct ip) + sizeof(struct tcphdr)) &&
+                           iph_for_details->ip_hl * 4 >= static_cast<int>(sizeof(struct ip)) &&
+                           iph_for_details->ip_hl * 4 <= bytes) {
+                    details.ttl       = iph_for_details->ip_ttl;
+                    details.tcp_flags = tcph->th_flags;
+                }
                 result.packet_details[dest_port] = details;
                 {
                     const uint8_t nf = details.tcp_flags;
@@ -3815,10 +3874,10 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         if (got == 0) {
             const size_t mixed_got = my_queue->try_dequeue_bulk(mixed, 32);
             for (size_t mi = 0; mi < mixed_got; ++mi) {
-                if (mixed[mi].pkt_type == RawPacket::PktType::ICMP && icmp_got < 8) {
+                if (mixed[mi].pkt_type == RawPacket::PktType::ICMP && icmp_got < RxScratch::ICMP_CAP) {
                     icmp_pkts[icmp_got++] = std::move(mixed[mi]);
                 } else if (mixed[mi].pkt_type == RawPacket::PktType::ICMPV6) {
-                    if (icmpv6_got < 8) {
+                    if (icmpv6_got < RxScratch::ICMP_CAP) {
                         icmpv6_pkts[icmpv6_got++] = std::move(mixed[mi]);
                     } else {
                         my_queue->enqueue(std::move(mixed[mi]));
@@ -4241,7 +4300,10 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             }
         }
         } while (got == 2048 && !terminate_flag &&
-                 active_count.load(std::memory_order_relaxed) > 0);
+                 active_count.load(std::memory_order_relaxed) > 0 &&
+                 (std::chrono::steady_clock::now() - drain_t0) < DRAIN_BUDGET);
+        if (got == 2048 && (std::chrono::steady_clock::now() - drain_t0) >= DRAIN_BUDGET)
+            ++drain_budget_hits;
 
         {
             auto now = std::chrono::steady_clock::now();
@@ -4577,7 +4639,12 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         result.rx_cq_overflow  = rx_delta(g_recv->rx_cq_overflow.load(std::memory_order_relaxed),  rx_cqovf_base);
         result.rx_truncated    = rx_delta(g_recv->rx_truncated.load(std::memory_order_relaxed),    rx_trunc_base);
         result.rx_slot_starved = rx_delta(g_recv->rx_slot_starved.load(std::memory_order_relaxed), rx_starve_base);
+        result.rx_queue_drop = rx_delta(g_recv->rx_queue_drop.load(std::memory_order_relaxed), rx_qdrop_base);
+        result.rx_enqueued   = rx_delta(g_recv->rx_enqueued.load(std::memory_order_relaxed),   rx_enq_base);
+        result.rx_ignored    = rx_delta(g_recv->rx_ignored.load(std::memory_order_relaxed),    rx_ign_base);
     }
+    result.rx_drain_budget_hits = drain_budget_hits;
+    result.rx_queue_hwm         = queue_hwm;
     if (debug_demux) {
         result.demux_counts += demux_counts;
         result.demux_debug_entries.insert(result.demux_debug_entries.end(),
@@ -5910,7 +5977,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
             ctx->ip_to_idx[a.s_addr] = i;
             ctx->target_queues.emplace(
                 a.s_addr,
-                std::make_unique<moodycamel::ConcurrentQueue<RawPacket>>(8192));
+                std::make_unique<moodycamel::ConcurrentQueue<RawPacket>>(GlobalRecvCtx::TARGET_QUEUE_CAP));
             continue;
         }
         struct in6_addr a6{};
@@ -5919,7 +5986,7 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
             ctx->ip_to_idx6[key] = i;
             ctx->target_queues6.emplace(
                 key,
-                std::make_unique<moodycamel::ConcurrentQueue<RawPacket>>(8192));
+                std::make_unique<moodycamel::ConcurrentQueue<RawPacket>>(GlobalRecvCtx::TARGET_QUEUE_CAP));
         }
     }
     for (size_t s = 0; s < N_SLOTS; ++s) {
@@ -5994,6 +6061,16 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
     ctx->reader_thread  = std::thread(recv_reader_thread_func, ctx.get());
 
     return ctx;
+}
+
+static inline void rx_push(GlobalRecvCtx* ctx,
+                           moodycamel::ConcurrentQueue<RawPacket>* q,
+                           RawPacket&& pkt)
+{
+    if (q->try_enqueue(std::move(pkt)))
+        ctx->rx_enqueued.fetch_add(1, std::memory_order_relaxed);
+    else
+        ctx->rx_queue_drop.fetch_add(1, std::memory_order_relaxed);
 }
 
 void recv_reader_thread_func(GlobalRecvCtx* ctx) {
@@ -6224,7 +6301,7 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                                 ? plen : static_cast<int>(RawPacket::MAX_LEN);
                             std::memcpy(pkt_out.data, pkt, copy_len);
                             pkt_out.len = copy_len;
-                            q->enqueue(std::move(pkt_out));
+                            rx_push(ctx, q, std::move(pkt_out));
                             woken_ips.insert(inner_iph->ip_dst.s_addr);
                         }
                     } while (false);
@@ -6297,7 +6374,7 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                                 ? plen : static_cast<int>(RawPacket::MAX_LEN);
                             std::memcpy(pkt_out.data, pkt, copy_len);
                             pkt_out.len = copy_len;
-                            q->enqueue(std::move(pkt_out));
+                            rx_push(ctx, q, std::move(pkt_out));
                             woken_ips6.insert(key);
                         }
                     } while (false);
@@ -6390,8 +6467,10 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                                 }
                             }
                             pkt.kernel_rx_us = kernel_rx_us;
-                            q->enqueue(std::move(pkt));
+                            rx_push(ctx, q, std::move(pkt));
                             woken_ips6.insert(key);
+                        } else {
+                            ctx->rx_ignored.fetch_add(1, std::memory_order_relaxed);
                         }
                     }
                 }
@@ -6505,8 +6584,10 @@ void recv_reader_thread_func(GlobalRecvCtx* ctx) {
                             }
                         }
                         pkt.kernel_rx_us = kernel_rx_us;
-                        q->enqueue(std::move(pkt));
+                        rx_push(ctx, q, std::move(pkt));
                         woken_ips.insert(iph->ip_src.s_addr);
+                    } else {
+                        ctx->rx_ignored.fetch_add(1, std::memory_order_relaxed);
                     }
                 }
             } else if (tcp_bytes < 0 &&
@@ -6809,6 +6890,7 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
     // no target's congestion signal can leak into another target's retry cap.
     RetryBudgetState retry_budget;
     const uint32_t shared_tsval_offset = static_cast<uint32_t>(rng());
+    const bool want_full_details = debug_packet || debug_wsn || g_os_detect;
     uint64_t pending_dispatch_delay_us = 0;   // computed for batch i, consumed by batch i's receive_response() call
     for (const auto& range : batches) {
         if (terminate_flag) break;
@@ -6825,7 +6907,8 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
                                    debug_rtt,debug_ttl,debug_demux,debug_strack,frag_out_of_order,frag_overlap, frag_overlap_bytes,frag_zof,sport_range_cfg,gsport_cfg,initial_rtt_ms,port_timeout_min_ms,port_timeout_max_ms,rate_config,jitter_config,batch_delay_config,
                                  g_recv,g_send, idle_ring_ok ? &idle_ring : nullptr, &rate_state,
                                  bandwidth_config, &bandwidth_state,
-                                 pending_dispatch_delay_us, debug_send, sock6, src_ip6);
+                                 pending_dispatch_delay_us, debug_send, sock6, src_ip6,
+                                 want_full_details);
         pending_dispatch_delay_us = 0;   // consumed — cleared before batch i+1 computes its own
         if (is_threaded) {
             tl_port_output_buf = nullptr;
@@ -6864,6 +6947,11 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
         result.rx_cq_overflow     += batch_result.rx_cq_overflow;
         result.rx_truncated       += batch_result.rx_truncated;
         result.rx_slot_starved    += batch_result.rx_slot_starved;
+        result.rx_queue_drop        += batch_result.rx_queue_drop;
+        result.rx_enqueued          += batch_result.rx_enqueued;
+        result.rx_ignored           += batch_result.rx_ignored;
+        result.rx_drain_budget_hits += batch_result.rx_drain_budget_hits;
+        result.rx_queue_hwm          = std::max(result.rx_queue_hwm, batch_result.rx_queue_hwm);
         result.rtt_debug_entries.insert(result.rtt_debug_entries.end(),
             batch_result.rtt_debug_entries.begin(), batch_result.rtt_debug_entries.end());
         result.demux_counts += batch_result.demux_counts;
