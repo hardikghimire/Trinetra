@@ -2939,7 +2939,8 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                                        + result.loss_aborted;
                 const uint64_t rx_loss = result.rx_kernel_ovfl
                                        + result.rx_cq_overflow
-                                       + result.rx_truncated;
+                                       + result.rx_truncated
+                                       + result.rx_queue_drop;
 
                 if (tx_loss || rx_loss || result.rx_slot_starved) {
                     const uint64_t attempted =
@@ -2970,6 +2971,7 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                     checkpoint("RxCqOverflow", "io_uring CQ overflow",          result.rx_cq_overflow);
                     checkpoint("RxTruncated",  "frame exceeded MAX_LEN",        result.rx_truncated, "Truncated");
                     checkpoint("RxSlotStarve", "no free slot, re-arm deferred", result.rx_slot_starved);
+                    checkpoint("QueueDrop",    "per-target RX queue full",      result.rx_queue_drop);
 
                     std::cout << std::right;
 
@@ -2981,6 +2983,10 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                                      "                   retries may still have resolved the port.\n";
                     }
                     if (rx_loss || result.rx_slot_starved) {
+                        std::cout << "     rx stats    : queued=" << result.rx_enqueued
+                                  << " ignored(noise)=" << result.rx_ignored
+                                  << " queue_hwm=" << result.rx_queue_hwm
+                                  << " drain_budget_hits=" << result.rx_drain_budget_hits << "\n";
                         std::cout << "     note        : RX counters are socket-wide; concurrent\n"
                                      "                   targets will show overlapping figures.\n";
                     }
