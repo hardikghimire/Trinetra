@@ -2931,6 +2931,20 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                 
             }
             {
+                constexpr size_t HONEYPOT_OPEN_PORT_THRESHOLD = 60;
+                if (scan_type != ScanType::ACK && scan_type != ScanType::WINDOW &&
+                    result.open_ports.size() > HONEYPOT_OPEN_PORT_THRESHOLD) {
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cout << std::left << std::setw(15) << "Warning"
+                              << ": "
+                              << color::yellow
+                              << "Honeypot | Firewall"
+                              << " (" << result.open_ports.size() << " open ports)"
+                              << color::reset << "\n";
+                    std::cout << std::right;
+                }
+            }
+            {
                 const uint64_t tx_loss = result.loss_buffer_pool
                                        + result.loss_build_fail
                                        + result.loss_kernel_reject
