@@ -918,6 +918,37 @@ static size_t build_esp_header(uint8_t* buf, size_t cap,
     return pos;
 }
 
+// Exact length of the IPv6 extension-header chain build_packet() will emit.  It calls the very
+// same builders (lengths never depend on the RNG) and mirrors the --chain dup/unknown handling.
+size_t estimate_ipv6_ext_bytes(const TcpBuildOptions& opts) {
+    const Ipv6ExtHeaderOptions& v6ext = opts.ipv6_ext_opts;
+    if (!(v6ext.use_hop_opts || v6ext.use_dest_opts || v6ext.use_route_hdr ||
+          v6ext.use_ah || v6ext.use_esp))
+        return 0;
+    std::mt19937 rng(0);                       // only fills placeholder bytes
+    uint8_t buf[IP6_EXT_HDR_CAP];
+    struct Hdr { size_t len; uint8_t proto; };
+    std::vector<Hdr> hdrs;
+    auto add = [&](size_t len, uint8_t proto) { if (len) hdrs.push_back({len, proto}); };
+    add(build_hop_by_hop_header(buf, IP6_EXT_HDR_CAP, IPPROTO_TCP, v6ext),   IPPROTO_HOPOPTS);
+    add(build_dest_options_header(buf, IP6_EXT_HDR_CAP, IPPROTO_TCP, v6ext), IPPROTO_DSTOPTS);
+    add(build_routing_header(buf, IP6_EXT_HDR_CAP, IPPROTO_TCP, v6ext),      IPPROTO_ROUTING);
+    add(build_ah_header(buf, IP6_EXT_HDR_CAP, IPPROTO_TCP, v6ext, rng),      IPPROTO_AH);
+    add(build_esp_header(buf, IP6_EXT_HDR_CAP, v6ext, rng),                  IPPROTO_ESP);
+
+    constexpr size_t CHAIN_EXTRA_BUFS = 8;     // == IP6_CHAIN_EXTRA_BUFS inside build_packet()
+    size_t total = 0;
+    for (const auto& h : hdrs) total += h.len;
+    if (v6ext.chain_mode == ChainMode::DUP) {
+        for (const auto& h : hdrs) {
+            if (h.proto != v6ext.chain_dup_target) continue;
+            total += std::min<size_t>(v6ext.chain_dup_count - 1, CHAIN_EXTRA_BUFS) * h.len;
+            break;
+        }
+    }
+    if (v6ext.chain_mode == ChainMode::UNKNOWN) total += 8;
+    return total;
+}
 bool build_packet(const PacketTask& task, char* packet_buffer, size_t buffer_size,
                   uint32_t src_ip, std::mt19937& rng, uint16_t ip_id, uint16_t win_size,
                   uint8_t ttl, uint8_t dscp, uint16_t ip_flags,
@@ -3004,7 +3035,9 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     std::mt19937 sender_rng(rng() ^ static_cast<uint32_t>(
         std::chrono::steady_clock::now().time_since_epoch().count()));
     BandwidthLimiterState local_bandwidth_state;
+    if (!bandwidth_state) local_bandwidth_state.configure(bandwidth_config);   // standalone caller fallback
     BandwidthLimiterState& bws = bandwidth_state ? *bandwidth_state : local_bandwidth_state;
+    const size_t bw_est = estimate_packet_wire_bytes(opts, scan_type, target_is_ipv6);
 
     auto sender_thread_func = [&]() {
         std::vector<PacketTask> tasks_vec(batch_size);
@@ -3060,6 +3093,14 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             for (size_t off = 0; off < count && !terminate_flag; off += chunk_limit) {
                 const size_t chunk_count = std::min(chunk_limit, count - off);
 
+                if (bandwidth_config.enabled) {
+                    // Handshake follow-ups (ACK, FIN|ACK, final ACK) come straight from
+                    // process_response() and were never scheduled: charge them now.
+                    size_t bw_unpaid = 0;
+                    for (size_t k = 0; k < chunk_count; ++k)
+                        if (!tasks_vec[off + k].bw_prepaid) ++bw_unpaid;
+                    if (bw_unpaid) bws.debit(static_cast<uint64_t>(bw_unpaid) * bw_est);
+                }
                 uint64_t chunk_bytes_sent = 0;
                 int sent_count = send_tcp_packets(send_sock,
                     std::span<PacketTask>(tasks_vec.data() + off, chunk_count),
@@ -3072,8 +3113,9 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     on_pre_submit, &chunk_bytes_sent, debug_send, sock6, src_ip6,
                     &txloss);
 
-                if (bandwidth_config.enabled)
-                    bws.actual_bytes_sent.fetch_add(chunk_bytes_sent, std::memory_order_relaxed);
+                if (bandwidth_config.enabled)     // true-up: actual L3 bytes (CQE res) vs what was reserved/debited
+                    bws.settle(static_cast<int64_t>(chunk_bytes_sent) -
+                               static_cast<int64_t>(chunk_count * bw_est));
 
                 if (sent_count < 0) {
                     std::string msg = "Failed to send packet sub-batch (off=" +
@@ -3162,30 +3204,11 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             }
         }
         if (bandwidth_config.enabled) {
-            if (!bws.initialized) {
-                bws.window_target_bytes = (bandwidth_config.total_bytes_min < bandwidth_config.total_bytes_max)
-                    ? std::uniform_int_distribution<uint64_t>(
-                          bandwidth_config.total_bytes_min, bandwidth_config.total_bytes_max)(rng)
-                    : bandwidth_config.total_bytes_max;
-                bws.initialized = true;
-            }
-            uint64_t used = std::max(bws.reserved_bytes,
-                                      bws.actual_bytes_sent.load(std::memory_order_relaxed));
-            size_t est_bytes = estimate_packet_wire_bytes(opts, scan_type);
-            if (used + est_bytes > bws.window_target_bytes) {
-                auto window_end = bws.window_start +
-                    std::chrono::microseconds(bandwidth_config.window_us);
-                if (window_end > virtual_now) virtual_now = window_end;
-                bws.reserved_bytes = 0;
-                bws.actual_bytes_sent.store(0, std::memory_order_relaxed);
-                bws.window_start   = virtual_now;
-                bws.window_target_bytes = (bandwidth_config.total_bytes_min < bandwidth_config.total_bytes_max)
-                    ? std::uniform_int_distribution<uint64_t>(
-                          bandwidth_config.total_bytes_min, bandwidth_config.total_bytes_max)(rng)
-                    : bandwidth_config.total_bytes_max;
-                used = 0;
-            }
-            bws.reserved_bytes = used + est_bytes;
+            // Schedule this probe into the shared byte budget.  bw_t is the earliest instant it
+            // may leave; windows expire by time as well as by budget, so a new batch can never
+            // refill a window that has already ended.
+            auto bw_t = bws.reserve(bw_est, std::max(virtual_now, std::chrono::steady_clock::now()));
+            if (bw_t > virtual_now) virtual_now = bw_t;
         }
 
         auto now = std::chrono::steady_clock::now();
@@ -4375,6 +4398,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                     ));
                     }
+                    ready_batch.back().bw_prepaid = true;
 
                     deadline_heap.push({now + std::chrono::milliseconds(state.timeout_ms), port});
                     continue; 
@@ -4419,6 +4443,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         tfo_cookie_str, tfo_cookie_num, tfo_cookie_length
                     ));
                     }
+                    ready_batch.back().bw_prepaid = true;
                     if (rate_config.enabled) rs.rate_window_sent++;
 
                     int next_to = global_rtt_tracker.get_timeout_for_retry(state.retry_count);
@@ -4465,28 +4490,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         }
                         rate_reset_window();
                     }
-                    if (bandwidth_config.enabled) {
-                        uint64_t used = std::max(bws.reserved_bytes,
-                                                  bws.actual_bytes_sent.load(std::memory_order_relaxed));
-                        size_t est_bytes = estimate_packet_wire_bytes(opts, scan_type);
-                        if (used + est_bytes > bws.window_target_bytes) {
-                            auto window_end = bws.window_start +
-                                std::chrono::microseconds(bandwidth_config.window_us);
-                            if (window_end > now) {
-                                deadline_heap.push({window_end, port});
-                                continue;
-                            }
-                            bws.reserved_bytes = 0;
-                            bws.actual_bytes_sent.store(0, std::memory_order_relaxed);
-                            bws.window_target_bytes = (bandwidth_config.total_bytes_min < bandwidth_config.total_bytes_max)
-                                ? std::uniform_int_distribution<uint64_t>(
-                                      bandwidth_config.total_bytes_min, bandwidth_config.total_bytes_max)(rng)
-                                : bandwidth_config.total_bytes_max;
-                            bws.window_start   = now;
-                            used = 0;
-                        }
-                        bws.reserved_bytes = used + est_bytes;
-                    }
+                    // (bandwidth is now reserved below, where dispatch_time is final, so the
+                    //  reservation and the real send happen at the same instant)
 
                     state.retry_count++;
                     state.start_time    = now;
@@ -4548,8 +4553,11 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     auto staggered_time      = std::max(next_retry_dispatch_time, desired_time);
                     auto watermark_cap       = now + std::chrono::microseconds(max_delay_us);
                     auto dispatch_time       = std::min(staggered_time, watermark_cap);
-                    next_retry_dispatch_time = dispatch_time;
-                    deadline_heap.push({dispatch_time, port});
+                    next_retry_dispatch_time = dispatch_time;          // congestion stagger only
+                    auto send_time           = dispatch_time;
+                    if (bandwidth_config.enabled)                      // the byte budget is a hard limit: it wins over watermark_cap
+                        send_time = std::max(send_time, bws.reserve(bw_est, dispatch_time));
+                    deadline_heap.push({send_time, port});
 
                 } else {
                     if (state.reported_state == PortState::PortReportedState::None) {
@@ -6785,7 +6793,9 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
         return;
     }
     RateLimiterState rate_state;
-    BandwidthLimiterState bandwidth_state;
+    // One limiter for the whole process: every target / worker thread draws on the same byte budget.
+    BandwidthLimiterState& bandwidth_state = global_bandwidth_limiter();
+    bandwidth_state.configure(bandwidth_config);
     uint32_t effective_src_ip = local_ip;
     if (source_ip && strlen(source_ip) > 0) {
         struct in_addr addr;
