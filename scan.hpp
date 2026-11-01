@@ -208,14 +208,95 @@ struct BandwidthConfig {
     uint64_t total_bytes_max = 0;
 };
 
-struct BandwidthLimiterState {
-    std::chrono::steady_clock::time_point window_start =
-        std::chrono::steady_clock::now();
-    uint64_t              reserved_bytes       = 0;
-    std::atomic<uint64_t> actual_bytes_sent{0};
-    uint64_t              window_target_bytes  = 0;  
-    bool                  initialized = false;
+// Thread-safe byte-budget scheduler.  ONE instance is shared by every target and
+// thread in the process (see global_bandwidth_limiter()).
+//
+//   reserve(bytes, earliest)  -> earliest instant >= `earliest` at which `bytes`
+//                                may be sent without exceeding the budget of the
+//                                window that instant falls in.  Windows end when
+//                                their TIME is up *or* their budget is spent.
+//   debit(bytes)              -> charge bytes that cannot be delayed (handshake
+//                                follow-ups) against the current window.
+//   settle(delta)             -> correct the window by (actual - estimated) bytes
+//                                once a send has completed.
+class BandwidthLimiterState {
+public:
+    using Clock = std::chrono::steady_clock;
+
+    BandwidthLimiterState() = default;
+    BandwidthLimiterState(const BandwidthLimiterState&)            = delete;
+    BandwidthLimiterState& operator=(const BandwidthLimiterState&) = delete;
+
+    // First caller wins; the per-target calls that follow are no-ops.
+    void configure(const BandwidthConfig& c) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (configured_) return;
+        cfg_        = c;
+        configured_ = true;
+        std::random_device rd;
+        rng_.seed(rd());
+    }
+
+    Clock::time_point reserve(uint64_t bytes, Clock::time_point earliest) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!active_locked()) return earliest;
+        Clock::time_point t = std::max(earliest, window_start_);   // never before the window opens
+        for (;;) {
+            if (t >= window_end_) roll_locked(t);                  // time-based expiry
+            if (used_ == 0 || used_ + bytes <= budget_) {          // used_==0: an oversized packet still goes out alone
+                used_ += bytes;
+                return t;
+            }
+            t = window_end_;                                       // budget spent -> next window
+        }
+    }
+
+    void debit(uint64_t bytes) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!active_locked()) return;
+        const auto now = Clock::now();
+        if (now >= window_end_) roll_locked(now);
+        used_ += bytes;
+    }
+
+    void settle(int64_t delta) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!active_locked() || delta == 0) return;
+        const auto now = Clock::now();
+        if (now >= window_end_) roll_locked(now);
+        if (delta > 0) used_ += static_cast<uint64_t>(delta);
+        else {
+            const uint64_t d = static_cast<uint64_t>(-delta);
+            used_ = used_ > d ? used_ - d : 0;
+        }
+    }
+
+private:
+    bool active_locked() const { return cfg_.enabled && cfg_.window_us > 0; }
+
+    void roll_locked(Clock::time_point start) {
+        window_start_ = start;
+        window_end_   = start + std::chrono::microseconds(cfg_.window_us);
+        used_         = 0;
+        budget_       = (cfg_.total_bytes_min < cfg_.total_bytes_max)
+            ? std::uniform_int_distribution<uint64_t>(cfg_.total_bytes_min, cfg_.total_bytes_max)(rng_)
+            : cfg_.total_bytes_max;
+    }
+
+    std::mutex        mu_;
+    BandwidthConfig   cfg_{};
+    bool              configured_ = false;
+    std::mt19937_64   rng_;
+    Clock::time_point window_start_{};
+    Clock::time_point window_end_{};
+    uint64_t          used_   = 0;
+    uint64_t          budget_ = 0;
 };
+
+inline BandwidthLimiterState& global_bandwidth_limiter() {
+    static BandwidthLimiterState g;
+    return g;
+}
 
 struct PacketLengthConfig {
     bool     enabled    = false;
@@ -390,35 +471,124 @@ struct EthArpOptions {
 
 enum class ScanType { SYN, FIN, ACK, NULL_SCAN, XMAS, WINDOW, MAIMON, CWR, ECE, URG, PSH, HANUMAN, KAKABHUSUNDI, GANESH, RAM, GARUD, JATAYU };
 
-inline size_t estimate_packet_wire_bytes(const TcpBuildOptions& opts, ScanType scan_type) {
-    constexpr size_t IP_HDR_LEN  = 20;
+// Exact size of the IPv6 extension-header chain build_packet() emits for these
+// options.  Defined in scan.cpp, next to the header builders it reuses.
+size_t estimate_ipv6_ext_bytes(const TcpBuildOptions& opts);
+
+inline constexpr size_t PKT_BUF_CAP = 4096;   // == PacketBufferPool::buffer_size (static_assert'ed below the class)
+
+// Number of L3 bytes (IP header onward) one probe puts on the wire, i.e. what the
+// io_uring sendmsg CQE reports as `res`.  It mirrors build_packet() rule for rule:
+//   * TCP options in build_packet's order, each added only if it still fits in 40 B
+//   * NULL/XMAS drop all options unless a TFO cookie is requested
+//   * payload only when custom data is set, or random data is requested WITH a length
+//   * IPv4 options (Router Alert / Security), --packet-length (IPv4 only)
+//   * IPv6: 40 B header + exact extension-header chain
+//   * --frag*/--mtu: every fragment repeats the IP header (+8 B fragment header on IPv6)
+// Ethernet framing (14 B + FCS/preamble/IFG) is NOT included - add it on top if the
+// cap is meant to be a wire-rate figure.
+inline size_t estimate_packet_wire_bytes(const TcpBuildOptions& opts, ScanType scan_type,
+                                          bool is_ipv6 = false) {
     constexpr size_t TCP_HDR_LEN = 20;
     constexpr size_t MAX_OPTS    = 40;
+    const bool null_xmas = (scan_type == ScanType::NULL_SCAN || scan_type == ScanType::XMAS);
+    const bool malformed = opts.use_tfo_cookie && opts.tfo_cookie_random &&
+                           opts.tfo_cookie_length > 100000;     // intentional oversize mode
 
-    size_t opt_len = 0;
-    if (!(scan_type == ScanType::NULL_SCAN || scan_type == ScanType::XMAS))
-        opt_len += 4;                                   // MSS
-    if (opts.window_scale > 0)      opt_len += 3;        // window scale
-    if (opts.sack_permitted)        opt_len += 2;        // SACK-permitted
-    if (opts.timestamp_val != 0)    opt_len += 10;       // timestamp
-    if (opts.use_tcp_mptcp) opt_len += std::min(size_t(12), MAX_OPTS - opt_len);
-    if (opts.use_tcp_ao)    opt_len += std::min(size_t(4 + opts.tcp_ao_mac_len), MAX_OPTS - opt_len);
-    if (opts.use_tfo_cookie) {
-        size_t cookie_len = opts.tfo_cookie_length ? opts.tfo_cookie_length : 8;
-        opt_len += std::min(cookie_len + 2, MAX_OPTS - opt_len);
+    // ---- TCP options -------------------------------------------------------
+    size_t opt = 0;
+    if (malformed) {
+        opt = std::min<size_t>(1024, PKT_BUF_CAP - 40);          // best effort; settle() corrects the rest
+    } else {
+        auto put = [&](size_t n) { if (opt + n <= MAX_OPTS) opt += n; };
+        if (!null_xmas)            put(4);                        // MSS
+        if (opts.window_scale > 0) put(3);                        // window scale
+        if (opts.sack_permitted)   put(2);                        // SACK-permitted
+        put(10);                                                  // timestamp: build_packet keys it off task.timestamp_val (= sent_tsval, never 0)
+        if (opts.use_tcp_mptcp)    put(12);
+        if (opts.use_tcp_ao)       put(4 + opts.tcp_ao_mac_len);
+        if (opts.use_tfo_cookie) {
+            const size_t space = (MAX_OPTS >= opt + 3) ? MAX_OPTS - opt - 3 : 0;
+            size_t cookie = 0;
+            const std::string& s = opts.tfo_cookie_str;
+            if (opts.tfo_cookie_random) {
+                size_t r = opts.tfo_cookie_length ? opts.tfo_cookie_length : 8;
+                cookie = std::min({r, size_t(253), space});
+            } else if (opts.tfo_cookie_as_hex && !s.empty()) {
+                size_t n = s.size();
+                if (n >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) n -= 2;
+                n += (n & 1);                                     // odd length gets a leading '0'
+                cookie = std::min(n / 2, space / 2);              // build_packet caps hex cookies at space/2
+            } else if (!s.empty()) {
+                cookie = std::min(s.size(), space);
+            } else if (opts.tfo_cookie_num > 0) {
+                size_t b = 0;
+                for (uint64_t t = opts.tfo_cookie_num; t > 0; t >>= 8) ++b;
+                cookie = std::min({b, size_t(8), space});
+            } else {
+                cookie = std::min(size_t(8), space);
+            }
+            if (cookie > 0) put(3 + cookie);                      // kind + len + 0xF9 + cookie
+        }
+        if (opts.nops_count > 0) opt += std::min<size_t>(opts.nops_count, MAX_OPTS - opt);
+        if (null_xmas && !opts.use_tfo_cookie) opt = 0;
+        opt = std::min<size_t>((opt + 3) & ~size_t(3), MAX_OPTS);
     }
-    opt_len = std::min(opt_len, MAX_OPTS);
-    opt_len = (opt_len + 3) & ~size_t(3);                // word-align, like build_packet's NOP pad
 
+    // ---- payload -----------------------------------------------------------
     size_t data_len = 0;
-    if (opts.use_custom_data)                          data_len = opts.custom_data.size();
-    else if (opts.generate_random_data || opts.data_length > 0) data_len = opts.data_length;
-    size_t ip_opt_len = 0;
-    if (opts.use_ip_router_alert) ip_opt_len += 4;
-    if (opts.use_ip_security)     ip_opt_len += 11;
-    ip_opt_len = (ip_opt_len + 3) & ~size_t(3);
+    if (opts.use_custom_data && !opts.custom_data.empty())
+        data_len = opts.custom_data.size();
+    else if (opts.generate_random_data && opts.data_length > 0)
+        data_len = std::min<size_t>(opts.data_length, PKT_BUF_CAP - 40 - opt);
 
-    return IP_HDR_LEN + TCP_HDR_LEN + opt_len + data_len;
+    const size_t tcp_total = TCP_HDR_LEN + opt + data_len;
+    const bool   frag      = opts.use_fragmentation || opts.mtu_size > 0;
+
+    // ---- IPv6 --------------------------------------------------------------
+    if (is_ipv6) {
+        const size_t ext = estimate_ipv6_ext_bytes(opts);
+        if (!frag || ext > 0)                  // build_packet() refuses ext headers + fragmentation
+            return 40 + ext + tcp_total;
+        size_t step = (opts.mtu_size > 0)
+            ? (opts.mtu_size >= 48 ? ((size_t(opts.mtu_size) - 48) / 8) * 8 : 65528)
+            : (size_t(opts.frag_size) / 8) * 8;
+        if (step < 8) step = 8;
+        const size_t nfrag = (tcp_total + step - 1) / step;
+        return tcp_total + nfrag * (40 + 8);
+    }
+
+    // ---- IPv4 --------------------------------------------------------------
+    size_t ip_opt = 0;
+    if (opts.use_ip_router_alert)                      ip_opt += 4;
+    if (opts.use_ip_security && ip_opt + 11 <= 40)     ip_opt += 11;
+    ip_opt = (ip_opt + 3) & ~size_t(3);
+    const size_t ip_hdr = 20 + ip_opt;
+    size_t total = ip_hdr + tcp_total;
+
+    if (opts.packet_length_config.enabled) {           // --packet-length (IPv4 only, applied before fragmentation)
+        const size_t target = opts.packet_length_config.target_len;
+        if (target > total) {
+            total = std::min<size_t>(target, PKT_BUF_CAP);
+        } else if (target < total && target >= ip_hdr + 20) {
+            const size_t hdr_end = ip_hdr + 20 + opt;
+            if (target < hdr_end) {                    // cut lands inside the TCP header+options
+                size_t th = ((target - ip_hdr) / 4) * 4;
+                total = ip_hdr + std::max<size_t>(th, 20);
+            } else {
+                total = target;
+            }
+        }
+    }
+    if (!frag) return total;
+
+    size_t step = (opts.mtu_size > 0)
+        ? (opts.mtu_size >= 20 ? ((size_t(opts.mtu_size) - 20) / 8) * 8 : 65528)
+        : (size_t(opts.frag_size) / 2) * 2;
+    step = std::max<size_t>(step, opts.mtu_size > 0 ? 8 : 2);
+    const size_t body  = total - ip_hdr;
+    const size_t nfrag = (body + step - 1) / step;
+    return total + (nfrag > 0 ? nfrag - 1 : 0) * ip_hdr;   // each extra fragment repeats the IP header
 }
 
 class RAIIManager {
@@ -975,6 +1145,7 @@ struct PacketTask {
     uint32_t timestamp_val;uint32_t timestamp_ecr;bool include_timestamp;uint8_t window_scale;uint16_t mss_value;uint32_t custom_timestamp;uint32_t timestamp_ecr_custom;uint16_t nops_count;bool sack_permitted;
     std::string custom_data;uint16_t data_length;bool use_custom_data;bool generate_random_data;bool use_badsum;uint16_t custom_badsum_value;bool use_partial_badsum;std::string partial_badsum_type;
     bool use_tfo_cookie;bool tfo_cookie_as_hex;bool tfo_cookie_random;std::string tfo_cookie_str;uint64_t tfo_cookie_num;size_t tfo_cookie_length;bool is_poison = false;
+    bool bw_prepaid = false;   // true: this packet's bytes were already reserved in the BandwidthLimiterState when it was scheduled
     struct ScanInfo {
         struct ScanTypeData {
             std::string name;
@@ -1045,7 +1216,7 @@ struct PacketTask {
           custom_timestamp(other.custom_timestamp),timestamp_ecr_custom(other.timestamp_ecr_custom),nops_count(other.nops_count),sack_permitted(other.sack_permitted),custom_data(std::move(other.custom_data)),
           data_length(other.data_length),use_custom_data(other.use_custom_data),generate_random_data(other.generate_random_data),use_badsum(other.use_badsum),custom_badsum_value(other.custom_badsum_value),
           use_partial_badsum(other.use_partial_badsum),partial_badsum_type(std::move(other.partial_badsum_type)),use_tfo_cookie(other.use_tfo_cookie),tfo_cookie_as_hex(other.tfo_cookie_as_hex),
-          tfo_cookie_random(other.tfo_cookie_random),tfo_cookie_str(std::move(other.tfo_cookie_str)),tfo_cookie_num(other.tfo_cookie_num),tfo_cookie_length(other.tfo_cookie_length),is_poison(other.is_poison) {}
+          tfo_cookie_random(other.tfo_cookie_random),tfo_cookie_str(std::move(other.tfo_cookie_str)),tfo_cookie_num(other.tfo_cookie_num),tfo_cookie_length(other.tfo_cookie_length),is_poison(other.is_poison),bw_prepaid(other.bw_prepaid) {}
     
     PacketTask& operator=(PacketTask&& other) noexcept {
         if (this != &other) {
@@ -1054,8 +1225,8 @@ struct PacketTask {
             mss_value = other.mss_value;custom_timestamp = other.custom_timestamp;timestamp_ecr_custom = other.timestamp_ecr_custom;nops_count = other.nops_count;sack_permitted = other.sack_permitted;
             custom_data = std::move(other.custom_data);data_length = other.data_length;use_custom_data = other.use_custom_data;generate_random_data = other.generate_random_data;use_badsum = other.use_badsum;
             custom_badsum_value = other.custom_badsum_value;use_partial_badsum = other.use_partial_badsum;partial_badsum_type = std::move(other.partial_badsum_type);use_tfo_cookie = other.use_tfo_cookie;
-            tfo_cookie_as_hex = other.tfo_cookie_as_hex;tfo_cookie_random = other.tfo_cookie_random;tfo_cookie_str = std::move(other.tfo_cookie_str);tfo_cookie_num = other.tfo_cookie_num;tfo_cookie_length = 
-            other.tfo_cookie_length;is_poison = other.is_poison;
+            tfo_cookie_as_hex = other.tfo_cookie_as_hex;tfo_cookie_random = other.tfo_cookie_random;tfo_cookie_str = std::move(other.tfo_cookie_str);tfo_cookie_num = other.tfo_cookie_num;tfo_cookie_length =
+            other.tfo_cookie_length;is_poison = other.is_poison;bw_prepaid = other.bw_prepaid;
         }
         return *this;
     }
@@ -1100,6 +1271,8 @@ public:
     char* acquire();
     void release(char* buffer);
 };
+static_assert(PacketBufferPool::buffer_size == PKT_BUF_CAP,
+              "estimate_packet_wire_bytes() assumes the same per-packet buffer size as PacketBufferPool");
 
 enum class PrintOutputType {
     PORT_RESULT,PORT_RESULT_CUSTOM,SCAN_HEADER,SCAN_SUMMARY,HOST_HEADER,PORT_TABLE_HEADER,HOST_STATUS,NOT_SHOWN_MESSAGE,MAC_ADDRESS,           
