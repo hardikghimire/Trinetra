@@ -2996,7 +2996,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     const uint32_t target_tsval_offset = shared_tsval_offset;
     static const std::unordered_set<ScanType> no_retry_scan_types = {
         ScanType::FIN, ScanType::NULL_SCAN, ScanType::XMAS,
-        ScanType::CWR, ScanType::URG, ScanType::PSH, ScanType::HANUMAN
+        ScanType::CWR, ScanType::ECE, ScanType::URG, ScanType::PSH, ScanType::HANUMAN
     };
     const bool skip_retries = no_retry_scan_types.count(scan_type) > 0;
     using TP = std::chrono::steady_clock::time_point;
@@ -4073,7 +4073,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 }
                 if (port_final[bidx].load(std::memory_order_acquire)) continue;
 
-                if (!global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)) continue;
+                if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)) continue;
                 if (state.reported_state != PortState::PortReportedState::None) continue;
 
                 if (debug_demux) {
@@ -4252,7 +4252,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 }
                 if (port_final[b6idx].load(std::memory_order_acquire)) continue;
 
-                if (!global_rtt_tracker.should_mark_filtered(state6.retry_count,
+                if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state6.retry_count,
                                                              state6.retries_cap)) continue;
                 if (state6.reported_state != PortState::PortReportedState::None) continue;
 
