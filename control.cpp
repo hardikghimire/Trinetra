@@ -2113,16 +2113,33 @@ static std::vector<u8> dechunk_body(const u8 *body_ptr, size_t body_len)
         while (!size_field.empty() && isspace((unsigned char)size_field.back()))
             size_field.pop_back();
 
+        // Strict hex parse with explicit overflow detection.
+        // (strtoul accepts "-1", "+5", "0x1F" and silently saturates to ULONG_MAX
+        //  on overflow; that saturated value later wrapped data_start + chunk_size.)
         size_t chunk_size = 0;
-        char *endptr = nullptr;
-        chunk_size = std::strtoul(size_field.c_str(), &endptr, 16);
-        if (endptr == size_field.c_str()) break; // not valid hex — malformed
+        {
+            size_t i = 0;
+            while (i < size_field.size() && (size_field[i] == ' ' || size_field[i] == '\t')) ++i;
+            size_t digits = 0;
+            bool   bad    = false;
+            for (; i < size_field.size(); ++i, ++digits) {
+                unsigned char c = (unsigned char)size_field[i];
+                unsigned d;
+                if      (c >= '0' && c <= '9') d = c - '0';
+                else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+                else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+                else { bad = true; break; }
+                if (chunk_size > ((size_t)-1 >> 4)) { bad = true; break; } // next shift would overflow
+                chunk_size = (chunk_size << 4) | d;
+            }
+            if (bad || digits == 0) break; // malformed chunk-size line
+        }
 
         size_t data_start = line_end + 2; // skip the \r\n after the size line
 
         if (chunk_size == 0) break; // terminating chunk — trailer/final CRLF follows, ignore
 
-        if (data_start + chunk_size > body_len) {
+        if (chunk_size > body_len - data_start) { // overflow-safe form of data_start + chunk_size > body_len
             // Truncated/incomplete final chunk (e.g. connection cut mid-read):
             // take what we have and stop rather than reading out of bounds.
             size_t avail = body_len - data_start;
@@ -2140,6 +2157,87 @@ static std::vector<u8> dechunk_body(const u8 *body_ptr, size_t body_len)
 
     return out;
 }
+
+
+// Hard ceiling on decompressed body size. Fingerprinting only looks at the
+// first ~64 KB of body, so 4 MiB is generous while still bounding memory.
+static constexpr size_t MAX_DECOMPRESSED_BODY = 4u * 1024u * 1024u;
+
+// zlib inflate with (a) an output cap and (b) guaranteed termination.
+// Returns true if at least one byte was produced and the stream either ended,
+// was truncated (input ran out), or hit the cap. Partial output is kept on
+// truncation because a cut-off response is still useful for fingerprinting.
+static bool inflate_capped(const u8 *in_ptr, size_t in_len, int wbits,
+                           std::vector<u8> &out)
+{
+    z_stream zs{};
+    if (inflateInit2(&zs, wbits) != Z_OK) return false;
+    zs.next_in  = const_cast<Bytef *>(in_ptr);
+    zs.avail_in = (uInt)in_len;
+
+    out.clear();
+    out.resize(std::min(std::max(in_len * 4, (size_t)65536), MAX_DECOMPRESSED_BODY));
+    zs.next_out  = out.data();
+    zs.avail_out = (uInt)out.size();
+
+    bool ok = false;
+    for (;;) {
+        if (zs.avail_out == 0) {
+            size_t old = out.size();
+            if (old >= MAX_DECOMPRESSED_BODY) { ok = true; break; } // cap reached: keep what we have
+            size_t grown = std::min(old * 2, MAX_DECOMPRESSED_BODY);
+            out.resize(grown);
+            zs.next_out  = out.data() + old;   // re-derive: resize may have moved the buffer
+            zs.avail_out = (uInt)(grown - old);
+        }
+        int ret = inflate(&zs, Z_SYNC_FLUSH);
+        if (ret == Z_OK) continue;              // progress was made; go again
+        // Z_STREAM_END = complete. Z_BUF_ERROR = no progress possible, i.e. input
+        // exhausted before the stream ended (truncated). Both terminate the loop.
+        // Anything else (Z_DATA_ERROR, Z_MEM_ERROR, Z_NEED_DICT) is a failure.
+        ok = (ret == Z_STREAM_END || ret == Z_BUF_ERROR);
+        break;
+    }
+    out.resize((size_t)zs.total_out);
+    inflateEnd(&zs);
+    return ok && !out.empty();
+}
+
+#ifdef HAVE_ZSTD
+// Streaming zstd decode with an output cap. Never trusts the frame header's
+// declared content size for allocation (it is attacker-controlled).
+static bool zstd_decode_capped(const u8 *in_ptr, size_t in_len, std::vector<u8> &out)
+{
+    ZSTD_DCtx *dctx = ZSTD_createDCtx();
+    if (!dctx) return false;
+    // Refuse frames that demand more than 2^23 = 8 MiB of window memory.
+    // (ZSTD_d_windowLogMax is stable API from zstd 1.4.0.)
+    ZSTD_DCtx_setParameter(dctx, ZSTD_d_windowLogMax, 23);
+
+    out.clear();
+    out.resize(std::min(std::max(in_len * 8, (size_t)131072), MAX_DECOMPRESSED_BODY));
+    size_t out_pos = 0;
+    ZSTD_inBuffer zin{in_ptr, in_len, 0};
+    bool ok = true;
+    for (;;) {
+        ZSTD_outBuffer zout{out.data(), out.size(), out_pos};
+        size_t r = ZSTD_decompressStream(dctx, &zout, &zin);
+        if (ZSTD_isError(r)) {
+            fprintf(stderr, "  [decompress] zstd error: %s\n", ZSTD_getErrorName(r));
+            ok = false;
+            break;
+        }
+        out_pos = zout.pos;
+        if (r == 0) break;                                   // frame complete
+        if (out_pos < out.size()) break;                     // room left but zstd wants more input: truncated
+        if (out.size() >= MAX_DECOMPRESSED_BODY) break;      // cap reached
+        out.resize(std::min(out.size() * 2, MAX_DECOMPRESSED_BODY));
+    }
+    ZSTD_freeDCtx(dctx);
+    out.resize(out_pos);
+    return ok && !out.empty();
+}
+#endif
 
 static std::vector<u8> decompress_body(const std::vector<u8> &resp)
 {
@@ -2202,57 +2300,13 @@ static std::vector<u8> decompress_body(const std::vector<u8> &resp)
     if (ce.find("gzip") != std::string::npos ||
         ce.find("deflate") != std::string::npos)
     {
-        // zlib inflateInit2 with windowBits=47 auto-detects gzip vs raw deflate
-        z_stream zs{};
-        zs.next_in  = const_cast<Bytef *>(body_ptr);
-        zs.avail_in = (uInt)body_len;
-        int wbits = (ce.find("gzip") != std::string::npos) ? 15 + 16  // gzip
-                                                            : 15 + 32; // auto
-        if (inflateInit2(&zs, wbits) == Z_OK) {
-            decompressed.resize(body_len * 4 > 65536 ? body_len * 4 : 65536);
-            zs.next_out  = decompressed.data();
-            zs.avail_out = (uInt)decompressed.size();
-            int ret;
-            do {
-                if (zs.avail_out == 0) {
-                    size_t old = decompressed.size();
-                    decompressed.resize(old * 2);
-                    zs.next_out  = decompressed.data() + old;
-                    zs.avail_out = (uInt)old;
-                }
-                ret = inflate(&zs, Z_SYNC_FLUSH);
-            } while (ret == Z_OK || ret == Z_BUF_ERROR);
-            if (ret == Z_STREAM_END || ret == Z_OK || ret == Z_BUF_ERROR) {
-                decompressed.resize(zs.total_out);
-                success = !decompressed.empty();
-            }
-            inflateEnd(&zs);
-        }
+        // windowBits 15+16 = gzip only; 15+32 = auto-detect gzip or zlib wrapper
+        int wbits = (ce.find("gzip") != std::string::npos) ? 15 + 16
+                                                            : 15 + 32;
+        success = inflate_capped(body_ptr, body_len, wbits, decompressed);
         if (!success) {
             // deflate: try raw inflate (no zlib header) as last resort
-            z_stream zs2{};
-            zs2.next_in  = const_cast<Bytef *>(body_ptr);
-            zs2.avail_in = (uInt)body_len;
-            if (inflateInit2(&zs2, -15) == Z_OK) {
-                decompressed.resize(body_len * 4 > 65536 ? body_len * 4 : 65536);
-                zs2.next_out  = decompressed.data();
-                zs2.avail_out = (uInt)decompressed.size();
-                int ret2;
-                do {
-                    if (zs2.avail_out == 0) {
-                        size_t old = decompressed.size();
-                        decompressed.resize(old * 2);
-                        zs2.next_out  = decompressed.data() + old;
-                        zs2.avail_out = (uInt)old;
-                    }
-                    ret2 = inflate(&zs2, Z_SYNC_FLUSH);
-                } while (ret2 == Z_OK || ret2 == Z_BUF_ERROR);
-                if (ret2 == Z_STREAM_END || ret2 == Z_OK) {
-                    decompressed.resize(zs2.total_out);
-                    success = !decompressed.empty();
-                }
-                inflateEnd(&zs2);
-            }
+            success = inflate_capped(body_ptr, body_len, -15, decompressed);
         }
     }
 
@@ -2300,22 +2354,7 @@ static std::vector<u8> decompress_body(const std::vector<u8> &resp)
 #ifdef HAVE_ZSTD
     else if (ce.find("zstd") != std::string::npos)
     {
-        unsigned long long const frame_size =
-            ZSTD_getFrameContentSize(body_ptr, body_len);
-        size_t alloc = (frame_size != ZSTD_CONTENTSIZE_UNKNOWN &&
-                        frame_size != ZSTD_CONTENTSIZE_ERROR)
-                     ? (size_t)frame_size
-                     : body_len * 8 > 131072 ? body_len * 8 : 131072;
-        decompressed.resize(alloc);
-        size_t zret = ZSTD_decompress(decompressed.data(), alloc,
-                                      body_ptr, body_len);
-        if (!ZSTD_isError(zret)) {
-            decompressed.resize(zret);
-            success = !decompressed.empty();
-        } else {
-            fprintf(stderr, "  [decompress] zstd error: %s\n",
-                    ZSTD_getErrorName(zret));
-        }
+        success = zstd_decode_capped(body_ptr, body_len, decompressed);
     }
 #else
     else if (ce.find("zstd") != std::string::npos)
@@ -2358,7 +2397,16 @@ static HttpFingerprint make_http_fingerprint(const std::vector<u8> &resp,
                                              const TlsCertInfo     &cert_info = TlsCertInfo{})
 {
 
-    const std::vector<u8> decompressed_buf = decompress_body(resp);
+    // decompress_body() can throw (bad_alloc / length_error on hostile input).
+    // Never let a single bad response take the scanner down: fall back to raw bytes.
+    std::vector<u8> decompressed_tmp;
+    try {
+        decompressed_tmp = decompress_body(resp);
+    } catch (const std::exception &e) {
+        fprintf(stderr, "  [decompress] %s -- using raw response\n", e.what());
+        decompressed_tmp = resp;
+    }
+    const std::vector<u8> &decompressed_buf = decompressed_tmp;
     const std::vector<u8> &effective       = decompressed_buf;
 
     HttpFingerprint fp;
@@ -4745,20 +4793,22 @@ static std::vector<std::string> extract_spa_locations(const std::string &body)
         },
     };
 
-    // Pre-compile all patterns once
-    static std::vector<std::regex> compiled;
-    static bool compiled_ok = false;
-    if (!compiled_ok) {
-        compiled_ok = true;
+    // Pre-compile all patterns once (thread-safe: C++11 guarantees a static
+    // local initialised by a lambda is constructed exactly once, and other
+    // threads block until it is complete).
+    static const std::vector<std::regex> compiled = [] {
+        std::vector<std::regex> v;
+        v.reserve(sizeof(kPatterns) / sizeof(kPatterns[0]));
         for (const auto &p : kPatterns) {
             try {
-                compiled.emplace_back(p.src,
+                v.emplace_back(p.src,
                     std::regex::ECMAScript | std::regex::icase | std::regex::optimize);
             } catch (...) {
-                compiled.emplace_back(); // placeholder so indices stay aligned
+                v.emplace_back(); // placeholder so indices stay aligned
             }
         }
-    }
+        return v;
+    }();
 
     // Cap scan to first 65536 bytes of body to bound worst-case backtracking
     const std::string &scan_body = body.size() > 65536
