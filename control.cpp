@@ -156,6 +156,7 @@ struct TlsCertInfo {
             while (!clean.empty() && clean.front() == ' ') clean.erase(clean.begin());
             while (!clean.empty() && clean.back()  == ' ') clean.pop_back();
             if (clean.size() > maxlen) clean = clean.substr(0, maxlen - 3) + "...";
+            ts::sanitize_inplace(clean);
             out << "  |  " << std::left << std::setw(13) << label << ": " << clean << "\n";
         };
         tls_emit("TLS version", tls_version);
@@ -940,6 +941,7 @@ struct HttpFingerprint {
 	    // for merged redirect-hop values like "nginx | openresty | apache")
 	    static constexpr size_t VAL_MAX = 80;
 	    if (clean.size() > VAL_MAX) clean = clean.substr(0, VAL_MAX - 3) + "...";
+	    ts::sanitize_inplace(clean);
 
 	    out << "|  " << std::left << std::setw(13) << label << ": " << "\033[32m" << clean << "\033[0m" << "\n";
 	};
@@ -1308,12 +1310,12 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
     }
     const std::string_view whole = mf.view();
     const uint64_t src_hash = ts::hash64(whole.data(), whole.size());
-    const std::string cache_path = path + ".tscache";
 
     PlatformSignatureSet sigs;
     sigs.terms = std::make_shared<ts::TermSet>();
-    const bool terms_cached = sigs.terms->load_cache(cache_path, src_hash, whole.size());
+    const bool terms_cached = sigs.terms->load_cache_any(path, src_hash, whole.size());
     bool terms_added = false;
+    size_t terms_skipped = 0;
 
     std::string section;          // e.g. "jsglobals", "paths", "attrs", "meta_hint_platforms", "suppress", "terms"
     std::string current_platform; // set when section starts with "platform."
@@ -1337,8 +1339,12 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
             if (t.empty() || t[0] == '#') continue;
             if (terms_cached) continue;
             std::string terr;
-            if (!sigs.terms->add_line(t, &terr))
-                throw std::runtime_error(path + ":" + std::to_string(lineno) + ": " + terr);
+            if (!sigs.terms->add_line(t, &terr)) {
+                if (++terms_skipped <= 10)
+                    std::cerr << "[web-fp] " << path << ":" << lineno << ": skipped bad [terms] entry: "
+                              << ts::sanitized(terr) << "\n";
+                continue;
+            }
             terms_added = true;
             continue;
         }
@@ -1477,9 +1483,9 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
                 for (char &c : rule.header) { c = (char)tolower((unsigned char)c); if (c == '_') c = '-'; }
                 for (char &c : rule.arg)    c = (char)tolower((unsigned char)c);
                 if (rule.header.empty() || rule.arg.empty()) {
-                    throw std::runtime_error(path + ":" + std::to_string(lineno) +
-                                              ": header_contains needs both a header name and a needle");
-                }
+		    throw std::runtime_error(path + ":" + std::to_string(lineno) +
+				              ": header_contains needs both a header name and a needle");
+		}
             }
             else {
                 throw std::runtime_error(path + ":" + std::to_string(lineno) +
@@ -1487,16 +1493,18 @@ PlatformSignatureSet PlatformSignatureSet::loadFromFile(const std::string &path)
             }
             sigs.platform_rules[current_platform].push_back(std::move(rule));
         }
-        // Lines outside any recognized section are ignored (forward-compatible).
     }
+
+    if (terms_skipped > 10)
+        std::cerr << "[web-fp] " << path << ": " << (terms_skipped - 10) << " more bad [terms] entries skipped\n";
 
     if (!terms_cached) {
         std::string berr;
         if (terms_added) {
             if (!sigs.terms->build(&berr))
                 throw std::runtime_error(path + ": [terms] " + berr);
-            // best effort; a read-only directory just means no cache
-            (void)sigs.terms->save_cache(cache_path, src_hash, whole.size());
+            if (terms_skipped == 0)
+                (void)sigs.terms->save_cache_any(path, src_hash, whole.size());
         }
     }
 
@@ -2600,11 +2608,10 @@ static HttpFingerprint make_http_fingerprint(const std::vector<u8> &resp,
     // Runs on the same bytes as everything above (dechunked + decompressed),
     // so compressed bodies are searched too. Never throws; capped internally.
     {
+        static const ts::TermSet empty_terms;
         const auto &sigs_for_terms = platform_signatures();
-        if (sigs_for_terms.terms && !sigs_for_terms.terms->empty())
-            fp.term_findings = ts::scan(*sigs_for_terms.terms, effective.data(), effective.size());
-        else
-            fp.term_findings = ts::scan(ts::TermSet(), effective.data(), effective.size());  // generic Name/x.y.z only
+        const ts::TermSet &term_set = (sigs_for_terms.terms && !sigs_for_terms.terms->empty()) ? *sigs_for_terms.terms : empty_terms;
+        fp.term_findings = ts::scan(term_set, effective.data(), effective.size());
     }
     return fp;
 }
@@ -3011,6 +3018,7 @@ static void print_result(const ScanResult                  &result,
         size_t end = cleaned.find_last_not_of(" \t");
         cleaned = cleaned.substr(start, end - start + 1);
 
+        ts::sanitize_inplace(cleaned);
         return cleaned;
     };
 
@@ -3242,6 +3250,7 @@ static void print_result(const ScanResult                  &result,
         while (s < e && isspace((unsigned char)raw[s])) ++s;
         while (e > s && isspace((unsigned char)raw[e-1])) --e;
         std::string val = raw.substr(s, e - s);
+        ts::sanitize_inplace(val);
         if (val.empty()) return val;
         auto looks_clean = [](const std::string &v) -> bool {
             if (v.empty()) return true;
@@ -3597,7 +3606,7 @@ static void print_result(const ScanResult                  &result,
     } else if (!out_parts.empty()) {
         for (size_t i = 0; i < out_parts.size(); ++i) {
             if (i) std::cout << " | ";
-            std::cout << "\033[32m" << out_parts[i] << "\033[0m";
+            std::cout << "\033[32m" << ts::sanitized(out_parts[i]) << "\033[0m";
         }
         bool redirect_followed = method_label.find("redirect") != std::string::npos;
         size_t real_fps = 0;
@@ -3663,16 +3672,16 @@ static void print_result(const ScanResult                  &result,
             }
 
             if (!cn.empty()) {
-                std::cout << cn << "  [TLS cert fallback]\n";
+                std::cout << ts::sanitized(cn) << "  [TLS cert fallback]\n";
                 // Also print the full subject for context if it adds info
                 if (best_cert.subject != cn)
                     std::cout << "Cert Subject : "
-                              << best_cert.subject.substr(0, 52)
+                              << ts::sanitized(best_cert.subject.substr(0, 52))
                               << (best_cert.subject.size() > 52 ? "..." : "")
                               << "\n";
                 // Print TLS version so operator knows this came from a cert
                 if (!best_cert.tls_version.empty())
-                    std::cout << "TLS Ver : " << best_cert.tls_version << "\n";
+                    std::cout << "TLS Ver : " << ts::sanitized(best_cert.tls_version) << "\n";
             }
         }
     }
@@ -3683,7 +3692,7 @@ static void print_result(const ScanResult                  &result,
     // Raw fingerprint only when there are no HTTP FPs
     if (!result.fingerprint.empty() && effective_fps.empty()) {
         std::cout << "\n+- Raw Fingerprint (first 200 chars) ----------------------\n";
-        std::cout << result.fingerprint.substr(0, 200) << "\n";
+        std::cout << ts::sanitized(result.fingerprint.substr(0, 200)) << "\n";
         std::cout << "+-----------------------------------------------------------\n";
     }
 }
