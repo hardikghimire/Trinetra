@@ -5263,6 +5263,8 @@ static bool fp_has_identity(const HttpFingerprint &fp)
     if (!fp.server.empty() || !fp.powered_by.empty() || !fp.x_generator.empty() ||
         !fp.osd_name.empty() || !fp.meta_generator.empty() || !fp.body_platform_hint.empty())
         return true;
+    for (const auto &tf : fp.term_findings)
+        if (tf.confidence >= 2) return true;
     for (const auto &spec : platform_signatures().identity_headers) {
         std::string h = spec.header;
         for (char &c : h) c = (char)tolower((unsigned char)c);
@@ -5770,6 +5772,38 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
             } else {
                 r = capture_tcp(ip, args.port, probe_first_byte_to, pl, args.verbose,
                                 args.connect_timeout);
+            }
+            if (!r.empty() && pl && !terminate_flag && r.size() >= 12 &&
+                std::memcmp(r.data(), "HTTP/1.", 7) == 0 && r[9] == '5') {
+                std::string rq(pl->begin(), pl->end());
+                size_t eol  = rq.find("\r\n");
+                size_t term = rq.find("\r\n\r\n");
+                if (eol != std::string::npos && term != std::string::npos && eol >= 9 &&
+                    rq.compare(eol - 9, 9, " HTTP/1.0") == 0 &&
+                    (rq.rfind("GET ", 0) == 0 || rq.rfind("HEAD ", 0) == 0)) {
+                    rq[eol - 1] = '1';                       // HTTP/1.0 -> HTTP/1.1
+                    std::string lq = rq;
+                    for (char &c : lq) c = (char)tolower((unsigned char)c);
+                    auto add_hdr = [&](const std::string &h) {
+                        size_t t = rq.find("\r\n\r\n");
+                        if (t != std::string::npos) rq.insert(t, "\r\n" + h);
+                    };
+                    if (lq.find("\r\naccept:") == std::string::npos)     add_hdr("Accept: */*");
+                    if (lq.find("\r\nconnection:") == std::string::npos) add_hdr("Connection: close");
+                    std::vector<u8> rq_bytes(rq.begin(), rq.end());
+                    std::vector<u8> r2 = is_ssl
+                        ? capture_ssl(ip, args.port, probe_first_byte_to, &rq_bytes, args.verbose,
+                                      &probe_cert, args.connect_timeout)
+                        : capture_tcp(ip, args.port, probe_first_byte_to, &rq_bytes, args.verbose,
+                                      args.connect_timeout);
+                    bool r2_5xx = r2.size() >= 12 && std::memcmp(r2.data(), "HTTP/1.", 7) == 0 &&
+                                  r2[9] == '5';
+                    if (!r2.empty() && !r2_5xx) {
+                        vlog::line(g_verbose, "probe-fixup: HTTP/1.0 got 5xx, retried as HTTP/1.1 -> "
+                                   + std::to_string(r2.size()) + " bytes, using retry", 2);
+                        r = std::move(r2);
+                    }
+                }
             }
             if (!is_ssl && pa.payload.empty() && r.empty() && g_last_tcp.eof_no_data)
                 null_close_ms = g_last_tcp.elapsed_ms;
