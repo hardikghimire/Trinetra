@@ -1,6 +1,6 @@
 #include "netns_split.hpp"
 #include "utils.hpp"
-
+#include <random>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstdio>
@@ -393,7 +393,6 @@ bool build_split_ip6_cidr(const std::string& ip6_addr, const std::string& ip6_pr
         err = "invalid IP6_ADDR: '" + ip6_addr + "'";
         return false;
     }
-    // No dotted-mask form for IPv6 -- always a bare prefix length.
     uint8_t prefix = 0;
     try {
         int p = std::stoi(ip6_prefix_field);
@@ -404,6 +403,40 @@ bool build_split_ip6_cidr(const std::string& ip6_addr, const std::string& ip6_pr
         return false;
     }
     cidr_out = ip6_addr + "/" + std::to_string(static_cast<int>(prefix));
+    return true;
+}
+
+bool autodetect_split_v6(const std::string& iface_hint, std::string& iface_out,
+                         std::string& ip6_cidr_out, std::string& gw6_out, std::string& err) {
+    std::string dif, dgw;
+    if (!get_default_route(AF_INET6, dif, dgw)) {
+        err = "no IPv6 default route found";
+        return false;
+    }
+    if (!iface_hint.empty() && iface_hint != dif) {
+        err = "IPv6 default route is on " + dif + ", not " + iface_hint;
+        return false;
+    }
+    struct in6_addr mine{};
+    unsigned plen = 0;
+    bool found = false;
+    for (const auto& a : get_all_interface_ip6(dif)) {
+        if (a.scope != Ipv6Scope::Global || a.prefix_len == 0 || a.prefix_len > 64) continue;
+        memcpy(&mine, a.addr, 16);
+        plen = a.prefix_len;
+        found = true;
+        break;
+    }
+    if (!found) { err = "no global IPv6 address on " + dif + " to take a prefix from"; return false; }
+    std::random_device rd;
+    for (int i = 8; i < 16; ++i) mine.s6_addr[i] = static_cast<uint8_t>(rd());
+    mine.s6_addr[8] &= static_cast<uint8_t>(~0x02);  
+
+    char b[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, &mine, b, sizeof(b));
+    iface_out    = dif;
+    ip6_cidr_out = std::string(b) + "/" + std::to_string(plen);
+    gw6_out      = dgw;
     return true;
 }
 
