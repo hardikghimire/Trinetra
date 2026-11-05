@@ -252,7 +252,8 @@ int main(int argc, char *argv[]) {
        std::string split_iface, split_mac, split_ip, split_gw, split_ip6, split_gw6;
        bool split_iface_set = false, split_mac_set = false,
             split_ip_set = false, split_gw_set = false,
-            split_ip6_set = false, split_gw6_set = false;
+            split_ip6_set = false, split_gw6_set = false;std::string split_conf_path;
+       bool split_conf_set = false;
        std::vector<int> excluded_ports,parsed_ports;
        bool use_tfo_cookie = false, tfo_cookie_as_hex = false, tfo_cookie_random = false;
        uint64_t tfo_cookie_num = 0;
@@ -979,6 +980,10 @@ int main(int argc, char *argv[]) {
         {"--split-iface", [&](int& idx) {
             config.split_iface = get_next_arg(idx, "--split-iface");
             config.split_iface_set = true;
+        }},
+        {"--split-config", [&](int& idx) {
+            config.split_conf_path = get_next_arg(idx, "--split-config");
+            config.split_conf_set = true;
         }},
         
         {"-S", [&](int& idx) {
@@ -1799,63 +1804,70 @@ int main(int argc, char *argv[]) {
         std::cerr << "--owner only applies to --country.\n";
         return 1;
     }
+    if (config.use_split && !ips.empty()) {
+        std::unordered_map<std::string, std::string> pre_ptr;
+        reverse_dns_lookup_batch(ips, pre_ptr);
+    }
 
-    if (config.use_split || config.graceful_scan) {
-        if (config.graceful_scan && !config.use_split) {
-
+    if (config.use_split) {
+        bool need4 = false, need6 = false;
+        for (const auto& t : ips) {
+            int v = get_ip_version(t.c_str());
+            if (v == 6) need6 = true; else if (v == 4) need4 = true;
         }
-        SplitFileConf file_conf;
-        std::string conf_err;
-        bool have_conf = load_split_conf(kDefaultSplitConfPath, file_conf, conf_err);
-        if (!have_conf) {
-            std::cerr << color::yellow << "[--split] note: couldn't read "
-                      << kDefaultSplitConfPath << " (" << conf_err
-                      << ") -- using --split-* options only.\n" << color::reset;
+
+        SplitFileConf fc;
+        bool have_conf = false;
+        if (config.split_conf_set) {
+            std::string conf_err;
+            have_conf = load_split_conf(config.split_conf_path, fc, conf_err);
+            if (!have_conf) {
+                std::cerr << color::red << "[--split] " << conf_err << color::reset << "\n";
+                return 1;
+            }
         }
 
         SplitNsConfig split_cfg;
-
-        // --split-iface overrides; otherwise fall back to --interface / auto-detect.
-        // (shiv_split.conf has no interface field -- ns1.sh hardcoded "link eth0".)
         split_cfg.base_iface = config.split_iface_set ? config.split_iface : config.interface;
+        split_cfg.mac = config.split_mac_set ? config.split_mac : (have_conf ? fc.mac : "");
+        if (need4 || config.split_ip_set || config.split_gw_set) {
+            if (config.split_ip_set) split_cfg.ip_cidr = config.split_ip;
+            else if (have_conf && !fc.ip_addr.empty()) {
+                std::string e;
+                if (!build_split_ip_cidr(fc.ip_addr, fc.ip_prefix, split_cfg.ip_cidr, e)) {
+                    std::cerr << color::red << "[--split] " << e << color::reset << "\n"; return 1;
+                }
+            }
+            split_cfg.gateway = config.split_gw_set ? config.split_gw : (have_conf ? fc.gateway : "");
+        }
+        if (need6 || config.split_ip6_set || config.split_gw6_set) {
+            if (config.split_ip6_set) split_cfg.ip6_cidr = config.split_ip6;
+            else if (have_conf && !fc.ip6_addr.empty()) {
+                std::string e;
+                if (!build_split_ip6_cidr(fc.ip6_addr, fc.ip6_prefix, split_cfg.ip6_cidr, e)) {
+                    std::cerr << color::red << "[--split] " << e << color::reset << "\n"; return 1;
+                }
+            }
+            split_cfg.gateway6 = config.split_gw6_set ? config.split_gw6 : (have_conf ? fc.ip6_gateway : "");
 
-        // --split-mac overrides; otherwise CUSTOM_MAC from the conf file (optional either way).
-        split_cfg.mac = config.split_mac_set ? config.split_mac
-                       : (have_conf ? file_conf.mac : "");
-
-        if (config.split_ip_set) {
-            split_cfg.ip_cidr = config.split_ip;
-        } else if (have_conf && !file_conf.ip_addr.empty()) {
-            std::string cidr_err;
-            if (!build_split_ip_cidr(file_conf.ip_addr, file_conf.ip_prefix, split_cfg.ip_cidr, cidr_err)) {
-                std::cerr << color::red << "[--split] " << cidr_err << color::reset << "\n";
-                return 1;
+            if (split_cfg.ip6_cidr.empty() || split_cfg.gateway6.empty()) {
+                std::string a_if, a_cidr, a_gw, a_err;
+                if (!autodetect_split_v6(split_cfg.base_iface, a_if, a_cidr, a_gw, a_err)) {
+                    std::cerr << color::red << "[--split] IPv6 auto-detect failed: " << a_err
+                              << color::reset << "\n  (pass --split-ip6/--split-gw6 or --split-config <file>)\n";
+                    return 1;
+                }
+                if (split_cfg.ip6_cidr.empty())  split_cfg.ip6_cidr  = a_cidr;
+                if (split_cfg.gateway6.empty())  split_cfg.gateway6  = a_gw;
+                if (split_cfg.base_iface.empty()) split_cfg.base_iface = a_if;
             }
         }
-
-        // --split-gw overrides; otherwise GATEWAY from the conf file.
-        split_cfg.gateway = config.split_gw_set ? config.split_gw
-                           : (have_conf ? file_conf.gateway : "");
-                           
-        if (config.split_ip6_set) {
-            split_cfg.ip6_cidr = config.split_ip6;
-        } else if (have_conf && !file_conf.ip6_addr.empty()) {
-            std::string cidr6_err;
-            if (!build_split_ip6_cidr(file_conf.ip6_addr, file_conf.ip6_prefix, split_cfg.ip6_cidr, cidr6_err)) {
-                std::cerr << color::red << "[--split] " << cidr6_err << color::reset << "\n";
-                return 1;
-            }
-        }
-
-        // --split-gw6 overrides; otherwise IP6_GATEWAY from the conf file.
-        split_cfg.gateway6 = config.split_gw6_set ? config.split_gw6
-                            : (have_conf ? file_conf.ip6_gateway : "");
 
         std::string split_err;
         if (!enter_split_namespace(split_cfg, split_err)) {
             std::cerr << color::red << "[--split] failed: " << split_err << color::reset << "\n"
-                       << "  (needs root/CAP_SYS_ADMIN + CAP_NET_ADMIN; either fill in "
-                       << kDefaultSplitConfPath << " or pass --split-ip/--split-gw explicitly)\n";
+                      << "  (needs root/CAP_SYS_ADMIN + CAP_NET_ADMIN; for IPv4 pass --split-ip/--split-gw "
+                         "or --split-config <file>)\n";
             return 1;
         }
     }
@@ -1917,16 +1929,11 @@ int main(int argc, char *argv[]) {
     }
     if (custom_dns_configured() && !config.use_trial_api) {
         if (ip_to_domain_map.empty()) {
-            // Pure-IP run: no target anywhere ever used the resolver — hard
-            // exit, single message, no need to name every target.
             std::cerr << color::yellow
                       << "IP is in resoluted form , it bypass resolvers , can't comproise scan, Exiting...\n"
                       << color::reset;
             return 1;
         } else if (!g_dns_bypassed_targets.empty()) {
-            // Mixed run: at least one domain target did use the resolver,
-            // so we don't exit — just name the specific target(s) that
-            // didn't.
             for (const auto& t : g_dns_bypassed_targets) {
                 std::cerr << color::yellow
                           << "IP is in resoluted form , it bypass resolvers , can't comproise scan"
