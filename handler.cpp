@@ -3358,13 +3358,12 @@ void print_full_help() {
 		std::cerr << "     " << color::yellow << "shiv 10.0.0.0/24 -p 1-1000 --dscp AF41" << color::reset << "\n";
 		std::cerr << "     " << color::yellow << "shiv example.com -p 443 --dscp 46" << color::reset << "\n\n";
 
-		std::cerr << color::yellow << " --ip-id " << color::reset << " <mode> Set IP ID generation strategy\n\n";
+		std::cerr << color::yellow << " --ip-id <constant int>" << color::reset << " <mode> Set IP ID generation strategy\n\n";
 
 		std::cerr << color::white << "   Available Modes:\n" << color::reset;
 		std::cerr << "     " << color::yellow << "random" << color::reset << "      # Random ID (default) - Randomized per packet\n";
 		std::cerr << "     " << color::yellow << "sequential" << color::reset << "  # Incremental (1,2,3...) - Increases by 1 each packet\n";
 		std::cerr << "     " << color::yellow << "zero" << color::reset << "        # Always 0 - Fixed zero value\n";
-		std::cerr << "     " << color::yellow << "constant" << color::reset << "    # User specified fixed ID (use with --ip-id <value>)\n";
 		std::cerr << "     " << color::yellow << "iprofile" << color::reset << "    # Based on destination IP - OS fingerprinting friendly\n";
 		std::cerr << "     " << color::yellow << "time" << color::reset << "        # Timestamp based - microsecond precision\n\n";
 
@@ -3372,7 +3371,7 @@ void print_full_help() {
 		std::cerr << "     " << color::yellow << "shiv 192.168.1.1 -p 80 --ip-id random" << color::reset << "\n";
 		std::cerr << "     " << color::yellow << "shiv 10.0.0.1 -p 443 --ip-id sequential" << color::reset << "\n";
 		std::cerr << "     " << color::yellow << "shiv 8.8.8.8 -p 53 --ip-id zero" << color::reset << "\n";
-		std::cerr << "     " << color::yellow << "shiv 1.1.1.1 -p 22 --ip-id constant --ip-id 0x1234" << color::reset << "\n";
+		std::cerr << "     " << color::yellow << "shiv 1.1.1.1 -p 22 --ip-id 12345" << color::reset << "\n";
 		std::cerr << "     " << color::yellow << "shiv example.com -p 80 --ip-id time" << color::reset << "\n\n";
 
 		std::cerr << color::white << "   Mode Details:\n" << color::reset;
@@ -3382,8 +3381,6 @@ void print_full_help() {
 		std::cerr << "               - Wraps around after 65535\n";
 		std::cerr << "     " << color::yellow << "zero" << color::reset << "       - Some OS/firewalls use zero ID\n";
 		std::cerr << "               - Can bypass certain IDS rules\n";
-		std::cerr << "     " << color::yellow << "constant" << color::reset << "  - Testing fixed ID scenarios\n";
-		std::cerr << "               - Use with --ip-id <hex|dec>\n";
 		std::cerr << "     " << color::yellow << "forged" << color::reset << "     - Advanced evasion technique\n";
 		std::cerr << "               - Copies ID pattern from legitimate traffic\n";
 		std::cerr << "     " << color::yellow << "iprofile" << color::reset << "  - Matches OS behavior per destination\n";
@@ -3406,6 +3403,7 @@ void print_full_help() {
         	
         	std::cerr << color::green << "Linux Namespace Options:\n" << color::reset;
         	std::cerr << color::yellow << " --split" << color::reset << "        Run entirely inside an isolated netns/macvlan\n";
+        	std::cerr << color::yellow << " --split-config"<< color::reset << " <file.conf>   Read specified config file and perform scan\n";
         	std::cerr << color::yellow << " --split-ip"    << color::reset << " <ip/prefix>   IPv4 address for the namespace, e.g. 192.168.1.114\n";
         	std::cerr << color::yellow << " --split-gw"    << color::reset << " <ip>          IPv4 gateway for the namespace, e.g. 192.168.1.254\n";
         	std::cerr << color::yellow << " --split-ip6"   << color::reset << " <ip/prefix>   IPv6 address for the namespace, e.g. 2001:db8::114/64\n";
