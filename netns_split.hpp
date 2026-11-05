@@ -44,5 +44,7 @@ struct RstBlockGuard {
 };
 
 bool enter_split_namespace(const SplitNsConfig& cfg, std::string& err);
+bool autodetect_split_v6(const std::string& iface_hint, std::string& iface_out,
+                         std::string& ip6_cidr_out, std::string& gw6_out, std::string& err);
 extern std::atomic<bool> g_in_split_ns;
 extern std::atomic<uint64_t> g_split_ns_entered_at_ms;
