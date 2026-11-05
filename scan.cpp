@@ -3190,6 +3190,39 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
     auto virtual_now = std::chrono::steady_clock::now();
     if (initial_dispatch_delay_us > 0)
         virtual_now += std::chrono::microseconds(initial_dispatch_delay_us);
+    DeadlinePacer& dl_pacer = global_deadline_pacer();
+    const bool dl_on = dl_pacer.active();
+    size_t dl_sched_n = 0, dl_reserved_n = 0;  
+    auto dl_credit_unsent = [&]() {
+        if (!dl_on) return;
+        if (dl_sched_n > dl_reserved_n) dl_pacer.credit(dl_sched_n - dl_reserved_n);
+        dl_reserved_n = dl_sched_n;
+    };
+    auto dl_feed = [&]() {
+        if (!dl_on) return;
+        auto clamp_ms = [&](int ms) { return static_cast<uint64_t>(std::max(MIN_TIMEOUT_MS, std::min(ms, MAX_TIMEOUT_MS))); };
+        const uint64_t rto0_us = clamp_ms(global_rtt_tracker.get_timeout_for_retry(0)) * 1000ULL;
+        if (global_rtt_tracker.has_measurement.load(std::memory_order_relaxed))
+            dl_pacer.set_rto_hint(rto0_us);
+        const int cap = retry_budget.dynamic_max_retries.load(std::memory_order_relaxed);
+        const double ratio  = std::clamp(retry_budget.congestion_ratio.load(std::memory_order_relaxed), 0.0, 1.0);
+        const double curved = std::pow(ratio, g_cong_tune.curve_exp);
+        uint64_t tail = rto0_us;                                
+        for (int r = 1; r <= cap; ++r) {                         
+            const uint64_t to_us = clamp_ms(global_rtt_tracker.get_timeout_for_retry(r)) * 1000ULL;
+            const uint64_t min_d = std::min<uint64_t>(
+                std::max<uint64_t>(g_cong_tune.retry_delay_min_us, to_us / std::max<uint32_t>(1, g_cong_tune.rtt_floor_div)),
+                g_cong_tune.retry_delay_max_us);
+            const uint64_t dly = min_d + static_cast<uint64_t>(curved * static_cast<double>(g_cong_tune.retry_delay_max_us - min_d));
+            tail += dly + to_us;
+        }
+        dl_pacer.set_retry_tail(tail);
+    };
+    auto dl_retry_stage_fits = [&](int next_retry) -> bool {
+        if (!dl_on) return true;
+        const int to = std::max(MIN_TIMEOUT_MS, std::min(global_rtt_tracker.get_timeout_for_retry(next_retry), MAX_TIMEOUT_MS));
+        return dl_pacer.retry_fits(static_cast<uint64_t>(to) * 1000ULL + g_cong_tune.retry_delay_min_us);
+    };
 
     for (int port : ports) {
         if (port <= 0 || port > 65535) continue;
@@ -3204,9 +3237,6 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             }
         }
         if (bandwidth_config.enabled) {
-            // Schedule this probe into the shared byte budget.  bw_t is the earliest instant it
-            // may leave; windows expire by time as well as by budget, so a new batch can never
-            // refill a window that has already ended.
             auto bw_t = bws.reserve(bw_est, std::max(virtual_now, std::chrono::steady_clock::now()));
             if (bw_t > virtual_now) virtual_now = bw_t;
         }
@@ -3245,6 +3275,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         ps.ewma_rtt               = static_cast<double>(initial_timeout);
         ps.reported_state         = PortState::PortReportedState::None;
         ps.initial_send_deferred  = true;
+        ps.dl_slot_ready          = false;
 
         port_final[next_idx].store(false, std::memory_order_relaxed);
         port_rtt_measured[next_idx].store(false, std::memory_order_relaxed);
@@ -3252,16 +3283,23 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         active_ports.push_back(static_cast<uint16_t>(port));
         ++next_idx;
 
+        auto fire_time = virtual_now;
         if (jitter_config.enabled) {
-	    uint64_t sleep_us = 0;
-	    if (jitter_config.random_mode) {
-		sleep_us = 900 + (rng() % 6101);
-	    } else {
-		sleep_us = jitter_config.delay_us;
-	    }
-	    virtual_now += std::chrono::microseconds(sleep_us);
-	}
-        deadline_heap.push({std::max(virtual_now, now), static_cast<uint16_t>(port)});
+            uint64_t sleep_us = 0;
+            if (jitter_config.random_mode) {
+                sleep_us = 900 + (rng() % 6101);
+            } else {
+                sleep_us = jitter_config.delay_us;
+            }
+            if (dl_on) {
+                fire_time = virtual_now;
+            } else {
+                virtual_now += std::chrono::microseconds(sleep_us);
+                fire_time = virtual_now;
+            }
+        }
+        deadline_heap.push({std::max(fire_time, now), static_cast<uint16_t>(port)});
+        ++dl_sched_n;
 
         if (rate_config.enabled) {
             rs.rate_window_sent++;
@@ -3946,6 +3984,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         std::lock_guard<std::mutex> lk(cout_mutex);
                         std::cerr << msg;
                     }
+                    dl_credit_unsent();
                     shutdown_sender_thread();
                     return result;
                 }
@@ -3998,6 +4037,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                                 std::cerr << msg;
                             }
                         }
+                        dl_credit_unsent();
                         shutdown_sender_thread();
                         return result;
                     }
@@ -4165,6 +4205,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                         std::lock_guard<std::mutex> lk(cout_mutex);
                         std::cerr << msg;
                     }
+                    dl_credit_unsent();
                     shutdown_sender_thread();
                     return result;
                 }
@@ -4364,6 +4405,25 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 if (state.connection_established) continue;
 
                 if (state.initial_send_deferred) {
+                    if (dl_on && !state.dl_slot_ready) {
+                        dl_feed();
+                        uint64_t slot_gap_us = 0;
+                        const auto slot = dl_pacer.reserve(now, &slot_gap_us);
+                        ++dl_reserved_n;
+                        auto fire = slot;
+                        if (jitter_config.enabled) {
+                            const uint64_t jcap = slot_gap_us / 2;          
+                            const uint64_t joff = jitter_config.random_mode
+                                ? (jcap ? static_cast<uint64_t>(rng()) % (jcap + 1) : 0)
+                                : std::min<uint64_t>(jitter_config.delay_us, jcap);
+                            fire = slot + std::chrono::microseconds(joff);
+                        }
+                        if (fire > now) {
+                            state.dl_slot_ready = true;
+                            deadline_heap.push({fire, port});
+                            continue;
+                        }
+                    }
                     state.initial_send_deferred = false;
                     state.sent_tsval = generate_tcp_tsval() + state.tsval_offset;
                     state.syn_sent_time = now;  
@@ -4450,7 +4510,8 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     next_to = std::max(MIN_TIMEOUT_MS, std::min(next_to, MAX_TIMEOUT_MS));
                     deadline_heap.push({now + std::chrono::milliseconds(next_to), port});
 
-                } else if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)) {
+                } else if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)
+                           && dl_retry_stage_fits(state.retry_count + 1)) {
 
                     {
                         uint64_t real_us = real_tx_ts_us[pidx].load(std::memory_order_acquire);
@@ -6895,13 +6956,10 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
                        dest_ip_key6_valid, dest_ip_key6};
     
     RTTTracker shared_rtt_tracker(initial_rtt_ms);
-    // Per-target retry budget — see RetryBudgetState in scan.hpp. Constructed
-    // fresh for every target (same lifetime as shared_rtt_tracker above) so
-    // no target's congestion signal can leak into another target's retry cap.
     RetryBudgetState retry_budget;
     const uint32_t shared_tsval_offset = static_cast<uint32_t>(rng());
     const bool want_full_details = debug_packet || debug_wsn || g_os_detect;
-    uint64_t pending_dispatch_delay_us = 0;   // computed for batch i, consumed by batch i's receive_response() call
+    uint64_t pending_dispatch_delay_us = 0;   
     for (const auto& range : batches) {
         if (terminate_flag) break;
         if (range.start >= range.end) continue;
@@ -6910,6 +6968,7 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
         if (is_threaded) {
             tl_port_output_buf = &result.output_buffer;
         }
+        global_deadline_pacer().begin_batch();  
         RecPross batch_result = receive_response(ip, batch_ports, effective_src_ip, rng, pool, 
                                  send_sock, source_port, retry_source_port, seq_num, win_size, print_individual_closed_filtered, print_filtered_if_few,send_ring, fast_scan, scan_batch_size, scan_type,
                                  custom_ttl,custom_dscp,custom_ip_flags, ip_id_mode, fixed_ip_id,
@@ -6919,7 +6978,7 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
                                  bandwidth_config, &bandwidth_state,
                                  pending_dispatch_delay_us, debug_send, sock6, src_ip6,
                                  want_full_details);
-        pending_dispatch_delay_us = 0;   // consumed — cleared before batch i+1 computes its own
+        pending_dispatch_delay_us = 0;   
         if (is_threaded) {
             tl_port_output_buf = nullptr;
         }

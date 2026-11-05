@@ -307,7 +307,11 @@ int main(int argc, char *argv[]) {
        std::string discover_owner_name;
        std::string discover_ip;
        std::string discover_range;
-       std::string discover_asn;   
+       std::string discover_asn;
+       bool     deadline_enabled = false;   
+       uint64_t deadline_us      = 0;
+       bool     deadline_retry_aware = false;  
+       bool     debug_timing     = false;  
    } config;
    
     std::vector<std::string> ips;
@@ -548,6 +552,21 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	    }
 	}},
+	
+	{"-T", [&](int& idx) {
+            std::string val = get_next_arg(idx, "-T");
+            std::string err;
+            uint64_t us = 0;
+            if (!parse_deadline_duration(val, us, err)) {
+                std::cerr << "-T: " << err << "\n";
+                exit(1);
+            }
+            config.deadline_enabled = true;
+            config.deadline_us      = us;
+        }},
+        {"--deadline-retry", [&](int& idx) {
+            config.deadline_retry_aware = true;
+        }},
         
         {"--send-uring", [&](int& idx) {
             size_t depth = parse_size_t(get_next_arg(idx, "--send-uring"), "--send-uring");
@@ -874,9 +893,11 @@ int main(int argc, char *argv[]) {
 		    config.debug_strack = true;
 		} else if (token == "send") {
 		    config.debug_send = true;
+	 	} else if (token == "timing") {
+		    config.debug_timing = true;
 		} else {
 		    std::cerr << "Invalid --debug token '" << token 
-		              << "'. Valid: recv,rtt,wsn,ttl,demux,strack,send\n";
+		              << "'. Valid: recv,rtt,wsn,ttl,demux,strack,send,timing\n";
 		    exit(1);
 		}
 	    }
@@ -2724,16 +2745,79 @@ int main(int argc, char *argv[]) {
             config.jitter_config.delay_us    = 500;
         }
     }
+    if (config.deadline_enabled && !discovery_only_run) {
+        DeadlineConfig dl;
+        dl.enabled       = true;
+        dl.duration_us   = config.deadline_us;
+        dl.tail_us       = DeadlinePacer::default_tail_us(config.deadline_us);   // % of T, measured later
+        dl.start         = total_scan_start;                                      // -T counts from the real scan start
+        dl.total_probes  = static_cast<uint64_t>(ips.size()) * ports.size();
+        const size_t bsz = std::max<size_t>(1, config.main_batch_size);
+        dl.total_batches = static_cast<uint64_t>(ips.size()) * ((ports.size() + bsz - 1) / bsz);
+        const uint64_t groups = (ips.size() + TARGETS_PER_QUEUE - 1) / TARGETS_PER_QUEUE;
+        dl.group_pauses   = groups > 0 ? groups - 1 : 0;
+        dl.group_pause_us = 5'000'000ULL;          // matches the 5 s sleep between groups
+
+        // ---- % method: one pace percentage scales rate, jitter, batch-delay, bandwidth ----
+        const double reserve_us = static_cast<double>(DeadlinePacer::safety_us(config.deadline_us))
+                                + static_cast<double>(dl.tail_us)
+                                + static_cast<double>(dl.group_pauses) * static_cast<double>(dl.group_pause_us);
+        const double usable_s = std::max(1e-3, (static_cast<double>(config.deadline_us) - reserve_us) / 1e6);
+        const double r_req    = static_cast<double>(dl.total_probes) / usable_s;     // probes/s needed
+        const RateConfig& rc0 = config.rate_config;
+        const double r_ref = (rc0.enabled && rc0.window_us > 0 && rc0.max_packets > 0)
+            ? static_cast<double>(rc0.max_packets) * 1e6 / static_cast<double>(rc0.window_us) : 0.0;
+        const double pace = (r_ref > 0.0) ? std::min(1.0, r_req / r_ref) : 1.0;      // 1.0 = no slowdown needed
+        const double knob = std::min(1.0, pace * (1.0 + DEADLINE_HEADROOM_PCT / 100.0));
+        dl.pace_pct = pace * 100.0;
+        dl.target_pps    = r_req;                         // absolute required rate (probes/s)
+        dl.ref_pps       = r_ref;                         // nominal ceiling used for the %
+        dl.retry_aware   = config.deadline_retry_aware;
+        if (knob < 1.0) {                                                            // slow-only: never speeds anything up
+            RateConfig& rc = config.rate_config;
+            if (rc.enabled && rc.window_us > 0 && rc.max_packets > 0) {
+                const double mx = static_cast<double>(rc.max_packets) * knob;
+                const double mn = static_cast<double>(rc.min_packets) * knob;
+                if (mx < 1.0) {                       // less than 1 packet per window: stretch the window instead
+                    rc.window_us   = static_cast<uint64_t>(static_cast<double>(rc.window_us) / mx);
+                    rc.max_packets = 1;
+                    rc.min_packets = 1;
+                } else {
+                    rc.max_packets = static_cast<uint32_t>(std::llround(mx));
+                    rc.min_packets = std::clamp<uint32_t>(static_cast<uint32_t>(std::llround(mn)), 1u, rc.max_packets);
+                }
+            }
+            JitterConfig& jc = config.jitter_config;
+            if (jc.enabled && !jc.random_mode && jc.delay_us > 0)
+                jc.delay_us = static_cast<uint64_t>(static_cast<double>(jc.delay_us) / knob);
+            BatchDelayConfig& bd = config.batch_delay_config;
+            if (bd.enabled) {
+                const uint64_t cap = static_cast<uint64_t>(
+                    static_cast<double>(config.deadline_us) * DEADLINE_BATCHDELAY_CAP_PCT / 100.0);
+                auto grow = [&](uint64_t v) -> uint64_t {
+                    const uint64_t g = std::min<uint64_t>(cap, static_cast<uint64_t>(static_cast<double>(v) / knob));
+                    return std::max<uint64_t>(v, g);  // never shorter than the original
+                };
+                bd.delay_us = grow(bd.delay_us);
+                bd.min_us   = grow(bd.min_us);
+                bd.max_us   = grow(bd.max_us);
+            }
+            BandwidthConfig& bw = config.bandwidth_config;
+            if (bw.enabled) {
+                bw.total_bytes_max = std::max<uint64_t>(1, static_cast<uint64_t>(
+                    std::llround(static_cast<double>(bw.total_bytes_max) * knob)));
+                bw.total_bytes_min = std::clamp<uint64_t>(static_cast<uint64_t>(
+                    std::llround(static_cast<double>(bw.total_bytes_min) * knob)), 1ULL, bw.total_bytes_max);
+            }
+        }
+        global_deadline_pacer().configure(dl);
+    }
 
     std::vector<RecPross> all_results(ips.size());
-
     const size_t total_targets = ips.size();
     size_t batch_start = 0;
-
     while (batch_start < total_targets && !terminate_flag) {
         size_t batch_end = std::min(batch_start + TARGETS_PER_QUEUE, total_targets);
-
-        // Slice of IPs for this batch
         std::vector<std::string> batch_ips(
             ips.begin() + batch_start, ips.begin() + batch_end);
 
@@ -2752,19 +2836,22 @@ int main(int argc, char *argv[]) {
             !(config.rate_config.enabled && config.rate_config.dynamic_mode);
         const bool batch_delay_is_predictable =
             !(config.batch_delay_config.enabled && config.batch_delay_config.dynamic_mode);
-        const bool pacing_is_predictable = rate_is_predictable && batch_delay_is_predictable;
+        const bool deadline_on = global_deadline_pacer().active();
+        const bool pacing_is_predictable =
+            rate_is_predictable && batch_delay_is_predictable;
 
-        constexpr double SQPOLL_MIN_DURATION_MS = 8000.0;      // predictable-pacing path
-        const size_t SQPOLL_FALLBACK_VOLUME = g_cong_tune.sqpoll_threshold; // adaptive-pacing path
+        constexpr double SQPOLL_MIN_DURATION_MS = 8000.0;     
+        const size_t SQPOLL_FALLBACK_VOLUME = g_cong_tune.sqpoll_threshold; 
 
-        const double estimated_duration_ms = estimate_scan_duration_ms(
+        double estimated_duration_ms = estimate_scan_duration_ms(
             batch_probe_volume, config.rate_config, config.jitter_config,
             config.batch_delay_config, config.initial_rtt_ms);
 
         const bool enable_sqpoll = config.force_sqpoll || (
-            pacing_is_predictable
-                ? estimated_duration_ms >= SQPOLL_MIN_DURATION_MS
-                : batch_probe_volume    >= SQPOLL_FALLBACK_VOLUME
+            !deadline_on && (
+                pacing_is_predictable
+                    ? estimated_duration_ms >= SQPOLL_MIN_DURATION_MS
+                    : batch_probe_volume    >= SQPOLL_FALLBACK_VOLUME)
         );
 
         //if (config.debug_packet) {
@@ -2904,6 +2991,7 @@ int main(int argc, char *argv[]) {
         if (batch_start < total_targets && !terminate_flag) {
             std::cout << "[batch] Waiting 5 seconds before next batch...\n";
             std::this_thread::sleep_for(std::chrono::seconds(5));
+            global_deadline_pacer().note_pause();
         }
     }
     emergency_cleanup();
@@ -2944,6 +3032,74 @@ int main(int argc, char *argv[]) {
         std::cout << "CPU time used: " << std::fixed << std::setprecision(3)
                   << total_cpu_seconds << " seconds (user+sys)\n";
     
+    }
+    if (config.debug_timing) {
+        auto fmt_us = [](uint64_t us) -> std::string {
+            std::ostringstream o; o << std::fixed << std::setprecision(2);
+            if      (us >= 3600000000ULL) o << us / 3.6e9 << "h";
+            else if (us >=   60000000ULL) o << us / 6e7   << "m";
+            else if (us >=    1000000ULL) o << us / 1e6   << "s";
+            else if (us >=       1000ULL) o << us / 1e3   << "ms";
+            else                          o << us         << "us";
+            return o.str();
+        };
+        const DeadlineStats st = global_deadline_pacer().stats();
+        std::cout << "\n---- Timing Report ----\n";
+        if (st.enabled) {
+            const double dev = st.duration_us
+                ? (static_cast<double>(st.elapsed_us) - st.duration_us) * 100.0 / st.duration_us : 0.0;
+            std::cout << "T target           : " << fmt_us(st.duration_us) << "\n"
+                      << "Actual elapsed     : " << fmt_us(st.elapsed_us)
+                      << " (" << std::showpos << std::setprecision(1) << dev << "%" << std::noshowpos << ")\n"
+                      << "Pace               : " << std::fixed << std::setprecision(2) << st.pace_pct
+                      << "% of default rate ceiling (settings scaled by this %, +"
+                      << DEADLINE_HEADROOM_PCT << "% headroom)\n"
+                      << "Required rate      : " << std::setprecision(1) << st.target_pps
+                      << " probes/s (nominal ceiling " << st.ref_pps
+                      << " probes/s; the real default is uncapped until congestion)\n"
+                      << "Retry tail         : " << fmt_us(st.retry_tail_us)
+                      << (st.retry_tail_us ? "" : " (--deadline-retry off)") << "\n"
+                      << std::setprecision(2)
+                      << "Tail (probe->end)  : " << fmt_us(st.tail_us)
+                      << " (measured drain " << fmt_us(static_cast<uint64_t>(st.drain_us)) << ")\n"
+                      << "Effective rate     : " << std::setprecision(0)
+                      << (st.elapsed_us ? st.scheduled * 1e6 / st.elapsed_us : 0.0) << " probes/s"
+                      << std::setprecision(2) << "\n"
+                      << "Probes paced       : " << st.scheduled << " / " << st.total_probes
+                      << " (delayed " << st.delayed << ", credited " << st.credited
+                      << ", unpaced " << st.unpaced << ")\n"
+                      << "Gap avg/min/max    : " << fmt_us(static_cast<uint64_t>(st.avg_gap_us))
+                      << " / " << fmt_us(st.min_gap_us) << " / " << fmt_us(st.max_gap_us) << "\n"
+                      << "Batch stall        : " << fmt_us(static_cast<uint64_t>(st.overhead_us))
+                      << " per boundary (" << st.boundaries << " measured)\n";
+        } else {
+            std::cout << "T                  : not set (default speed)\n";
+        }
+        const auto& rc = config.rate_config;
+        std::cout << "Rate               : ";
+        if (!rc.enabled) std::cout << "off\n";
+        else if (rc.dynamic_mode) std::cout << "adaptive, window " << fmt_us(rc.window_us) << ", "
+                                            << rc.min_packets << "-" << rc.max_packets << " pkts\n";
+        else std::cout << "window " << fmt_us(rc.window_us) << ", " << rc.min_packets << "-"
+                       << rc.max_packets << " pkts\n";
+        const auto& jc = config.jitter_config;
+        std::cout << "Jitter             : ";
+        if (!jc.enabled) std::cout << "off\n";
+        else if (jc.random_mode) std::cout << (st.enabled ? "random, 0-50% of the pacing gap per probe"
+                                                           : "random 0.9ms-7ms per probe") << "\n";
+        else std::cout << "fixed " << fmt_us(jc.delay_us) << " per probe\n";
+        const auto& bd = config.batch_delay_config;
+        std::cout << "Batch-delay        : ";
+        if (!bd.enabled) std::cout << "off\n";
+        else if (bd.dynamic_mode) std::cout << "adaptive " << fmt_us(bd.min_us) << "-" << fmt_us(bd.max_us) << "\n";
+        else if (bd.random_mode || bd.range_mode) std::cout << "range " << fmt_us(bd.min_us) << "-" << fmt_us(bd.max_us) << "\n";
+        else std::cout << "fixed " << fmt_us(bd.delay_us) << "\n";
+        const auto& bw = config.bandwidth_config;
+        std::cout << "Bandwidth          : ";
+        if (!bw.enabled) std::cout << "off\n";
+        else std::cout << bw.total_bytes_min << "-" << bw.total_bytes_max << " bytes per " << fmt_us(bw.window_us) << "\n";
+        std::cout << "Total wall time    : " << std::fixed << std::setprecision(2)
+                  << total_elapsed_ms / 1000.0 << "s\n";
     }
     if (!config.output_file.empty()) {
         save_scan_results(all_results, config.output_file, teeOut.str() + teeErr.str());

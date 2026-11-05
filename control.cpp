@@ -5550,6 +5550,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
 
     } else {
         auto dec = decide_method(args.port, pfi, false);
+        bool udp_fell_back_to_tcp = false;
         if (dec.method == ScanMethod::MQTT) {
             vlog::line(g_verbose, "probe file: port " + std::to_string(args.port) + " -> MQTT handshake", 1);
             response = capture_mqtt(ip, args.port, read_to, args.verbose,
@@ -5570,10 +5571,24 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
                 pl = &udp_payload;
             }
             response = capture_udp(ip, args.port, read_to, pl, args.verbose);
-            method_label = "udp";
-            if (response.empty())
-                vlog::fail(g_verbose, "udp: no response from " + ip + ":" + std::to_string(args.port), 1);
-            goto capture_done;
+            if (!response.empty()) {
+                method_label = "udp";
+                goto capture_done;            
+            }
+            vlog::fail(g_verbose, "udp: no response from " + ip + ":" + std::to_string(args.port), 1);
+            vlog::line(g_verbose, "udp silent -> trying TCP once on the same port", 1);
+            {
+                int tcp_fd = connect_with_timeout(ip, args.port,
+                                                  args.connect_timeout > 0 ? args.connect_timeout : 3);
+                if (tcp_fd < 0) {
+                    vlog::fail(g_verbose, "tcp fallback: connect failed, giving up", 1);
+                    goto capture_done;          
+                }
+                close(tcp_fd);
+            }
+            udp_fell_back_to_tcp = true;
+            proto_int = IPPROTO_TCP;           
+            method_label.clear();
         }
         bool is_ssl = false;
         if (dec.method == ScanMethod::SSL) {
@@ -6042,7 +6057,7 @@ int run_version_probe(AllProbes &probes, const std::string &target_ip,
             vlog::fail(g_verbose, "probe #" + std::to_string(attempt_idx) + " '" + pa.name + "' -> no response", 1);
         }
 
-        if (response.empty() && !terminate_flag) {
+        if (response.empty() && !terminate_flag && !udp_fell_back_to_tcp) {
             vlog::line(g_verbose, "all probes exhausted, trying fallback chain", 1);
             response = capture_fallback(ip, args.port, args.timeout, args.verbose,
                                         method_label, http_fps);

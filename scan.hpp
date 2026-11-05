@@ -34,6 +34,10 @@
 #include <sys/stat.h>
 #include <iomanip>
 #include <cmath>
+#include <cstdlib>
+#include <cctype>
+#include <cstdint>
+#include <string>
 #include <ctime>
 #include <csignal>
 #include <atomic>
@@ -295,6 +299,294 @@ private:
 
 inline BandwidthLimiterState& global_bandwidth_limiter() {
     static BandwidthLimiterState g;
+    return g;
+}
+
+// ---------------------------------------------------------------------------
+//  -T <time>  completion-time pacing  (slow-only, soft, global)
+// ---------------------------------------------------------------------------
+//  The pacer never speeds a scan up.  Every probe asks it for a send slot:
+//
+//        slot = max(default pacing time, ideal timeline slot)
+//        gap  = (F - slot) / probes_remaining          F = start + T - reserves
+//
+//  Because the gap is recomputed from the time and work that remain, a scan that
+//  falls behind (batch drains, host setup, timeouts) shrinks its gaps by itself,
+//  and a scan that is ahead stretches them.  If T is shorter than the default
+//  speed can achieve, gap collapses to 0 and the scan simply runs at default speed.
+//  -T never terminates or fails a scan.
+// ---------------------------------------------------------------------------
+inline constexpr uint64_t DEADLINE_MIN_US = 1'000'000ULL;                    // 1 s
+inline constexpr uint64_t DEADLINE_MAX_US = 7ULL * 24ULL * 3600ULL * 1'000'000ULL; // 7 days
+inline constexpr double DEADLINE_TAIL_PCT           = 2.0;    // initial tail guess, % of T (measured after batch 1)
+inline constexpr double DEADLINE_SAFETY_PCT         = 0.5;    // finish this % of T early
+inline constexpr double DEADLINE_HEADROOM_PCT       = 100.0;  // scaled knobs run this % above the exact required pace
+inline constexpr double DEADLINE_BATCHDELAY_CAP_PCT = 2.0;    // scaled batch delay never exceeds this % of T
+
+// Accepts "<number>S|M|H" (case-insensitive, integer or decimal): 10S 10M 10H 1.5H.
+// A unit is mandatory.  Out-of-range values are rejected (err is filled in).
+inline bool parse_deadline_duration(const std::string& text, uint64_t& out_us, std::string& err) {
+    if (text.empty()) { err = "missing value (expected e.g. 10S, 10M, 10H)"; return false; }
+    const char unit_c = static_cast<char>(std::toupper(static_cast<unsigned char>(text.back())));
+    double unit_us = 0.0;
+    switch (unit_c) {
+        case 'S': unit_us = 1'000'000.0;        break;
+        case 'M': unit_us = 60'000'000.0;       break;
+        case 'H': unit_us = 3'600'000'000.0;    break;
+        default:
+            err = "'" + text + "' needs a unit suffix S, M or H (e.g. 10S, 10M, 10H)";
+            return false;
+    }
+    const std::string num = text.substr(0, text.size() - 1);
+    if (num.empty()) { err = "'" + text + "' has no number before the unit"; return false; }
+    for (char ch : num) {
+        if (!(std::isdigit(static_cast<unsigned char>(ch)) || ch == '.')) {
+            err = "'" + text + "' is not a valid duration (expected e.g. 10S, 10M, 10H)";
+            return false;
+        }
+    }
+    char* end = nullptr;
+    errno = 0;
+    const double v = std::strtod(num.c_str(), &end);
+    if (errno != 0 || end == num.c_str() || *end != '\0' || !std::isfinite(v) || v <= 0.0) {
+        err = "'" + text + "' is not a valid duration (expected e.g. 10S, 10M, 10H)";
+        return false;
+    }
+    const double total = v * unit_us;
+    if (total < static_cast<double>(DEADLINE_MIN_US)) {
+        err = "'" + text + "' is below the minimum of 1S";
+        return false;
+    }
+    if (total > static_cast<double>(DEADLINE_MAX_US)) {
+        err = "'" + text + "' is above the maximum of 7 days (168H)";
+        return false;
+    }
+    out_us = static_cast<uint64_t>(total);
+    return true;
+}
+
+struct DeadlineConfig {
+    bool     enabled         = false;
+    uint64_t duration_us     = 0;   // the -T value
+    uint64_t tail_us         = 0;   // INITIAL guess of the time after the last probe (drain + wrap-up);
+                                    // replaced by a measured value after the first batch boundary
+    std::chrono::steady_clock::time_point start{};   // scan start the -T clock runs from (default: configure() time)
+    uint64_t total_probes    = 0;   // initial probes: targets * ports
+    uint64_t total_batches   = 0;   // port batches over all targets
+    uint64_t group_pause_us  = 0;   // fixed idle pause between target groups (main.cpp sleeps 5 s)
+    uint64_t group_pauses    = 0;   // number of such pauses
+    double   pace_pct        = 100.0; // required pace as % of the default rate ceiling (set by main.cpp)
+    double   target_pps      = 0.0;   // required pace in probes/s (absolute, set by main.cpp)
+    double   ref_pps         = 0.0;   // nominal rate-window ceiling in probes/s (reference only)
+    bool     retry_aware     = false; // opt-in (--deadline-retry): reserve retry tail, drop retries that cannot finish
+};
+
+struct DeadlineStats {
+    bool     enabled          = false;
+    uint64_t duration_us      = 0;
+    uint64_t tail_us          = 0;
+    uint64_t total_probes     = 0;
+    uint64_t scheduled        = 0;   // probes that asked for a slot
+    uint64_t credited         = 0;   // probes removed (hosts skipped / down)
+    uint64_t delayed          = 0;   // slots pushed later than default pacing
+    uint64_t unpaced          = 0;   // probes beyond the estimate (never delayed)
+    uint64_t boundaries       = 0;   // batch boundaries measured
+    double   avg_gap_us       = 0.0;
+    uint64_t min_gap_us       = 0;
+    uint64_t max_gap_us       = 0;
+    double   overhead_us      = 0.0; // measured stall per batch boundary (EWMA)
+    double   drain_us         = 0.0; // measured last-probe -> next-batch time (EWMA)
+    uint64_t elapsed_us       = 0;
+    double   pace_pct         = 100.0;
+    double   target_pps       = 0.0;
+    double   ref_pps          = 0.0;
+    uint64_t retry_tail_us    = 0;   // retry-chain time currently reserved (0 unless --deadline-retry)
+};
+
+class DeadlinePacer {
+public:
+    using Clock = std::chrono::steady_clock;
+
+    DeadlinePacer() = default;
+    DeadlinePacer(const DeadlinePacer&)            = delete;
+    DeadlinePacer& operator=(const DeadlinePacer&) = delete;
+    static uint64_t default_tail_us(uint64_t duration_us) {
+        return static_cast<uint64_t>(static_cast<double>(duration_us) * DEADLINE_TAIL_PCT / 100.0);
+    }
+    static uint64_t safety_us(uint64_t duration_us) {
+        return static_cast<uint64_t>(static_cast<double>(duration_us) * DEADLINE_SAFETY_PCT / 100.0);
+    }
+    void configure(const DeadlineConfig& c) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (configured_) return;
+        configured_ = true;
+        cfg_        = c;
+        const Clock::time_point now = Clock::now();
+        start_      = (c.start == Clock::time_point{} || c.start > now) ? now : c.start;
+        const uint64_t safety = safety_us(c.duration_us);
+        finish_     = start_ + std::chrono::microseconds(
+                          c.duration_us > safety ? c.duration_us - safety : 0);
+        finish_ns_.store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             finish_.time_since_epoch()).count(), std::memory_order_relaxed);
+        retry_aware_.store(c.retry_aware && c.enabled, std::memory_order_relaxed);
+        next_slot_  = now;         
+        last_slot_  = now;
+        pauses_left_ = c.group_pauses;
+        active_.store(c.enabled && c.duration_us > 0 && c.total_probes > 0,
+                      std::memory_order_release);
+    }
+
+    bool active() const { return active_.load(std::memory_order_acquire); }
+    void begin_batch() {
+        if (!active()) return;
+        std::lock_guard<std::mutex> lk(mu_);
+        new_batch_ = true;
+    }
+    void note_pause() {
+        if (!active()) return;
+        std::lock_guard<std::mutex> lk(mu_);
+        if (pauses_left_ > 0) --pauses_left_;
+        ignore_boundary_ = true;
+    }
+    void credit(uint64_t probes, uint64_t batches = 0) {
+        if (!active()) return;
+        std::lock_guard<std::mutex> lk(mu_);
+        credited_probes_  += probes;
+        credited_batches_ += batches;
+    }
+
+    uint64_t scheduled() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return scheduled_;
+    }
+    void set_rto_hint(uint64_t rto_us) { rto_hint_us_.store(rto_us, std::memory_order_relaxed); }
+    void set_retry_tail(uint64_t tail_us) { retry_tail_us_.store(tail_us, std::memory_order_relaxed); }
+    bool retry_fits(uint64_t stage_us) const {
+        if (!retry_aware_.load(std::memory_order_relaxed) || !active()) return true;
+        const int64_t now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                   Clock::now().time_since_epoch()).count();
+        return now_ns + static_cast<int64_t>(stage_us) * 1000 <= finish_ns_.load(std::memory_order_relaxed);
+    }
+    Clock::time_point reserve(Clock::time_point earliest, uint64_t* gap_us_out = nullptr) {
+        if (gap_us_out) *gap_us_out = 0;
+        if (!active()) return earliest;
+        std::lock_guard<std::mutex> lk(mu_);
+
+        if (new_batch_) {
+            new_batch_ = false;
+            if (ignore_boundary_) {
+                ignore_boundary_ = false;
+            } else if (scheduled_ > 0) {
+                const double o = earliest > next_slot_ ? us_between(next_slot_, earliest) : 0.0;
+                const double d = earliest > last_slot_ ? us_between(last_slot_, earliest) : 0.0;
+                overhead_ewma_us_ = (boundaries_seen_ == 0) ? o : 0.3 * o + 0.7 * overhead_ewma_us_;
+                drain_ewma_us_    = (boundaries_seen_ == 0) ? d : 0.5 * d + 0.5 * drain_ewma_us_;
+                ++boundaries_seen_;
+            }
+        }
+
+        const Clock::time_point t = std::max(earliest, next_slot_);
+        const uint64_t accounted  = scheduled_ + credited_probes_;
+        ++scheduled_;
+        last_slot_ = t;
+
+        if (accounted >= cfg_.total_probes) {          // estimate exhausted: stop pacing
+            ++unpaced_;
+            next_slot_ = std::max(next_slot_, earliest);
+            return earliest;
+        }
+        const uint64_t remaining = cfg_.total_probes - accounted;   // includes this probe
+
+        const uint64_t eff_batches = cfg_.total_batches > credited_batches_
+                                   ? cfg_.total_batches - credited_batches_ : 0;
+        const uint64_t boundaries_left = eff_batches > boundaries_seen_ + 1
+                                       ? eff_batches - boundaries_seen_ - 1 : 0;
+        const double reserve_us = static_cast<double>(pauses_left_) * static_cast<double>(cfg_.group_pause_us)
+                                + overhead_ewma_us_ * static_cast<double>(boundaries_left)
+                                + tail_estimate_locked();
+
+        const Clock::time_point f_eff =
+            finish_ - std::chrono::microseconds(static_cast<int64_t>(reserve_us));
+
+        uint64_t gap_us = 0;
+        if (f_eff > t)
+            gap_us = static_cast<uint64_t>(us_between(t, f_eff) / static_cast<double>(remaining));
+
+        next_slot_ = t + std::chrono::microseconds(gap_us);
+
+        if (t > earliest) ++delayed_;
+        gap_sum_us_ += static_cast<double>(gap_us);
+        ++gap_n_;
+        if (gap_n_ == 1 || gap_us < gap_min_us_) gap_min_us_ = gap_us;
+        if (gap_us > gap_max_us_)               gap_max_us_ = gap_us;
+        if (gap_us_out) *gap_us_out = gap_us;
+        return t;
+    }
+
+    DeadlineStats stats() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        DeadlineStats s;
+        s.enabled      = active_.load(std::memory_order_relaxed);
+        s.duration_us  = cfg_.duration_us;
+        s.tail_us      = static_cast<uint64_t>(tail_estimate_locked());
+        s.total_probes = cfg_.total_probes;
+        s.scheduled    = scheduled_;
+        s.credited     = credited_probes_;
+        s.delayed      = delayed_;
+        s.unpaced      = unpaced_;
+        s.boundaries   = boundaries_seen_;
+        s.avg_gap_us   = gap_n_ ? gap_sum_us_ / static_cast<double>(gap_n_) : 0.0;
+        s.min_gap_us   = gap_min_us_;
+        s.max_gap_us   = gap_max_us_;
+        s.overhead_us  = overhead_ewma_us_;
+        s.drain_us     = drain_ewma_us_;
+        s.pace_pct     = cfg_.pace_pct;
+        s.target_pps   = cfg_.target_pps;
+        s.ref_pps      = cfg_.ref_pps;
+        s.retry_tail_us = retry_aware_.load(std::memory_order_relaxed)
+                              ? retry_tail_us_.load(std::memory_order_relaxed) : 0;
+        s.elapsed_us   = configured_
+            ? static_cast<uint64_t>(us_between(start_, Clock::now())) : 0;
+        return s;
+    }
+
+private:
+    double tail_estimate_locked() const {
+        double t;
+        if (boundaries_seen_ > 0) {
+            t = 1.5 * drain_ewma_us_;
+        } else {
+            const uint64_t rto = rto_hint_us_.load(std::memory_order_relaxed);
+            t = rto > 0 ? 1.5 * static_cast<double>(rto) : static_cast<double>(cfg_.tail_us);
+        }
+        if (retry_aware_.load(std::memory_order_relaxed))
+            t = std::max(t, static_cast<double>(retry_tail_us_.load(std::memory_order_relaxed)));
+        return t;
+    }
+    static double us_between(Clock::time_point a, Clock::time_point b) {
+        return static_cast<double>(
+            std::chrono::duration_cast<std::chrono::microseconds>(b - a).count());
+    }
+
+    mutable std::mutex mu_;
+    std::atomic<bool>  active_{false};
+    bool               configured_ = false;
+    DeadlineConfig     cfg_{};
+    Clock::time_point  start_{}, finish_{}, next_slot_{}, last_slot_{};
+    std::atomic<int64_t>  finish_ns_{0};
+    std::atomic<bool>     retry_aware_{false};
+    std::atomic<uint64_t> rto_hint_us_{0}, retry_tail_us_{0};
+    uint64_t scheduled_ = 0, credited_probes_ = 0, credited_batches_ = 0;
+    uint64_t delayed_ = 0, unpaced_ = 0, boundaries_seen_ = 0, pauses_left_ = 0;
+    bool     new_batch_ = false, ignore_boundary_ = false;
+    double   overhead_ewma_us_ = 0.0;
+    double   drain_ewma_us_    = 0.0;
+    double   gap_sum_us_ = 0.0;
+    uint64_t gap_n_ = 0, gap_min_us_ = 0, gap_max_us_ = 0;
+};
+
+inline DeadlinePacer& global_deadline_pacer() {
+    static DeadlinePacer g;
     return g;
 }
 
@@ -1104,6 +1396,7 @@ struct PortState {
     uint8_t                 used_src_port_count = 0;
     bool                    retry_send_deferred = false;
     bool                    initial_send_deferred = false;
+    bool                    dl_slot_ready         = false;  
     bool                    counted_in_retry    = false;
 
     void record_src_port(uint16_t p, int attempt) {

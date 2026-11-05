@@ -2586,19 +2586,13 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                                         uint8_t fake_mac[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x01};
                                         memcpy(mac_buffers[j].get(), fake_mac, 6);
                                     } else if (ip_val == src_ip_int) {
-                                        // Our own interface IP — we already
-                                        // know our own MAC, fill it in
-                                        // directly instead of waiting.
                                         memcpy(mac_buffers[j].get(), src_mac, 6);
                                     }
                                 }
-                                // Drain any ARP replies that arrived for real IPs
-                                // in this batch, waking immediately on the first
-                                // reply rather than after a fixed 10 ms sleep.
                                 struct io_uring_cqe* arp_cqe = nullptr;
                                 struct __kernel_timespec arp_ts = {
                                     .tv_sec  = 0,
-                                    .tv_nsec = 10 * 1000 * 1000   // 10 ms max
+                                    .tv_nsec = 10 * 1000 * 1000   
                                 };
                                 if (io_uring_wait_cqe_timeout(&arp_ring, &arp_cqe, &arp_ts) == 0
                                     && arp_cqe) {
@@ -2621,6 +2615,9 @@ void thread_worker(const std::vector<std::string>& thread_ips,
                                 } else {
                                     counted_down_ips.insert(target_ip_int);
                                     down_hosts_count++;
+                                    global_deadline_pacer().credit(ports.size(),
+                                        (ports.size() + std::max<size_t>(1, main_batch_size) - 1) /
+                                         std::max<size_t>(1, main_batch_size));
                                 }
                             }
                         }
@@ -3524,6 +3521,16 @@ void print_full_help() {
 		
 		std::cerr << color::green << "Miscellaneous Options:\n" << color::reset;
 		
+		std::cerr << color::yellow << " -T <time>" << color::reset << "\n"
+			  << "     Slow the scan so it finishes in about <time> (never faster than default)\n"
+			  << "     Units        : S | M | H  (e.g. 10S, 10M, 10H). Allowed: 1S to 168H\n"
+	                  << "     Soft target for the port-scan phase; it never aborts a scan that overruns.\n"
+			  << "     Scope        : covers sending probes and waiting for replies. -sV runs inside the\n"
+			  << "                    clock but is not planned for; --traceroute, --enum steps and\n"
+			  << "                    Shodan run after the scan and are NOT counted in <time>.\n\n";
+		std::cerr << color::yellow << " --deadline-retry" << color::reset << "\n"
+			  << "     With -T: reserve time for retries and skip retry stages that cannot finish\n"
+			  << "     before the deadline (trades some filtered-port accuracy for meeting <time>)\n\n";
 		std::cerr << color::yellow << " --port-timeout" << color::reset << " <min>-<max> Set port giveup timeout(default: min:5ms-max:700ms). e.g. --port-timeout 10ms-500ms\n";
 		std::cerr << color::yellow << " --interface" << color::reset << " Set desired interface\n";
 		std::cerr << color::yellow << " --grep" << color::reset << " Print a plain, copy-friendly grepable target list at the end of the scan\n";
