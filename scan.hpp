@@ -700,7 +700,10 @@ struct TcpBuildOptions {
     uint8_t     window_scale            = 7;
     uint16_t    mss_value               = 1460;
     uint32_t    timestamp_val           = generate_tcp_tsval();
+<<<<<<< HEAD
     bool        use_custom_tsval        = false;   
+=======
+>>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     uint32_t    timestamp_ecr_custom    = 0;
     uint16_t    nops_count              = 0;
     bool        sack_permitted          = true;
@@ -1615,6 +1618,7 @@ bool send_arp_request(int sock, struct io_uring* ring, const char* ifname,
 std::string format_mac(const uint8_t* mac);
 bool is_same_subnet(uint32_t ip1, uint32_t ip2, uint32_t netmask);
 bool is_private_lan_ip(const uint8_t ip[4]);
+<<<<<<< HEAD
 bool get_local_ip6(const char* remote_ip6, uint8_t out_ip6[16]);
 uint32_t get_local_ip(const char *remote_ip);
 inline std::string g_bind_iface;
@@ -1627,6 +1631,21 @@ inline bool bind_socket_to_iface(int fd) {
 bool set_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4], const uint8_t mac[6]);
 void delete_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4]);
 
+=======
+uint32_t get_local_ip(const char *remote_ip);
+bool set_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4], const uint8_t mac[6]);
+void delete_static_arp_entry(const char* ifname, const uint8_t ip_bytes[4]);
+
+// ── TX-side loss accounting ───────────────────────────────────────────────
+// Every path in send_tcp_packets() that destroys a packet increments exactly
+// one of these.  Buckets are named for the CAUSE, not the symptom, so the
+// incident report points at the thing you actually need to fix.
+//
+// NOTE ON UNITS: in the fragmented path (--frag*) `kernel_reject`, `aborted`
+// and `drain_timeout` count FRAGMENTS, because that is the granularity of a
+// sendmsg there.  `buffer_pool`, `build_fail` and `no_socket` always count
+// whole packets.  Don't mix them without saying which you mean.
+>>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
 struct TxLossCounters {
     std::atomic<uint64_t> buffer_pool   {0}; // pool.acquire() returned null
     std::atomic<uint64_t> build_fail    {0}; // build_packet() rejected the task
