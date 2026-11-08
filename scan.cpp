@@ -141,10 +141,8 @@ thread_local char* PacketBufferPool::slab_end = nullptr;
 const size_t PacketBufferPool::buffer_size;
 
 
-PacketBufferPool::PacketBufferPool(size_t ports, size_t num_threads, size_t batch_size) : 
-    pool_size(get_buffer_count(ports, num_threads, batch_size)), 
-    max_buffers(get_max_buffer_count(ports, num_threads, batch_size)), 
-    num_ports(ports) {
+PacketBufferPool::PacketBufferPool(size_t ports, size_t num_threads, size_t batch_size) :
+    max_buffers(get_max_buffer_count(ports, num_threads, batch_size)) {
 }
 
 void PacketBufferPool::initialize_for_worker_thread() {
@@ -5573,15 +5571,7 @@ std::unique_ptr<GlobalSendCtx> init_global_send_ctx(
     {
         int actual = 0; socklen_t len = sizeof(actual);
         if (getsockopt(sock, SOL_SOCKET, SO_SNDBUF, &actual, &len) == 0
-                && actual < sndbuf)
-            std::cerr << "[GlobalSend] sndbuf clamped to " << actual
-                      << " — raise net.core.wmem_max for full performance\n";
-    }
-    
-    {
-        int actual = 0; socklen_t len = sizeof(actual);
-        if (getsockopt(sock, SOL_SOCKET, SO_SNDBUF, &actual, &len) == 0
-                && actual < sndbuf)
+                && actual / 2 < sndbuf)
             std::cerr << "[GlobalSend] sndbuf clamped to " << actual
                       << " — raise net.core.wmem_max for full performance\n";
     }
@@ -5600,12 +5590,6 @@ std::unique_ptr<GlobalSendCtx> init_global_send_ctx(
     }
     
     {
-        // No SQPOLL here: drain_tx_errqueue() already batches up to
-        // kErrqBatchDepth SQEs into one io_uring_submit() per drain pass,
-        // so the syscall cost is already amortized. SQPOLL would instead
-        // cost us 2 permanent kernel poller threads (v4 + v6) fighting
-        // worker threads for CPU, plus a real wakeup syscall anyway once
-        // sq_thread_idle lapses between batches — strictly worse here.
         struct io_uring_params errq_params{};
         errq_params.flags = IORING_SETUP_COOP_TASKRUN;
 
@@ -5724,14 +5708,13 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
     int rcvbuf = user_rcvbuf_size > 0 ? user_rcvbuf_size : 64 * 1024 * 1024;
     if (setsockopt(ctx->tcp_sock, SOL_SOCKET, SO_RCVBUFFORCE, &rcvbuf, sizeof(rcvbuf)) < 0)
         setsockopt(ctx->tcp_sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
-    // DEBUG: confirm the kernel didn't silently clamp SO_RCVBUF below what
-    // we requested (common cause of silent drops under burst traffic).
     {
         int actual_rcvbuf = 0;
         socklen_t len = sizeof(actual_rcvbuf);
-        if (getsockopt(ctx->tcp_sock, SOL_SOCKET, SO_RCVBUF, &actual_rcvbuf, &len) == 0) {
-            std::lock_guard<std::mutex> lock(cout_mutex);
-        }
+        if (getsockopt(ctx->tcp_sock, SOL_SOCKET, SO_RCVBUF, &actual_rcvbuf, &len) == 0
+                && actual_rcvbuf / 2 < rcvbuf)
+            std::cerr << "[GlobalRecv] rcvbuf clamped to " << actual_rcvbuf / 2
+                      << " — raise net.core.rmem_max for full performance\n";
     }
 
     int ts = 1;
