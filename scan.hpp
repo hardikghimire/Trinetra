@@ -1555,10 +1555,7 @@ public:
     static const size_t buffer_size = 4096;
 
 private:
-    size_t pool_size;
     size_t max_buffers;
-    size_t num_ports;
-
     size_t get_hardware_concurrency_or_default(size_t default_threads = 2);
     size_t get_buffer_count(size_t ports, size_t num_threads, size_t batch_size);
     size_t get_max_buffer_count(size_t ports, size_t num_threads, size_t batch_size);
