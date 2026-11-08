@@ -60,10 +60,7 @@ namespace color {
     const std::string bright_cyan = "\033[96m";
     
 }
-<<<<<<< HEAD
 bool get_local_ip6(const char* remote_ip6, uint8_t out_ip6[16]);
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
 
 static std::string shiv_get_os_pretty_name() {
     std::ifstream f("/etc/os-release");
@@ -226,10 +223,7 @@ int main(int argc, char *argv[]) {
        int user_rcvbuf_size = -1,port_timeout_min_ms = 5,port_timeout_max_ms = 700;
        uint8_t custom_ttl = 64, window_scale = 7,custom_dscp = 0,custom_ip_tos = 0;SportRangeConfig sport_range_cfg;GsportConfig gsport_cfg;
        uint32_t seq_num = 0, timestamp_val = generate_tcp_tsval(), timestamp_ecr_custom = 0;
-<<<<<<< HEAD
        bool use_custom_tsval = false;
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
        size_t send_uring_depth = 2048, rcv_uring_depth = 0, main_batch_size = 500;
        bool batch_specified = false;
        bool debug_rtt = false;
@@ -960,18 +954,14 @@ int main(int argc, char *argv[]) {
         
         {"--interface", [&](int& idx) {
             config.interface = get_next_arg(idx, "--interface");
-<<<<<<< HEAD
             if (if_nametoindex(config.interface.c_str()) == 0) {
                 std::cerr << "--interface: no such interface '" << config.interface << "'\n";
                 exit(1);
             }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
             struct ifreq ifr_check;
             memset(&ifr_check, 0, sizeof(ifr_check));
             strncpy(ifr_check.ifr_name, config.interface.c_str(), IFNAMSIZ - 1);
             int check_sock = socket(AF_INET, SOCK_DGRAM, 0);
-<<<<<<< HEAD
             bool up = false;
             if (check_sock >= 0) {
                 if (ioctl(check_sock, SIOCGIFFLAGS, &ifr_check) == 0 &&
@@ -984,19 +974,6 @@ int main(int argc, char *argv[]) {
                 exit(1);
             }
             g_bind_iface = config.interface;  
-=======
-            bool iface_ok = false;
-            if (check_sock >= 0) {
-                if (ioctl(check_sock, SIOCGIFFLAGS, &ifr_check) == 0 && (ifr_check.ifr_flags & IFF_UP)) {
-                    iface_ok = true;
-                }
-                close(check_sock);
-            }
-            if (!iface_ok) {
-                std::cerr << "ioctl SIOCGIFADDR: No such device (interface does not exist or down)\n";
-                exit(1);
-            }
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
         }},
         
         {"--split", [&](int& idx) {
@@ -1274,10 +1251,7 @@ int main(int argc, char *argv[]) {
         
         {"--t", [&](int& idx) {
             config.timestamp_val = parse_uint32(get_next_arg(idx, "--t"), "--t");
-<<<<<<< HEAD
             config.use_custom_tsval = true;
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
         }},
         
         {"--tsecr", [&](int& idx) {
@@ -1928,7 +1902,6 @@ int main(int argc, char *argv[]) {
     }
     RstBlockGuard rst_guard(config.graceful_scan);
 
-<<<<<<< HEAD
     if (!config.interface.empty() && !ips.empty()) {
         bool reachable = true;
         if (get_ip_version(ips[0].c_str()) == 6) {
@@ -1945,8 +1918,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     {
         std::string health_iface = config.interface.empty()
             ? (config.split_iface_set ? config.split_iface
@@ -2444,15 +2415,12 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     track_raw_socket(send_sock);
-<<<<<<< HEAD
     if (!bind_socket_to_iface(send_sock)) {
         std::cerr << "--interface " << g_bind_iface
                   << ": SO_BINDTODEVICE failed on send socket: " << strerror(errno) << "\n";
         close(send_sock);
         return 1;
     }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     int reuseport = 1;
     if (setsockopt(send_sock, SOL_SOCKET, SO_REUSEPORT, &reuseport, sizeof(reuseport)) < 0) {
         std::cerr << "Failed to set SO_REUSEPORT: " << strerror(errno) << std::endl;
@@ -2578,15 +2546,12 @@ int main(int argc, char *argv[]) {
                          "in this run will fail to send.\n";
             close(send_sock6);
             send_sock6 = -1;
-<<<<<<< HEAD
         } else if (!bind_socket_to_iface(send_sock6)) {
             std::cerr << "--interface " << g_bind_iface
                       << ": SO_BINDTODEVICE failed on IPv6 send socket: "
                       << strerror(errno) << " — IPv6 targets will fail to send.\n";
             close(send_sock6);
             send_sock6 = -1;
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
         } else if (setsockopt(send_sock6, IPPROTO_IPV6, IPV6_HDRINCL,
                                &one, sizeof(one)) < 0) {
             std::cerr << "Failed to set IPV6_HDRINCL on IPv6 socket: "
@@ -2984,10 +2949,7 @@ int main(int argc, char *argv[]) {
             opts.window_scale            = config.window_scale;
             opts.mss_value               = config.mss_value;
             opts.timestamp_val           = config.timestamp_val;
-<<<<<<< HEAD
             opts.use_custom_tsval        = config.use_custom_tsval;
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
             opts.timestamp_ecr_custom    = config.timestamp_ecr_custom;
             opts.nops_count              = config.nops_count;
             opts.sack_permitted          = config.sack_permitted;

@@ -646,10 +646,7 @@ uint32_t get_local_ip(const char *remote_ip) {
         int fd;
         ~SocketGuard() { if (fd >= 0) close(fd); }
     } guard{sock};
-<<<<<<< HEAD
     if (!bind_socket_to_iface(sock)) return 0;  
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     sockaddr_in remote = {.sin_family = AF_INET, .sin_port = htons(9)};
     remote.sin_addr = addr;
     if (connect(sock, (sockaddr*)&remote, sizeof(remote)) < 0) return 0;
@@ -969,12 +966,8 @@ bool build_packet(const PacketTask& task, char* packet_buffer, size_t buffer_siz
     const uint16_t&    manual_tcp_checksum     = opts.manual_tcp_checksum;
     const uint8_t&     window_scale            = opts.window_scale;
     const uint16_t&    mss_value               = opts.mss_value;
-<<<<<<< HEAD
     const uint32_t     timestamp_val           = opts.use_custom_tsval ? opts.timestamp_val
                                                                        : task.timestamp_val;
-=======
-    const uint32_t&    timestamp_val           = task.timestamp_val;
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     const uint32_t&    timestamp_ecr_custom    = opts.timestamp_ecr_custom;
     const uint16_t&    nops_count              = opts.nops_count;
     const bool&        sack_permitted          = opts.sack_permitted;
@@ -1252,11 +1245,7 @@ bool build_packet(const PacketTask& task, char* packet_buffer, size_t buffer_siz
     }
 
 
-<<<<<<< HEAD
     bool add_ts = opts.use_custom_tsval || (timestamp_val != 0);
-=======
-    bool add_ts = (timestamp_val != 0);
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     if (add_ts && opt_len + 10 <= MAX_TCP_OPTIONS_SIZE) {
         options[opt_len++] = 0x08;
         options[opt_len++] = 0x0A;
@@ -2516,26 +2505,7 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
             // Fix iov pointers invalidated by vector reallocation during build.
             for (auto& bf : all_batch_frags)
                 bf.msg.msg_iov = &bf.iov;
-<<<<<<< HEAD
             size_t reg_prev_idx = SIZE_MAX;
-=======
-
-            // Call on_pre_submit once per original packet (first fragment only).
-            if (on_pre_submit) {
-                size_t prev_idx = SIZE_MAX;
-                for (auto& bf : all_batch_frags) {
-                    if (bf.orig_pkt_idx != prev_idx) {
-                        on_pre_submit({tasks[bf.orig_pkt_idx].src_port},
-                                      {tasks[bf.orig_pkt_idx].dest_port},
-                                      tasks[bf.orig_pkt_idx].is_ipv6, false);
-                        prev_idx = bf.orig_pkt_idx;
-                    }
-                }
-            }
-
-            // Pipeline all fragments through the ring, respecting WINDOW.
-            // in_flight is already 0 here (main pipeline drained above).
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
             size_t frag_next = 0;
             const size_t frag_total = all_batch_frags.size();
 
@@ -2572,7 +2542,6 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                         }
                         break;
                     }
-<<<<<<< HEAD
                     if (on_pre_submit) {
                         if (bf.orig_pkt_idx != reg_prev_idx) {
                             on_pre_submit({tasks[bf.orig_pkt_idx].src_port},
@@ -2583,8 +2552,6 @@ int send_tcp_packets(int sock, const std::span<PacketTask> tasks, uint32_t src_i
                             on_pre_submit({}, {}, frag_is_v6, true);
                         }
                     }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
 
                     if (frag_is_v6) {
                         if (g_send_fixed_file_active.load(std::memory_order_acquire)) {
@@ -3093,14 +3060,11 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             auto on_pre_submit = [&](const std::vector<uint16_t>& src_ports,
                                      const std::vector<uint16_t>& dst_ports,
                                      bool is_ipv6, bool precise_eligible) {
-<<<<<<< HEAD
                 if (dst_ports.empty()) {
                     if (precise_eligible)
                         (is_ipv6 ? g_tx_ts_seq_v6 : g_tx_ts_seq_v4).fetch_add(1, std::memory_order_relaxed);
                     return;
                 }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
                 auto ts = std::chrono::steady_clock::now();
                 uint64_t ts_us = static_cast<uint64_t>(
                     std::chrono::duration_cast<std::chrono::microseconds>(
@@ -5117,13 +5081,10 @@ void display_sent_packet_details(const SentPacketDetails& d, bool debug_enabled)
               << "  WS=" << yn(d.has_window_scale) << "(" << (int)d.window_scale << ")"
               << "  SACK=" << yn(d.sack_permitted)
               << "  TS=" << yn(d.has_timestamp)
-<<<<<<< HEAD
               << (d.has_timestamp
                     ? std::string(" (TSval=") + std::to_string(d.tsval) +
                       " TSecr=" + std::to_string(d.tsecr) + ")"
                     : std::string())
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
               << "  TFO=" << yn(d.has_tfo)
               << "  MPTCP=" << yn(d.has_mptcp)
               << "  TCP-AO=" << yn(d.has_tcp_ao) << "\n";
@@ -5749,15 +5710,12 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
 
     // ── TCP recv socket ────────────────────────────────────────────────────
     ctx->tcp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-<<<<<<< HEAD
     if (ctx->tcp_sock >= 0 && !bind_socket_to_iface(ctx->tcp_sock)) {
         std::cerr << "[GlobalRecv] --interface " << g_bind_iface
                   << ": SO_BINDTODEVICE failed (TCP): " << strerror(errno) << "\n";
         close(ctx->tcp_sock);
         ctx->tcp_sock = -1;
     }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     if (ctx->tcp_sock < 0) {
         std::cerr << "[GlobalRecv] TCP socket failed: " << strerror(errno) << "\n";
         return nullptr;
@@ -5831,15 +5789,12 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
     }
     if (has_v6_targets) {
         ctx->tcp6_sock = socket(AF_INET6, SOCK_RAW, IPPROTO_TCP);
-<<<<<<< HEAD
         if (ctx->tcp6_sock >= 0 && !bind_socket_to_iface(ctx->tcp6_sock)) {
             std::cerr << "[GlobalRecv] --interface " << g_bind_iface
                       << ": SO_BINDTODEVICE failed (TCP6): " << strerror(errno) << "\n";
             close(ctx->tcp6_sock);
             ctx->tcp6_sock = -1;
         }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
         if (ctx->tcp6_sock < 0) {
             std::cerr << "[GlobalRecv] TCP6 socket failed: " << strerror(errno)
                       << " — IPv6 targets will not receive responses\n";
@@ -5884,13 +5839,10 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
         }
     }
     ctx->icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-<<<<<<< HEAD
     if (ctx->icmp_sock >= 0 && !bind_socket_to_iface(ctx->icmp_sock)) {
         close(ctx->icmp_sock);
         ctx->icmp_sock = -1;
     }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     if (ctx->icmp_sock >= 0) {
         int icmp_fl = fcntl(ctx->icmp_sock, F_GETFL, 0);
         if (icmp_fl >= 0) fcntl(ctx->icmp_sock, F_SETFL, icmp_fl | O_NONBLOCK);
@@ -5955,13 +5907,10 @@ std::unique_ptr<GlobalRecvCtx> init_global_recv_ctx(
     }
     if (has_v6_targets) {
         ctx->icmpv6_sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
-<<<<<<< HEAD
         if (ctx->icmpv6_sock >= 0 && !bind_socket_to_iface(ctx->icmpv6_sock)) {
             close(ctx->icmpv6_sock);
             ctx->icmpv6_sock = -1;
         }
-=======
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
         if (ctx->icmpv6_sock >= 0) {
             int icmp6_fl = fcntl(ctx->icmpv6_sock, F_GETFL, 0);
             if (icmp6_fl >= 0) fcntl(ctx->icmpv6_sock, F_SETFL, icmp6_fl | O_NONBLOCK);

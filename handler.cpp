@@ -163,11 +163,7 @@ bool get_local_ip6(const char* remote_ip6, uint8_t out_ip6[16]) {
         int fd;
         ~SocketGuard() { if (fd >= 0) close(fd); }
     } guard{sock};
-<<<<<<< HEAD
     if (!bind_socket_to_iface(sock)) return false;
-=======
-
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
     sockaddr_in6 remote{};
     remote.sin6_family = AF_INET6;
     remote.sin6_port   = htons(9);
@@ -2670,12 +2666,8 @@ void thread_worker(const std::vector<std::string>& thread_ips,
     for (size_t i = 0; i < thread_ips.size() && !terminate_flag; ++i) {
         const auto& ip_str = thread_ips[i];
         VersionDetectOptions sv_opts_effective = sv_opts;
-<<<<<<< HEAD
         if (sv_opts_effective.host_override.empty() &&
             i < thread_hostnames.size() && !thread_hostnames[i].empty()) {
-=======
-        if (i < thread_hostnames.size() && !thread_hostnames[i].empty()) {
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
             sv_opts_effective.host_override = thread_hostnames[i];
         }
         uint16_t source_port = (base_source_port > 0) ? base_source_port : 0;
@@ -3438,11 +3430,7 @@ void print_full_help() {
 		std::cerr << color::green << "TCP Options Control:\n" << color::reset;
 		std::cerr << color::yellow << " --ws" << color::reset << " <value> Set Window Scale (0-500, default: 7)\n";
 		std::cerr << color::yellow << " --mss" << color::reset << " <value> Set MSS value (0-66666, default: 1460)\n";
-<<<<<<< HEAD
 		std::cerr << color::yellow << " --t" << color::reset << " <value> Set fixed TCP timestamp TSval (0-4294967295, default: realistic but masked per-probe clock value)\n";
-=======
-		std::cerr << color::yellow << " --t" << color::reset << " <value> Set TCP timestamp (0-100000000, default: 1234567)\n";
->>>>>>> 24f11b58a9e100c1debe4b95726cd2f659690d89
 		std::cerr << color::yellow << " --tsecr" << color::reset << " <value> Set TCP TSecr value (hex: 0x123 or decimal, default: 0)\n";
 		std::cerr << color::yellow << " --nops" << color::reset << " <count> Add NOPs to TCP options (default: 1)\n";
 		std::cerr << color::yellow << " --sack" << color::reset << " <on|off> Enable/disable SACK option (default: on)\n";
