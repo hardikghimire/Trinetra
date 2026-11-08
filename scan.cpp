@@ -3170,7 +3170,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
 		    if (ratio <= 0.0) {
 			rs.rate_window_target = UINT32_MAX;
 		    } else {
-			double curved = std::pow(ratio, g_cong_tune.curve_exp);
+			double curved = cong_curve(ratio);
 			uint32_t span = rate_config.max_packets - rate_config.min_packets;
 			uint32_t cut  = std::min<uint32_t>(span, static_cast<uint32_t>(curved * span));
 			rs.rate_window_target = rate_config.max_packets - cut;
@@ -3208,7 +3208,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
             dl_pacer.set_rto_hint(rto0_us);
         const int cap = retry_budget.dynamic_max_retries.load(std::memory_order_relaxed);
         const double ratio  = std::clamp(retry_budget.congestion_ratio.load(std::memory_order_relaxed), 0.0, 1.0);
-        const double curved = std::pow(ratio, g_cong_tune.curve_exp);
+        const double curved = cong_curve(ratio);
         uint64_t tail = rto0_us;                                
         for (int r = 1; r <= cap; ++r) {                         
             const uint64_t to_us = clamp_ms(global_rtt_tracker.get_timeout_for_retry(r)) * 1000ULL;
@@ -3224,6 +3224,9 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
         if (!dl_on) return true;
         const int to = std::max(MIN_TIMEOUT_MS, std::min(global_rtt_tracker.get_timeout_for_retry(next_retry), MAX_TIMEOUT_MS));
         return dl_pacer.retry_fits(static_cast<uint64_t>(to) * 1000ULL + g_cong_tune.retry_delay_min_us);
+    };
+    auto live_retry_cap = [&]() -> int {
+        return retry_budget.dynamic_max_retries.load(std::memory_order_relaxed);
     };
 
     for (int port : ports) {
@@ -4115,7 +4118,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 }
                 if (port_final[bidx].load(std::memory_order_acquire)) continue;
 
-                if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)) continue;
+                if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, live_retry_cap())) continue;
                 if (state.reported_state != PortState::PortReportedState::None) continue;
 
                 if (debug_demux) {
@@ -4296,7 +4299,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                 if (port_final[b6idx].load(std::memory_order_acquire)) continue;
 
                 if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state6.retry_count,
-                                                             state6.retries_cap)) continue;
+                                                             live_retry_cap())) continue;
                 if (state6.reported_state != PortState::PortReportedState::None) continue;
 
                 if (debug_demux) {
@@ -4512,7 +4515,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     next_to = std::max(MIN_TIMEOUT_MS, std::min(next_to, MAX_TIMEOUT_MS));
                     deadline_heap.push({now + std::chrono::milliseconds(next_to), port});
 
-                } else if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, state.retries_cap)
+                } else if (!skip_retries && !global_rtt_tracker.should_mark_filtered(state.retry_count, live_retry_cap())
                            && dl_retry_stage_fits(state.retry_count + 1)) {
 
                     {
@@ -4560,10 +4563,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
                     state.start_time    = now;
                     state.syn_sent_time = now;
                     state.sent_tsval    = generate_tcp_tsval() + state.tsval_offset;
-
-                    if (state.retry_count == 1) {
-                        state.retries_cap = retry_budget.dynamic_max_retries.load(std::memory_order_relaxed);
-                    }
+                    state.retries_cap = live_retry_cap();
                     if (state.retry_count < 6 && sport_range_cfg.stage_is_range[state.retry_count]) {
                         state.src_port = pick_unique_ephemeral_port(rng,
                             sport_range_cfg.stage_min[state.retry_count],
@@ -4598,7 +4598,7 @@ RecPross receive_response(const char *dest_ip, std::span<const int> ports, uint3
 		    uint64_t min_delay_us = std::max(MIN_DELAY_US, rtt_floor_us);
 		    min_delay_us = std::min(min_delay_us, MAX_DELAY_US);   // floor can never exceed the ceiling
 
-		    double   ratio_curved = std::pow(filtered_ratio, g_cong_tune.curve_exp);
+		    double   ratio_curved = cong_curve(filtered_ratio);
 		    uint64_t delay_us = min_delay_us +
 		        static_cast<uint64_t>(ratio_curved * (MAX_DELAY_US - min_delay_us));
                         const uint64_t max_delay_us = MAX_DELAY_US;
@@ -7069,7 +7069,7 @@ void worker_thread(const char *ip, uint32_t local_ip, const char* source_ip, con
                 double ratio = retry_budget.congestion_ratio.load(std::memory_order_relaxed);
                 if (!(ratio > 0.0)) ratio = 0.0;
                 if (ratio > 1.0)    ratio = 1.0;
-                double curved = std::pow(ratio, g_cong_tune.curve_exp);
+                double curved = cong_curve(ratio);
                 uint64_t lo   = batch_delay_config.min_us;
                 uint64_t hi   = std::max(batch_delay_config.max_us, lo);   // guard against underflow
                 sleep_us = lo + static_cast<uint64_t>(curved * static_cast<double>(hi - lo));

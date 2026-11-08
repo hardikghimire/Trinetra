@@ -660,13 +660,23 @@ int main(int argc, char *argv[]) {
         }},
         {"--cong-alpha-up", [&](int& idx) {
             double v;
-            if (!parse_dbl_in(get_next_arg(idx, "--cong-alpha-up"), "--cong-alpha-up", 0.0, 1.0, true, v)) exit(1);
+            if (!parse_dbl_in(get_next_arg(idx, "--cong-alpha-up"), "--cong-alpha-up", 0.01, 1.0, false, v)) exit(1);
             g_cong_tune.alpha_up = v;
         }},
         {"--cong-alpha-down", [&](int& idx) {
             double v;
-            if (!parse_dbl_in(get_next_arg(idx, "--cong-alpha-down"), "--cong-alpha-down", 0.0, 1.0, true, v)) exit(1);
+            if (!parse_dbl_in(get_next_arg(idx, "--cong-alpha-down"), "--cong-alpha-down", 0.01, 1.0, false, v)) exit(1);
             g_cong_tune.alpha_down = v;
+        }},
+        {"--retries-min", [&](int& idx) {
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--retries-min"), "--retries-min", 1, 5, v)) exit(1);
+            g_cong_tune.min_retries = static_cast<int>(v);
+        }},
+        {"--retries-max", [&](int& idx) {
+            long v;
+            if (!parse_long_in(get_next_arg(idx, "--retries-max"), "--retries-max", 1, 5, v)) exit(1);
+            g_cong_tune.max_retries = static_cast<int>(v);
         }},
         {"--rto-mult", [&](int& idx) {
             long v;
@@ -2312,6 +2322,11 @@ int main(int argc, char *argv[]) {
     if (g_cong_tune.retry_delay_min_us > g_cong_tune.retry_delay_max_us) {
         std::cerr << "--retry-delay-min (" << g_cong_tune.retry_delay_min_us / 1000.0
                   << "ms) must be <= --retry-delay-max (" << g_cong_tune.retry_delay_max_us / 1000.0 << "ms)\n";
+        return 1;
+    }
+    if (g_cong_tune.min_retries > g_cong_tune.max_retries) {
+        std::cerr << "--retries-min (" << g_cong_tune.min_retries
+                  << ") must be <= --retries-max (" << g_cong_tune.max_retries << ")\n";
         return 1;
     }
     if (config.rate_dyn_min > config.rate_dyn_max) {

@@ -3609,7 +3609,9 @@ void print_full_help() {
 		std::cerr << color::yellow << "  --retry-delay-floor-div" << color::reset << " <n>   Divisor applied to learned RTT timeout for the delay floor (default: 4)\n";
 		std::cerr << color::yellow << "  --cong-curve" << color::reset << " <float>          Exponent shaping how fast retry delay, dynamic rate limit, batch delay and retry cap ramp up with congestion (default: 2.0, higher = stays gentle longer, then ramps harder near full congestion)\n";
 		std::cerr << color::yellow << "  --cong-alpha-up" << color::reset << " <0-1>         EMA smoothing weight when congestion is rising (default: 0.5, higher = reacts faster)\n";
-		std::cerr << color::yellow << "  --cong-alpha-down" << color::reset << " <0-1>       EMA smoothing weight when congestion is falling (default: 0.1, lower = recovers slower/more cautiously)\n\n";
+		std::cerr << color::yellow << "  --cong-alpha-down" << color::reset << " <0-1>       EMA smoothing weight when congestion is falling (default: 0.1, lower = recovers slower/more cautiously)\n";
+		std::cerr << color::yellow << "  --retries-min" << color::reset << " <1-5>            Minimum retries per port, used when there is no congestion (default: 2)\n";
+		std::cerr << color::yellow << "  --retries-max" << color::reset << " <1-5>            Maximum retries per port, reached at full congestion; must be >= --retries-min (default: 5)\n\n";
 
 		std::cerr << color::yellow << "  --rto-mult" << color::reset << " <n>                RTT-variance multiplier in the RTO formula base_rtt + n*rttvar (default: 4, Jacobson/Karels)\n";
 		std::cerr << color::yellow << "  --rto-pad1" << color::reset << " <ms>               Extra timeout padding added on 1st retry (default: 40ms)\n";

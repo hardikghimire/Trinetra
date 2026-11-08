@@ -85,13 +85,18 @@ struct CongestionTuneConfig {
     double   buf_peak_factor    = 1.3;       // --buf-peak
     unsigned batch_settle_us    = 500;       // --batch-settle
     size_t   sqpoll_threshold   = 300000;    // --sqpoll-threshold
-    int      min_retries        = 2;         // — floor, no CLI yet
-    int      max_retries        = 5;         // — ceiling, no CLI yet
+    int      min_retries        = 2;         // --retries-min (1..5)
+    int      max_retries        = 5;         // --retries-max (1..5; 5 = size of the per-port source-port tables)
     int      dispatch_jitter_floor_ms = 60;  // — RTO floor so internal batch/coalesce
                                               // scheduling delay isn't mistaken for a dropped packet
 };
 
 extern CongestionTuneConfig g_cong_tune;
+inline double cong_curve(double ratio) {
+    if (!(ratio > 0.0)) return 0.0;
+    if (ratio >= 1.0)   return 1.0;
+    return std::pow(ratio, g_cong_tune.curve_exp);
+}
 
 struct RetryBudgetState {
     std::atomic<double> congestion_ratio{0.0};
@@ -110,7 +115,7 @@ struct RetryBudgetState {
         congestion_ratio.store(next, std::memory_order_relaxed);
         int span = g_cong_tune.max_retries - g_cong_tune.min_retries;
         int dyn  = g_cong_tune.min_retries +
-                   static_cast<int>(std::lround(std::pow(next, g_cong_tune.curve_exp) * span));
+                   static_cast<int>(std::lround(cong_curve(next) * span));
         dyn = std::clamp(dyn, g_cong_tune.min_retries, g_cong_tune.max_retries);
         dynamic_max_retries.store(dyn, std::memory_order_relaxed);
         return next;
