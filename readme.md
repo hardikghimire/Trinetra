@@ -4,11 +4,21 @@
 
 **A low-level, high-performance TCP scanner and service fingerprinter built on Linux `io_uring`.**
 
-## License
+## License and provenance
 
-Trinetra contains independently developed code and code/data derived from
-Nmap. Nmap-derived components are distributed under the Nmap Public Source
-License Version 0.95 (NPSL), available in [LICENSE](LICENSE).
+Parts of Trinetra's service/version-detection implementation and probe database
+format are derived from Nmap and are distributed under the
+**Nmap Public Source License Version 0.95 (NPSL)**. The complete license,
+including GPL-2.0 Exhibit A, is in [`LICENSE`](LICENSE).
+
+The Nmap-derived implementation has been modified and extended with additional
+functionality, including Trinetra-specific threading, matching, probe scheduling,
+reactor handling, and HTTP/TLS fingerprints and many more. Those modifications are covered by
+the applicable NPSL/GPL terms as part of the derivative work.
+
+Trinetra’s independently authored code may be governed by its own notices. A
+copyright or license notice in another file does not replace the NPSL where that
+file contains or derives from Nmap code or data.
 
 See the NPSL and GPL-2.0 terms in that file for the applicable obligations.
 [![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)]()
@@ -508,10 +518,26 @@ Before the next tagged release, consider:
 Issues and pull requests are welcome. Please open an issue before
 starting work on significant changes.
 
-## License
+## License and provenance
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for
-details.
+Parts of Trinetra's service/version-detection implementation and probe database
+format are derived from Nmap and are distributed under the
+**Nmap Public Source License Version 0.95 (NPSL)**. The complete license,
+including GPL-2.0 Exhibit A, is in [`LICENSE`](LICENSE).
+
+The Nmap-derived implementation has been modified and extended with additional
+functionality, including Trinetra-specific threading, matching, probe scheduling,
+reactor handling, and HTTP/TLS fingerprints and many more. Those modifications are covered by
+the applicable NPSL/GPL terms as part of the derivative work.
+
+Trinetra’s independently authored code may be governed by its own notices. A
+copyright or license notice in another file does not replace the NPSL where that
+file contains or derives from Nmap code or data.
+
+See the NPSL and GPL-2.0 terms in that file for the applicable obligations.
+[![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)]()
+[![Kernel](https://img.shields.io/badge/Kernel-6.12%2B-critical.svg)]()
+[![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
 
 ## Acknowledgments
 
