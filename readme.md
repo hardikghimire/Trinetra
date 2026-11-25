@@ -469,9 +469,6 @@ The CLI reference and `setup.sh` currently refer to the binary as
 two are unified, use whichever name your build actually produces:
 `shiv` in most builds today.
 
-> **Maintainers:** see [Action Items](#action-items-for-maintainers)
-> for the rename plan.
-
 ---
 
 ## Troubleshooting
