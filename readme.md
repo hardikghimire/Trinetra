@@ -486,33 +486,6 @@ two are unified, use whichever name your build actually produces:
 
 ---
 
-## Action Items for Maintainers
-
-Before the next tagged release, consider:
-
-1. **Unify the binary name.** The repo says *Trinetra*; the binary and
-   install paths say *shiv*. Either rename the binary to `trinetra`
-   (recommended: matches the repo) or keep `shiv` and add a
-   short note at the top of the README explaining the codename.
-2. **Rename `/usr/share/shiv/` to `/usr/share/trinetra/`** in
-   `setup.sh`, `Makefile`, and any path constants in the source.
-3. **Fix the error string** `"Shiv's minimum requirement kernel
-   version is 6.12"` to `"Trinetra requires Linux kernel 6.12 or
-   newer"`.
-4. **Add `docs/CLI.md`.** Your CLI reference is excellent and too long
-   for the README. Split it out and link from the README's Usage
-   section. This is the single biggest readability win.
-5. **Reorder `main()` in `setup.sh`.** Move `check_sudo` before
-   `check_io_uring_support`: the kernel check doesn't need root.
-6. **Remove dead `if [ $? -eq 0 ]` blocks** after `make` /
-   `make install`: with `set -euo pipefail`, the failure branch never
-   runs.
-7. **Add a demo GIF** (`asciinema` + `agg` is fastest) below the
-   badges.
-8. **Fill in the LICENSE file** with the MIT text and your name/year.
-
----
-
 ## Contributing
 
 Issues and pull requests are welcome. Please open an issue before
