@@ -4,28 +4,29 @@
 
 **A low-level, high-performance TCP scanner and service fingerprinter built on Linux `io_uring`.**
 
-## License and provenance
-
-Parts of Trinetra's service/version-detection implementation and probe database
-format are derived from Nmap and are distributed under the
-**Nmap Public Source License Version 0.95 (NPSL)**. The complete license,
-including GPL-2.0 Exhibit A, is in [`LICENSE`](LICENSE).
-
-The Nmap-derived implementation has been modified and extended with additional
-functionality, including Trinetra-specific threading, matching, probe scheduling,
-reactor handling, and HTTP/TLS fingerprints and many more. Those modifications are covered by
-the applicable NPSL/GPL terms as part of the derivative work.
-
-Trinetra’s independently authored code may be governed by its own notices. A
-copyright or license notice in another file does not replace the NPSL where that
-file contains or derives from Nmap code or data.
-
-See the NPSL and GPL-2.0 terms in that file for the applicable obligations.
 [![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)]()
 [![Kernel](https://img.shields.io/badge/Kernel-6.12%2B-critical.svg)]()
 [![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
+[![License](https://img.shields.io/badge/License-NPSL%200.95-orange.svg)](LICENSE)
 
 </div>
+
+---
+
+## Table of contents
+
+- [Overview](#overview)
+- [License and provenance](#license-and-provenance)
+- [Version detection: inherited, modified, added](#version-detection-inherited-modified-added)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Architecture (for contributors)](#architecture-for-contributors)
+- [A note on naming](#a-note-on-naming)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -50,6 +51,157 @@ behavior, and kernel I/O subsystems.
 > **Do not use Trinetra against systems you do not own or have explicit
 > written permission to test.** You are responsible for complying with all
 > applicable laws.
+
+---
+
+## License and provenance
+
+Trinetra is an original project. The only Nmap-derived part is the
+**probe-file matching component of service/version detection** (the
+`nmap-service-probes` database format and its match semantics). That component
+is distributed under the **Nmap Public Source License Version 0.95 (NPSL)**.
+The complete license, including GPL-2.0 Exhibit A, is in [`LICENSE`](LICENSE).
+
+That component has been substantially modified and extended, and the
+modifications are covered by the applicable NPSL/GPL terms as part of the
+derivative work. The rest of Trinetra, including the scanner core, the I/O
+engine, the web/TLS fingerprinting stage, and all other modules, is
+independently authored and may be governed by its own notices.
+
+A copyright or license notice in another file does not replace the NPSL where
+that file contains or derives from Nmap code or data.
+
+See the NPSL and GPL-2.0 terms in that file for the applicable obligations.
+Version detection is itemized in
+[Version detection: inherited, modified, added](#version-detection-inherited-modified-added).
+
+---
+
+## Version detection: inherited, modified, added
+
+Trinetra's `-sV` is a two-stage pipeline. Stage 1 uses an Nmap-compatible probe
+database; Stage 2 is Trinetra's own web/TLS fingerprinting. Everything outside
+version detection (raw scanner, `io_uring` engine, namespace isolation, discovery,
+enumeration, server mode, DNS) is original and is not covered here.
+
+### 1. Inherited from Nmap (the only borrowed part)
+
+Probe-file matching, kept compatible so existing probe data keeps working:
+
+| Inherited | Detail |
+|---|---|
+| `nmap-service-probes` file format | `Probe`, `ports`, `sslports`, `rarity`, `fallback`, `totalwaitms`, `tcpwrappedms`, `Exclude`, `match`, `softmatch` |
+| Match semantics | Hard vs soft matches, NULL probe first, fallback chains, rarity vs `--version-intensity` |
+| Template substitution grammar | `$1`..`$9`, `$P()`, `$SUBST()`, `$I()`, and `p/ v/ i/ h/ o/ d/ cpe:/` fields |
+
+### 2. Modified: the probe-matching layer, re-engineered
+
+`probe.cpp` re-implements the inherited layer for multithreaded scanning:
+
+| Area | What Trinetra does |
+|---|---|
+| **Thread-safe lazy regex compile** | Patterns compile on first use behind atomics and a mutex (double-checked), so thousands of unused signatures cost nothing at startup. |
+| **Hit-count-driven JIT** | A pattern is PCRE2-JIT-compiled only after it matches more than twice, with automatic fallback to the interpreter on JIT stack exhaustion. |
+| **ReDoS containment** | Per-thread match contexts enforce match and depth limits, so a catastrophic-backtracking signature is logged and skipped instead of stalling a worker. |
+| **Bad signature isolation** | An invalid regex disables only that template, with a line-numbered error, rather than aborting the scan. |
+| **Literal-prefix prefilter** | For anchored patterns (`^...`), a safe literal prefix is extracted (alternation, quantifiers and escapes handled) and compared before PCRE2 runs. |
+| **Arena allocator** | A 64 MiB bump allocator keeps compiled regexes contiguous; out-of-arena frees fall through safely. |
+| **Port index** | A hash index from `(protocol, tunnel, port)` to the probes that list it, replacing repeated linear scans. |
+| **`mmap` probe loading** | The probe file is memory-mapped and parsed in place; an unterminated last line is handled safely. |
+| **Hardened parser** | Exceptions with line numbers instead of `exit()`; bounds-checked escapes and delimiters; validated `rarity`, `totalwaitms`, `tcpwrappedms`; unknown and **circular fallback** detection at load time. |
+| **`Exclude` grammar** | `T:` / `U:` / `S:` prefixed ports and ranges, where the protocol prefix persists across items. |
+| **RAII** | Smart pointers and scoped guards replace manual lifetime management in the parse and match paths. |
+| **Decoupled matching** | `ProbeEngine::matchResponse()` takes bytes plus a context and performs no I/O, so one engine serves TCP, TLS and UDP. The probe that produced a response is tried first. |
+
+### 3. Added: new in Trinetra
+
+#### A. Asynchronous I/O reactor
+
+`async_io.cpp` / `async_io.hpp` is Trinetra's own network layer for version detection:
+
+| Area | What Trinetra does |
+|---|---|
+| **Sharded `epoll` reactor** | N worker threads, each owning one `epoll` instance and one `eventfd` wake-up. Every operation belongs to exactly one worker, so no operation is touched from two threads. `submit()` and `cancel()` only enqueue and wake. |
+| **Exactly-once completion** | An atomic flag makes `finish()` idempotent. A timeout, an event and a cancel can race and exactly one wins; the fd is closed once and every op gets exactly one `on_complete`, even on shutdown. |
+| **Adaptive connect budget** | Connect timeout comes from the **median of the last 32 RTT samples x 4**, clamped between a configurable floor (`min_connect_ms`) and the caller's ceiling. |
+| **Per-stage deadlines** | Separate deadlines for connect, TLS handshake, send, first byte and idle, kept in an ordered map with a stale-fd guard. |
+| **Cooperative cancellation** | `run_blocking()` honors the global terminate flag and gives the reactor a bounded window to cancel. |
+| **Fixed source-port mode** | Optional bind to a fixed source port with `SO_REUSEADDR`/`SO_REUSEPORT` and bounded retry on `EADDRINUSE`. |
+| **Bounded responses** | Configurable per-operation response cap. |
+| **Shared reactor** | One process-wide reactor with a configurable thread count that reports late reconfiguration instead of silently ignoring it. |
+
+#### B. Web fingerprinting (Stage 2, entirely Trinetra's own)
+
+Implemented in `control.cpp`, after probe matching:
+
+- **Platform signature layer** driven by `signatures.conf` (`[platform.*]`
+  blocks and `[terms]`), covering firewalls/IDS, WAFs, proxies and gateways,
+  routers and embedded devices, admin UIs, frameworks, servers/PBX, IoT /
+  cameras / printers / ICS, and CMS / e-commerce / forums.
+- **HTTP response analysis**: status line and code, HTML `<title>` extraction
+  with entity decoding, asset-path and web-manifest discovery (`href`/`src`,
+  `rel="manifest"`), SPA redirect discovery, and header-derived fingerprints
+  (server, framework, proxy/CDN, cache, reporting endpoints).
+- **Robust body handling**: header parsing with duplicate-header tracking,
+  chunked decoding, and compressed-body decoding (including zstd) under hard
+  size caps.
+- **Redirect following with SSRF guards**: loopback, link-local, private and
+  LAN targets are refused as redirect destinations.
+- **Smart `Host` header**: reverse DNS for public targets, direct IP for LAN
+  targets, `--host` override, optional custom DNS resolvers.
+- **Probe fix-ups**: missing `Host:` / `User-Agent:` injected into HTTP probes;
+  an HTTP/1.0 probe that draws a 5xx is retried as 1.1.
+- **400-over-plaintext "SSL twin" fingerprinting** when a plain-HTTP request
+  to a TLS port is answered with an HTTP error.
+- **Special-case handlers**: MQTT handshake, UDP-first auto-detect with TCP
+  fallback, and HP-PJL vs HTTP disambiguation on port 9100.
+
+#### C. TLS handling and diagnostics
+
+- **Handshake tracing**: an OpenSSL message callback records every handshake
+  message type sent and received, alerts in both directions, the negotiated
+  cipher from the ServerHello, bytes in/out, and the OpenSSL error queue.
+- **Failure forensics**: on failure the tracer also captures the peer
+  certificate (subject, issuer, self-signed, key type and size, signature
+  algorithm). Peer-controlled text has control characters stripped and length
+  capped, to prevent **terminal escape injection** into the operator's console.
+- **Human-readable diagnosis**: alert names, hints, and a one-line reason for
+  why a handshake died.
+- **Strict then permissive**: a strict-profile attempt is followed by a
+  permissive profile when needed, so older or odd devices are still fingerprinted.
+- **Certificate intelligence**: SANs, issuer, validity, serial, SHA-1 and
+  SHA-256 fingerprints and verification result, with optional peer
+  verification, CA file/path and mTLS.
+- **Correct SNI**: SNI never carries an IP literal (RFC 6066); IP targets are
+  verified against the certificate's IP SANs instead.
+- **TLS context cache** keyed by options, shared safely across workers.
+- **Mid-stream TLS discovery**: if a plaintext probe receives a TLS record, the
+  scan switches to TLS and retries that probe instead of accepting alert bytes
+  as a banner.
+
+#### D. Binary protocol decoder
+
+When regex matching fails or gives a thin result, `binproto` identifies binary
+protocols structurally and fills product, version and extra info.
+
+#### E. Scan-time optimizations
+
+| Optimization | Effect |
+|---|---|
+| **Reachability pre-check** (connect, then one HTTP GET) classifies a port as reachable, closed or filtered before any probe is sent | Filtered ports no longer burn a connect timeout on every probe |
+| **Consecutive-timeout abort** (two in a row) | Stops probing a port that went dark mid-scan |
+| **TLS dead-port short-circuit** | If the handshake fails in every profile, the TLS probe queue is skipped, since probe payload cannot change a failed handshake |
+| **Probe-derived read timeouts** | Wait time comes from the probes' own `totalwaitms` |
+| **NULL-probe sanity rule** | A NULL probe that draws a non-200 HTTP reply marks a web port and is skipped past |
+| **Per-thread scan context** | Target, Host, SNI, path and TLS state are thread-local, so concurrent targets never mix state |
+
+#### F. Operator experience
+
+- Structured, color-aware **verbose logging** with phases and sanitized output.
+- **Version notes** that explain *why* a result is missing or partial (server
+  side blocking, TLS fault, repeated timeouts).
+- Tunable reactor knobs: threads, response cap, cipher lists (TLS 1.2 and 1.3),
+  minimum connect budget.
 
 ---
 
@@ -90,8 +242,11 @@ behavior, and kernel I/O subsystems.
 
 - **Service/version detection (`-sV`)**
   - Dual-stage pipeline
-  - Stage 1: Nmap-style probe DB for probe selection and matching
-  - Stage 2: Dynamic response-body signature layer (titles, asset paths, platform/CDN fingerprints)
+  - Stage 1: Nmap-compatible probe-file matching, on Trinetra's own reactor and
+    re-engineered matching engine
+  - Stage 2: Trinetra's dynamic response-body signature layer (titles, asset
+    paths, platform/CDN fingerprints)
+  - Details: [Version detection: inherited, modified, added](#version-detection-inherited-modified-added)
 
 - **UDP service probing**
   - Enabled via `-sV --udp`
@@ -99,6 +254,7 @@ behavior, and kernel I/O subsystems.
 - **TLS / HTTP fingerprinting**
   - Certificate extraction: SANs, issuer, validity
   - HTTP title and asset fingerprinting
+  - Handshake tracing and failure diagnosis
   - Optional mTLS
 
 - **OS fingerprinting (`--os-detect`)**
@@ -139,6 +295,9 @@ behavior, and kernel I/O subsystems.
 - **EWMA RTT estimation**
   - Retry logic
   - Flags: `--set-rtt`, `--rto-mult`, `--rto-pad1/2`
+
+- **Version-detection reactor**
+  - Sharded `epoll` workers, adaptive connect budget, per-stage deadlines
 
 </details>
 
@@ -204,6 +363,10 @@ behavior, and kernel I/O subsystems.
   - Buffer-pool exhaustion
   - SQ backpressure
   - `sendmsg()` rejection
+
+- **Hostile-input hardening**
+  - Regex backtracking limits, bounded response sizes, sanitized peer text,
+    SSRF-guarded redirects
 
 - **Target export**
   - `--grep` for a plain, copy-friendly target list
@@ -296,7 +459,7 @@ sudo ./setup.sh
 The script will:
 
 1. Detect your distribution (Debian/Ubuntu or Arch).
-2. Verify your kernel is **≥ 6.12**.
+2. Verify your kernel is **>= 6.12**.
 3. Install system build dependencies.
 4. Build and install `liburing` from source.
 5. Install `concurrentqueue` headers.
@@ -459,6 +622,36 @@ sudo shiv --server --server-port 9443 --server-token <token>
 - Thread-local pools to reduce contention
 - Concurrent queue for buffer reuse
 
+### Version-detection pipeline
+
+```
+ ports (open)
+     |
+     v
+ reachability pre-check ---- closed / filtered --> note + skip
+     |
+     v
+ probe planning (NULL -> port-listed -> rarity-limited)
+     |
+     v
+ sharded epoll reactor (TCP / TLS, adaptive deadlines)
+     |
+     v
+ Stage 1: probe-file match (lazy regex, JIT, prefix filter, binproto)
+     |
+     v
+ Stage 2: HTTP / TLS body signatures (titles, assets, platform, CDN)
+     |
+     v
+ result + notes explaining any gaps
+```
+
+| File | Role |
+|---|---|
+| `async_io.cpp/.hpp` | Sharded `epoll` reactor: TCP/TLS operations, deadlines, cancellation, TLS tracing |
+| `probe.cpp/.hpp` | Probe database parser, regex/template matching, `ProbeEngine` |
+| `control.cpp` | Version-scan orchestration, reachability, TLS/HTTP capture, Stage 2 signatures |
+
 ---
 
 ## A note on naming
@@ -480,6 +673,7 @@ two are unified, use whichever name your build actually produces:
 | **"This script requires sudo privileges"** | Run with `sudo ./setup.sh`. For manual runs, either be root or grant the binary `CAP_NET_RAW` / `CAP_NET_ADMIN` / `CAP_SYS_ADMIN`. |
 | **"UDP scan doesn't seem to work standalone"** | UDP probing is only available through service detection: `-sV --udp`. There is no standalone `-sU` mode yet. |
 | **`--handshake` / `--isolate` / `--version` are unknown flags** | Those aren't real flags. Use `-G` for state-machine handshake, `--split` for namespace isolation, and `-sV` for version detection. |
+| **A TLS port shows no version info** | Run with verbose output: the handshake trace names the alert, cipher and certificate seen, which usually explains the failure. |
 
 ---
 
@@ -491,6 +685,6 @@ starting work on significant changes.
 ## Acknowledgments
 
 - The `io_uring` and `liburing` teams
-- The Nmap project (probe-signature database format)
+- The Nmap project (probe-file format and match semantics used in Stage 1)
 - [`moodycamel::ConcurrentQueue`](https://github.com/cameron314/concurrentqueue)
 - SecurityTrails and Shodan InternetDB APIs
