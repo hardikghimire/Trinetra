@@ -2,7 +2,7 @@
 
 # Trinetra
 
-**A low-level, high-performance TCP scanner and service fingerprinter built on Linux `io_uring`.**
+**A low-level, high-performance TCP and UDP scanner and service fingerprinter built on Linux `io_uring`.**
 
 [![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)]()
 [![Kernel](https://img.shields.io/badge/Kernel-6.12%2B-critical.svg)]()
@@ -32,8 +32,8 @@
 
 ## Overview
 
-Trinetra is a from-scratch, raw-packet TCP scanner that leverages Linux
-`io_uring` for batched asynchronous I/O. It is designed as a
+Trinetra is a from-scratch, raw-packet scanner for TCP and UDP that leverages
+Linux `io_uring` for batched asynchronous I/O. It is designed as a
 **learning-first** tool: the implementation comes first, and the theory
 follows by observing real packet behavior. Trinetra provides deep,
 low-level control over every header and option it sends, making it a
@@ -64,9 +64,9 @@ The complete license, including GPL-2.0 Exhibit A, is in [`LICENSE`](LICENSE).
 
 That component has been substantially modified and extended, and the
 modifications are covered by the applicable NPSL/GPL terms as part of the
-derivative work. The rest of Trinetra, including the scanner core, the I/O
-engine, the web/TLS fingerprinting stage, and all other modules, is
-independently authored and may be governed by its own notices.
+derivative work. The rest of Trinetra, including the scanner core (TCP and
+UDP), the I/O engine, the web/TLS fingerprinting stage, and all other modules,
+is independently authored and may be governed by its own notices.
 
 A copyright or license notice in another file does not replace the NPSL where
 that file contains or derives from Nmap code or data.
@@ -81,8 +81,9 @@ Version detection is itemized in
 
 Trinetra's `-sV` is a two-stage pipeline. Stage 1 uses an Nmap-compatible probe
 database; Stage 2 is Trinetra's own web/TLS fingerprinting. Everything outside
-version detection (raw scanner, `io_uring` engine, namespace isolation, discovery,
-enumeration, server mode, DNS) is original and is not covered here.
+version detection (raw TCP and UDP scanning, `io_uring` engine, namespace
+isolation, discovery, enumeration, server mode, DNS) is original and is not
+covered here.
 
 ### 1. Inherited from Nmap (the only borrowed part)
 
@@ -217,6 +218,17 @@ protocols structurally and fills product, version and extra info.
   - Per-flag scans: CWR, ECE, URG, PSH
   - Custom named combinations: HANUMAN, KAKABHUSUNDI, GANESH, RAM, GARUD, JATAYU
 
+- **UDP scanning (`-sU`)**
+  - Built on raw UDP sockets rather than kernel UDP sockets
+  - Works with the same options as TCP scans (for example `-Pn`)
+  - Default port list: loads 1001 common UDP ports from `udp_1001_ports.txt`,
+    the same way TCP loads its default list
+  - Combine with `-sV` for UDP service detection
+
+- **Ports file (`-p`)**
+  - `-p` accepts a file with one port per line (for example `-p ports.txt`),
+    for both TCP and UDP scans
+
 - **State-machine handshake scan (`-G`)**
   - Completes a real 4-way TCP handshake with graceful teardown
   - Runs inside an isolated network namespace
@@ -249,7 +261,7 @@ protocols structurally and fills product, version and extra info.
   - Details: [Version detection: inherited, modified, added](#version-detection-inherited-modified-added)
 
 - **UDP service probing**
-  - Enabled via `-sV --udp`
+  - Enabled via `-sU -sV`, or `-sV --udp`
 
 - **TLS / HTTP fingerprinting**
   - Certificate extraction: SANs, issuer, validity
@@ -501,6 +513,22 @@ sudo shiv 10.0.0.5 -p 80,443 -G
 sudo shiv --split 192.168.1.254 -p 443,22
 ```
 
+### UDP scans
+
+```bash
+# UDP scan of selected ports, skipping host discovery
+sudo shiv 10.0.0.1 -sU -Pn -p 53,123,161
+
+# UDP scan using the default list of 1001 common UDP ports
+sudo shiv 10.0.0.1 -sU -Pn
+
+# Read ports from a file, one port per line
+sudo shiv 10.0.0.1 -sU -Pn -p ports.txt
+
+# UDP scan followed by service/version detection
+sudo shiv 10.0.0.1 -sU -sV -p 53,123,161
+```
+
 ### Service / version detection
 
 ```bash
@@ -592,6 +620,8 @@ sudo shiv --server --server-port 9443 --server-token <token>
 - ARP: `io_uring_prep_sendto()` for batched ARP requests
 - Raw sockets: `socket(AF_INET, SOCK_RAW, IPPROTO_RAW)` for custom
   IP/TCP header crafting
+- UDP: raw UDP sockets (not kernel UDP sockets), implemented mainly in a
+  dedicated UDP scan module
 
 ### Receiving Packets
 - Primary: `io_uring_prep_recvmsg()` for async reception
@@ -671,7 +701,6 @@ two are unified, use whichever name your build actually produces:
 | **"Shiv's minimum requirement kernel version is 6.12"** | Your kernel is too old. Upgrade to 6.12+ and reboot. On Debian/Ubuntu, consider HWE or mainline kernels; on Arch, `linux` or `linux-lts` (current LTS is fine). |
 | **"Missing source files: ..."** | `setup.sh` expects `mac-vendors.txt`, `ports.txt`, `signatures.conf`, `shiv_split.conf`, and the `ranges/*.txt` files in the repo root. Clone the full repository and run the script from the project root. |
 | **"This script requires sudo privileges"** | Run with `sudo ./setup.sh`. For manual runs, either be root or grant the binary `CAP_NET_RAW` / `CAP_NET_ADMIN` / `CAP_SYS_ADMIN`. |
-| **"UDP scan doesn't seem to work standalone"** | UDP probing is only available through service detection: `-sV --udp`. There is no standalone `-sU` mode yet. |
 | **`--handshake` / `--isolate` / `--version` are unknown flags** | Those aren't real flags. Use `-G` for state-machine handshake, `--split` for namespace isolation, and `-sV` for version detection. |
 | **A TLS port shows no version info** | Run with verbose output: the handshake trace names the alert, cipher and certificate seen, which usually explains the failure. |
 
