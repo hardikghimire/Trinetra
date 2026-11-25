@@ -4,7 +4,13 @@
 
 **A low-level, high-performance TCP scanner and service fingerprinter built on Linux `io_uring`.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## License
+
+Trinetra contains independently developed code and code/data derived from
+Nmap. Nmap-derived components are distributed under the Nmap Public Source
+License Version 0.95 (NPSL), available in [LICENSE](LICENSE).
+
+See the NPSL and GPL-2.0 terms in that file for the applicable obligations.
 [![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey.svg)]()
 [![Kernel](https://img.shields.io/badge/Kernel-6.12%2B-critical.svg)]()
 [![C++](https://img.shields.io/badge/C%2B%2B-20-blue.svg)]()
